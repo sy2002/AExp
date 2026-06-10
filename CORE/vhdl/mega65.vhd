@@ -280,18 +280,14 @@ signal main_fdd_led           : std_logic;
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
 
--- write enables and read data of the QNICE side of the memories
-signal qnice_chip_we_u        : std_logic;
-signal qnice_chip_we_l        : std_logic;
-signal qnice_slow_we_u        : std_logic;
-signal qnice_slow_we_l        : std_logic;
+-- write enables and read data of the QNICE side of the Kickstart ROM.
+-- NOTE: Chip and Slow RAM deliberately have NO QNICE port: their 256 BRAM
+-- tiles are spread over the whole die and the QNICE address bus could not
+-- meet the falling-edge half-period (10 ns) to the farthest tiles (first R3
+-- run: WNS -0.757 ns on exactly these paths). The kick ROM port (64 tiles)
+-- is required for the mandatory ROM auto-load and meets timing.
 signal qnice_kick_we_u        : std_logic;
 signal qnice_kick_we_l        : std_logic;
-
-signal qnice_chip_q_u         : std_logic_vector(7 downto 0);
-signal qnice_chip_q_l         : std_logic_vector(7 downto 0);
-signal qnice_slow_q_u         : std_logic_vector(7 downto 0);
-signal qnice_slow_q_l         : std_logic_vector(7 downto 0);
 signal qnice_kick_q_u         : std_logic_vector(7 downto 0);
 signal qnice_kick_q_l         : std_logic_vector(7 downto 0);
 
@@ -550,8 +546,8 @@ begin
    -- Device map (QNICE dev_addr is a BYTE address into the Amiga memories;
    -- even byte = data bits 15:8 (lane U), odd byte = bits 7:0 (lane L)):
    --   0x0100  C_DEV_AMIGA_KICK  256 KB  Kickstart ROM (mandatory auto-load target)
-   --   0x0101  C_DEV_AMIGA_CHIP  512 KB  Chip RAM (debug access)
-   --   0x0102  C_DEV_AMIGA_SLOW  512 KB  Slow RAM (debug access)
+   -- Chip and Slow RAM have no QNICE access for timing reasons (see the
+   -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
 
    core_specific_devices : process(all)
@@ -562,10 +558,6 @@ begin
 
       qnice_kick_we_u  <= '0';
       qnice_kick_we_l  <= '0';
-      qnice_chip_we_u  <= '0';
-      qnice_chip_we_l  <= '0';
-      qnice_slow_we_u  <= '0';
-      qnice_slow_we_l  <= '0';
 
       case qnice_dev_id_i is
 
@@ -576,24 +568,6 @@ begin
                qnice_dev_data_o <= x"00" & qnice_kick_q_u;
             else
                qnice_dev_data_o <= x"00" & qnice_kick_q_l;
-            end if;
-
-         when C_DEV_AMIGA_CHIP =>
-            qnice_chip_we_u <= qnice_dev_ce_i and qnice_dev_we_i and not qnice_dev_addr_i(0);
-            qnice_chip_we_l <= qnice_dev_ce_i and qnice_dev_we_i and     qnice_dev_addr_i(0);
-            if qnice_dev_addr_i(0) = '0' then
-               qnice_dev_data_o <= x"00" & qnice_chip_q_u;
-            else
-               qnice_dev_data_o <= x"00" & qnice_chip_q_l;
-            end if;
-
-         when C_DEV_AMIGA_SLOW =>
-            qnice_slow_we_u <= qnice_dev_ce_i and qnice_dev_we_i and not qnice_dev_addr_i(0);
-            qnice_slow_we_l <= qnice_dev_ce_i and qnice_dev_we_i and     qnice_dev_addr_i(0);
-            if qnice_dev_addr_i(0) = '0' then
-               qnice_dev_data_o <= x"00" & qnice_slow_q_u;
-            else
-               qnice_dev_data_o <= x"00" & qnice_slow_q_l;
             end if;
 
          when others => null;
@@ -610,11 +584,13 @@ begin
    -- Port B: QNICE, falling edge of the 50 MHz QNICE clock (M2M convention).
    ---------------------------------------------------------------------------------------------
 
+   -- Chip and Slow RAM: single-ported from the QNICE perspective (port B
+   -- completely tied off, so no QNICE-domain routing reaches these 256 BRAM
+   -- tiles - see the timing note at the qnice signal declarations).
    chip_ram_u : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
+         DATA_WIDTH => 8
       )
       port map (
          clock_a   => main_clk,
@@ -623,18 +599,17 @@ begin
          wren_a    => main_chip_sel and not main_ram_we_n and not main_ram_bhe_n,
          q_a       => main_chip_q_u,
 
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(18 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_chip_we_u,
-         q_b       => qnice_chip_q_u
+         clock_b   => '0',
+         address_b => (others => '0'),
+         data_b    => (others => '0'),
+         wren_b    => '0',
+         q_b       => open
       ); -- chip_ram_u
 
    chip_ram_l : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
+         DATA_WIDTH => 8
       )
       port map (
          clock_a   => main_clk,
@@ -643,18 +618,17 @@ begin
          wren_a    => main_chip_sel and not main_ram_we_n and not main_ram_ble_n,
          q_a       => main_chip_q_l,
 
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(18 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_chip_we_l,
-         q_b       => qnice_chip_q_l
+         clock_b   => '0',
+         address_b => (others => '0'),
+         data_b    => (others => '0'),
+         wren_b    => '0',
+         q_b       => open
       ); -- chip_ram_l
 
    slow_ram_u : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
+         DATA_WIDTH => 8
       )
       port map (
          clock_a   => main_clk,
@@ -663,18 +637,17 @@ begin
          wren_a    => main_slow_sel and not main_ram_we_n and not main_ram_bhe_n,
          q_a       => main_slow_q_u,
 
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(18 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_slow_we_u,
-         q_b       => qnice_slow_q_u
+         clock_b   => '0',
+         address_b => (others => '0'),
+         data_b    => (others => '0'),
+         wren_b    => '0',
+         q_b       => open
       ); -- slow_ram_u
 
    slow_ram_l : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_B  => true
+         DATA_WIDTH => 8
       )
       port map (
          clock_a   => main_clk,
@@ -683,11 +656,11 @@ begin
          wren_a    => main_slow_sel and not main_ram_we_n and not main_ram_ble_n,
          q_a       => main_slow_q_l,
 
-         clock_b   => qnice_clk_i,
-         address_b => qnice_dev_addr_i(18 downto 1),
-         data_b    => qnice_dev_data_i(7 downto 0),
-         wren_b    => qnice_slow_we_l,
-         q_b       => qnice_slow_q_l
+         clock_b   => '0',
+         address_b => (others => '0'),
+         data_b    => (others => '0'),
+         wren_b    => '0',
+         q_b       => open
       ); -- slow_ram_l
 
    -- Kickstart: read-only from the Amiga side (wren_a fixed '0'); written only

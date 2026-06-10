@@ -91,8 +91,10 @@ constant C_HMAP_DEMO          : std_logic_vector(15 downto 0) := x"0200";     --
 -- into this device at startup, while the core is still held in reset.
 constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 
--- Chip RAM (512 KB) and Slow RAM (512 KB): exposed to QNICE for debugging
--- purposes (e.g. inspecting memory via the QNICE debug console).
+-- Chip RAM (512 KB) and Slow RAM (512 KB): RESERVED, not wired. The QNICE
+-- debug access had to be removed for timing closure: the QNICE address bus
+-- could not reach all 256 spread-out BRAM tiles within the falling-edge
+-- half-period (see mega65.vhd). Kept here so the IDs are not reused.
 constant C_DEV_AMIGA_CHIP     : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 

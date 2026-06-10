@@ -19,6 +19,29 @@
 create_generated_clock -name main_clk      [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
 # Add more clocks here, if needed
 
+## ascal asynchronous FIFO data crossings (framework paths, constrained here
+## because M2M/common.xdc must not be modified - candidate for upstreaming).
+##
+## ascal's input and output double buffers (ascal.vhd:344/449, LUTRAM with
+## ramstyle "no_rw_check") are ping-pong CDC FIFOs: i_dpram is written on
+## i_clk (= main_clk) and read on avl_clk (= hr_clk); o_dpram is written on
+## avl_clk and read on o_clk (= hdmi_clk). The handshake registers are already
+## cut by the false_path patterns in M2M/common.xdc:113-117, but those match
+## only register /C pins - the LUTRAM cells launch from a /CLK pin and were
+## therefore timed at the worst-case edge alignment of unrelated MMCM outputs
+## (44 ps / 34 ps requirements, impossible by construction). Worse, the router
+## inserted large hold-fix detours on these paths, which polluted the genuine
+## intra-hr_clk setup paths (first R3 run: WNS -6.7 ns).
+##
+## set_max_delay -datapath_only bounds the data staleness to one destination
+## clock period and removes the hold analysis (and with it the detours).
+set_max_delay -datapath_only 10.000 \
+   -from [get_cells -hierarchical -regexp {.*/i_ascal/i_dpram_reg.*}] \
+   -to   [get_cells -hierarchical -regexp {.*/i_ascal/avl_dr_reg\[[0-9]+\]}]
+set_max_delay -datapath_only 13.400 \
+   -from [get_cells -hierarchical -regexp {.*/i_ascal/o_dpram_reg.*}] \
+   -to   [get_cells -hierarchical -regexp {.*/i_ascal/o_dr_reg\[[0-9]+\]}]
+
 ## Notes for timing review after the first synthesis (do not enable blindly):
 ## - rtl/minimig_m68k_bridge.v uses a logic signal (_as_and_cs) as an async
 ##   preset (infers FDPE) - check the timing report for it.
