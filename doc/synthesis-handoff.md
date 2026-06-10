@@ -79,12 +79,15 @@ Whether it succeeds or fails, please bring:
 
 ## 6. Expected behavior on success
 
-1. M2M welcome screen (mentions `/amiga/kick.rom`) — press Space.
-2. Shell loads the Kickstart (mandatory auto-load) while the core is in reset.
-3. Amiga boots: dark gray → light gray screen, then after ~2–4 s the
+1. No welcome screen (switched off like in C64MEGA65): the Shell loads the
+   Kickstart (mandatory auto-load) while the core is held in reset, then
+   starts the core directly. If `/amiga/kick.rom` is missing, a fatal error
+   screen names the file instead.
+2. Amiga boots: dark gray → light gray screen, then after ~2–4 s the
    Kickstart 1.3 **"insert disk" hand**, in color, stable 50 Hz PAL on both
    VGA (scandoubled 31.25 kHz) and HDMI (720p50).
-4. Help key opens the OSM (HDMI modes / CRT emulation / Audio improvements).
+3. Help key opens the OSM (HDMI modes / CRT emulation / Audio improvements /
+   About & Help, which documents the SD card setup).
 
 If the screen stays black: bring the logs above plus, if possible, the QNICE
 debug console output (115200 8N1 serial; Run/Stop+Cursor-Up, then Help).

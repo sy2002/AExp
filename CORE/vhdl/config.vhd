@@ -174,7 +174,11 @@ constant RESET_COUNTER     : natural := 100;
 constant OPTM_PAUSE        : boolean := false;
 
 -- show the welcome screen in general
-constant WELCOME_ACTIVE    : boolean := true;
+-- Switched off like in the C64MEGA65 reference: boots straight into the core.
+-- The mandatory-ROM fatal screen names /amiga/kick.rom if it is missing, and
+-- the About & Help pages document the SD card setup, so nothing is lost.
+-- (SCR_WELCOME stays defined: WHS array position 0 must always exist.)
+constant WELCOME_ACTIVE    : boolean := false;
 
 -- shall the welcome screen also be shown after the core is reset?
 -- (only relevant if WELCOME_ACTIVE is true)
