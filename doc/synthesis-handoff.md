@@ -116,3 +116,19 @@ git log), relevant for all future milestones:
 - Later-milestone cleanups (benign today): 4x Synth 8-7137 set/reset same
   priority (cpu_wrapper.v:387/:405, paula_floppy.v:208/:214 - sim-mismatch
   risk only), minimig.v:709 memory_config width truncation to bankmapper.
+
+## Run 2 (2026-06-11): TIMING CLOSED
+
+WNS +0.387 ns, TNS 0, all 99468 endpoints met (setup/hold/pulse-width),
+fully routed. The ascal CDC max_delay constraints bind at implementation
+(auto-deferred from synthesis, INFO Project 1-236 - expected). Both former
+phantom groups now +11.2/+8.0 ns; intra-hr_clk recovered to +0.87 once the
+hold-fix detours disappeared; the two hairline stragglers resolved on their
+own. BRAM unchanged at 363.5/365.
+
+Note for future changes: overall WNS margin is +0.387 ns - re-check the
+timing summary after every build.
+
+Run-2 OOM lesson (run 2a crashed): close the implemented design in the
+Vivado GUI before relaunching synthesis - a loaded routed 200T design holds
+several GB and starves the child synth process in the VM.
