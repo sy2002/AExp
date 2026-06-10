@@ -34,9 +34,6 @@ use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
 
-library xpm;
-use xpm.vcomponents.all;
-
 entity MEGA65_Core is
 generic (
    G_BOARD : string                                         -- Which platform are we running on.
