@@ -1,11 +1,40 @@
 -------------------------------------------------------------------------------------------------------------
--- MiSTer2MEGA65 Framework  
+-- Amiga 500 for MEGA65 (AExp)
 --
 -- Clock Generator using the Xilinx specific MMCME2_ADV:
 --
---   @TODO YOURCORE expects 54 MHz
+--   Single core clock domain: clk_main = 28.375000 MHz (PAL Amiga master clock)
 --
--- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
+-- Frequency math (PAL):
+--    The original PAL Amiga master crystal runs at 28.37516 MHz, i.e.
+--    6.4 x 4.43361875 MHz (PAL colorburst) = 4 x 7.09379 MHz (CCK x 4).
+--    We generate from the 100 MHz board clock:
+--       f_VCO  = 100 MHz x CLKFBOUT_MULT_F / DIVCLK_DIVIDE = 100 x 56.750 / 5 = 1135.000 MHz
+--       f_OUT  = f_VCO / CLKOUT0_DIVIDE_F                  = 1135.000 / 40    =   28.375000 MHz
+--    Error vs. ideal 28.3751600 MHz: -160 Hz = -5.6 ppm. A real Amiga crystal is
+--    specified at +/-50 ppm (typ.), so we are well within the tolerance of original hardware.
+--
+-- MMCME2_ADV legality checks (Artix-7 XC7A200T-2, see Xilinx DS181 / UG472):
+--    * VCO = 1135.000 MHz is within the -2 speed grade MMCM VCO range of 600..1440 MHz
+--    * PFD = 100 MHz / DIVCLK_DIVIDE(5) = 20 MHz, within the allowed 10..500 MHz (-2)
+--    * CLKFBOUT_MULT_F = 56.750 is a multiple of 0.125 within 2.000..64.000 (legal fractional);
+--      fractional dividers are only permitted on CLKFBOUT and CLKOUT0 - here only CLKFBOUT
+--      is fractional, CLKOUT0_DIVIDE_F = 40.000 is integer-valued (1.000..128.000, legal)
+--
+-- Future extensions (documented here for later milestones, NOT implemented yet):
+--    * HDMI flicker-free: like C64MEGA65's clk.vhd, add a second MMCM producing a clock
+--      ~0.25% slower than 28.375 MHz (so that the PAL frame rate lands slightly *below*
+--      50 Hz) and switch between the two MMCM outputs glitch-free with a BUFGMUX_CTRL,
+--      controlled by feedback from the HDMI ascal'er in mega65.vhd (core_speed input).
+--    * NTSC: the NTSC Amiga master clock is 28.63636 MHz (= 315/11 MHz = 8 x 3.579545 MHz
+--      colorburst). This is achievable EXACTLY with a second MMCM (or DRP reconfiguration):
+--      DIVCLK_DIVIDE = 5, CLKFBOUT_MULT_F = 63.000 (VCO = 1260.000 MHz, in range),
+--      CLKOUT0_DIVIDE_F = 44.000 -> 100 x 63 / 5 / 44 = 28.636364 MHz, 0 ppm error.
+--
+-- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026: rewrote the M2M template clock
+-- (single MMCM, 54 MHz demo clock) to generate the 28.375 MHz Amiga PAL core clock.
+-- Entity ports kept identical to the template. Based on the MiSTer2MEGA65 framework
+-- done by sy2002 and MJoergen and licensed under GPL v3.
 -------------------------------------------------------------------------------------------------------------
 
 library ieee;
@@ -21,19 +50,15 @@ entity clk is
    port (
       sys_clk_i       : in  std_logic;   -- expects 100 MHz
 
-      main_clk_o      : out std_logic;   -- main's @TODO 54 MHz main clock
+      main_clk_o      : out std_logic;   -- Amiga PAL core clock: 28.375000 MHz (ideal: 28.3751600 MHz, -5.6 ppm)
       main_rst_o      : out std_logic    -- main's reset, synchronized
    );
 end entity clk;
 
 architecture rtl of clk is
 
-signal clkfb1             : std_logic;
-signal clkfb1_mmcm        : std_logic;
-signal clkfb2             : std_logic;
-signal clkfb2_mmcm        : std_logic;
-signal clkfb3             : std_logic;
-signal clkfb3_mmcm        : std_logic;
+signal main_fb            : std_logic;
+signal main_fb_mmcm       : std_logic;
 signal main_clk_mmcm      : std_logic;
 
 signal main_locked        : std_logic;
@@ -41,7 +66,8 @@ signal main_locked        : std_logic;
 begin
 
    -------------------------------------------------------------------------------------
-   -- Generate QNICE and HyperRAM clock
+   -- Generate the Amiga core clock: 28.375000 MHz
+   -- 100 MHz x 56.750 / 5 = 1135.000 MHz VCO; 1135.000 MHz / 40 = 28.375000 MHz
    -------------------------------------------------------------------------------------
 
    i_clk_main : MMCME2_ADV
@@ -52,21 +78,24 @@ begin
          STARTUP_WAIT         => FALSE,
          CLKIN1_PERIOD        => 10.0,       -- INPUT @ 100 MHz
          REF_JITTER1          => 0.010,
-         DIVCLK_DIVIDE        => 1,
-         CLKFBOUT_MULT_F      => 6.750,      -- 675 MHz
+         -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026: template made 54 MHz
+         -- (DIVCLK_DIVIDE=1, CLKFBOUT_MULT_F=6.750, CLKOUT0_DIVIDE_F=12.500);
+         -- changed to 28.375 MHz Amiga PAL master clock, see header for the math.
+         DIVCLK_DIVIDE        => 5,
+         CLKFBOUT_MULT_F      => 56.750,     -- VCO = 1135.000 MHz (legal: 600..1440 MHz @ -2)
          CLKFBOUT_PHASE       => 0.000,
          CLKFBOUT_USE_FINE_PS => FALSE,
-         CLKOUT0_DIVIDE_F     => 12.500,     -- 54 MHz
+         CLKOUT0_DIVIDE_F     => 40.000,     -- 28.375000 MHz (ideal 28.3751600 MHz, -5.6 ppm)
          CLKOUT0_PHASE        => 0.000,
          CLKOUT0_DUTY_CYCLE   => 0.500,
          CLKOUT0_USE_FINE_PS  => FALSE
       )
       port map (
          -- Output clocks
-         CLKFBOUT            => clkfb3_mmcm,
+         CLKFBOUT            => main_fb_mmcm,
          CLKOUT0             => main_clk_mmcm,
          -- Input clock control
-         CLKFBIN             => clkfb3,
+         CLKFBIN             => main_fb,
          CLKIN1              => sys_clk_i,
          CLKIN2              => '0',
          -- Tied to always select the primary input clock
@@ -96,10 +125,10 @@ begin
    -- Output buffering
    -------------------------------------------------------------------------------------
 
-   clkfb3_bufg : BUFG
+   main_fb_bufg : BUFG
       port map (
-         I => clkfb3_mmcm,
-         O => clkfb3
+         I => main_fb_mmcm,
+         O => main_fb
       );
 
    main_clk_bufg : BUFG
@@ -125,4 +154,3 @@ begin
       );
 
 end architecture rtl;
-

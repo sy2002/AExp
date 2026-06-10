@@ -1,42 +1,148 @@
 ---------------------------------------------------------------------------------------------------------
--- MiSTer2MEGA65 Framework  
+-- MiSTer2MEGA65 Framework
 --
--- Custom keyboard controller for your core
+-- Amiga 500 (AExp) keyboard controller:
+-- Translate MEGA65 keystrokes into raw Amiga keycode events for Minimig's CIA-A
 --
--- Runs in the clock domain of the core.
+-- Runs in the clock domain of the core (clk_main = 28.375 MHz).
 --
--- This is how MiSTer2MEGA65 provides access to the MEGA65 keyboard: 
+-- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026: Rewritten from the M2M template keyboard.vhd.
+-- On MiSTer, the HPS (Linux side) translates USB keyboards into raw Amiga keycodes and delivers
+-- them via hps_ext.v (command UIO_KEYBOARD = 'h05) as:
+--    kbd_mouse_data[7:0] : bits 6:0 = raw Amiga keycode, bit 7 = 0:key pressed ("make"),
+--                                                                1:key released ("break")
+--    kbd_mouse_type[1:0] : 2 = keyboard event (0/1 = mouse deltas, 3 = OSD key - both unused here:
+--                          mouse is a later milestone, the M2M framework has its own OSD)
+--    kms_level           : toggles once per event (level change = strobe)
+-- The only consumer of type-2 events inside rtl/minimig.v is CIA-A (rtl/ciaa.v): whenever it sees
+-- kms_level change while kbd_mouse_type = 2 (sampled with clk7n_en, i.e. every 4 clk28 cycles),
+-- it latches ~{kbd_mouse_data[6:0], kbd_mouse_data[7]} into its serial data register SDR and
+-- raises the SP (serial port) interrupt - the rotate-left-by-one plus inversion mimics exactly
+-- the data frame that a real Amiga keyboard shifts out on the KDAT line (keycode bits 6..0 first,
+-- up/down flag last, everything active low). rtl/userio.v does NOT snoop keyboard events (it only
+-- consumes mouse types 0/1), and kbd_mouse_type = 3 is only used by MiSTer's top level Minimig.sv,
+-- which is not compiled in this port. Hence this module replaces the HPS entirely by translating
+-- the MEGA65 keyboard scan into the very same kbd_mouse_data/kbd_mouse_type/kms_level protocol.
 --
--- Each core is treating the keyboard in a different way: Some need low-active "matrices", some
--- might need small high-active keyboard memories, etc. This is why the MiSTer2MEGA65 framework
--- lets you define literally everything and only provides a minimal abstraction layer to the keyboard.
--- You need to adjust this module to your needs.
---
--- MiSTer2MEGA65 provides a very simple and generic interface to the MEGA65 keyboard:
+-- This is how MiSTer2MEGA65 provides access to the MEGA65 keyboard:
 -- kb_key_num_i is running through the key numbers 0 to 79 with a frequency of 1 kHz, i.e. the whole
 -- keyboard is scanned 1000 times per second. kb_key_pressed_n_i is already debounced and signals
 -- low active, if a certain key is being pressed right now.
--- 
+--
+-- Behavior of this module: We mirror the state of all 80 MEGA65 keys in a register. As soon as the
+-- scanner reports a state that differs from the mirror (i.e. exactly one event per press edge and
+-- one per release edge), the key is looked up in the MEGA65-to-Amiga translation table below and -
+-- if it maps to an Amiga key - an event is pushed into a small FIFO. A pacing timer drains the
+-- FIFO at most once per millisecond: it puts the keycode on kbd_mouse_data_o (bit 7 = release
+-- flag) and toggles kms_level_o. The pacing is necessary because Kickstart's keyboard.device
+-- needs time to read the SDR and to perform the (virtual) handshake after every single keycode
+-- (on real hardware a code takes >500 us on the wire plus handshake; MiSTer relies on the HPS
+-- naturally pacing the events). Two different MEGA65 keys can change state as little as ~14 us
+-- apart within one scan sweep, so without FIFO+pacing, events could be lost. After reset, the
+-- first event is additionally held back for 100 ms, because minimig_syscontrol.v stretches the
+-- internal reset by 4 frames (~80 ms PAL) - events sent earlier would be swallowed by CIA-A's
+-- reset and keys held down during a core reset would get lost.
+--
+-- MEGA65 -> Amiga keycode mapping (raw Amiga keycodes as per the Amiga Hardware Reference Manual,
+-- Appendix on keyboard; confirmed against the codes used in Minimig.sv and ciaa.v):
+--
+--   #  MEGA65 key      Amiga key (code)     rationale / notes
+--   -- --------------- -------------------- -----------------------------------------------------
+--    0 INS/DEL         Backspace   ($41)    C64 DEL deletes to the left = Amiga Backspace
+--    1 RETURN          Return      ($44)
+--    2 CURSOR RIGHT    Crsr Right  ($4E)
+--    3 F7              F7          ($56)
+--    4 F1              F1          ($50)
+--    5 F3              F3          ($52)
+--    6 F5              F5          ($54)
+--    7 CURSOR DOWN     Crsr Down   ($4D)
+--    8..39, 41, 42     3 W A 4 Z S E LSHIFT 5 R D 6 C F T X 7 Y G 8 B H U V 9 I J 0 M K O N P L:
+--                      direct 1:1 mapping, see table below
+--                      (digits $01..$0A, letters: Q-row $10.., A-row $20.., Z-row $31..)
+--   40 + (plus)        Keypad +    ($5E)    Amiga has no unshifted '+' on the main block
+--   43 - (minus)       -           ($0B)
+--   44 . (period)      .           ($39)
+--   45 : [             ; :         ($29)    positional (right of L); Shift+key gives ':'
+--                                           which matches the MEGA65 key cap
+--   46 @               [ {         ($1A)    positional (right of P); Amiga '@' is Shift+2
+--   47 , (comma)       ,           ($38)
+--   48 GBP (pound)     \ |         ($0D)    positional (top row, right); supplies the otherwise
+--                                           missing backslash; pound not on US Amiga keymap
+--   49 * (asterisk)    Keypad *    ($5D)    keeps '*' directly typable (AmigaDOS console "*");
+--                                           Amiga main-block '*' would be Shift+8
+--   50 ; ]             ' "         ($2A)    positional (2nd right of L); supplies the otherwise
+--                                           missing apostrophe/quote key
+--   51 CLR/HOME        Del         ($46)    positional: top-right cluster, like Amiga Del
+--   52 RIGHT SHIFT     Right Shift ($61)
+--   53 = (equal)       =           ($0C)
+--   54 ARROW UP (sym)  ] }         ($1B)    positional; '^' itself is Shift+6 on the Amiga
+--   55 / (slash)       /           ($3A)
+--   56 1               1           ($01)
+--   57 ARROW LEFT(sym) ` ~         ($00)    positional: top-left corner key on both machines
+--   58 CTRL            Control     ($63)
+--   59 2               2           ($02)
+--   60 SPACE           Space       ($40)
+--   61 MEGA            Left Amiga  ($66)    Workbench/Intuition shortcuts (LAmiga+N/M etc.)
+--   62 Q               Q           ($10)
+--   63 RUN/STOP        - unmapped -         no Amiga counterpart (ESC has its own key)
+--   64 NO SCRL         - unmapped -         no Amiga counterpart
+--   65 TAB             Tab         ($42)
+--   66 ALT             Left Alt    ($64)
+--   67 HELP            Help        ($5F)
+--   68 F9              F9          ($58)
+--   69 F11             F10         ($59)    Amiga only has F1..F10
+--   70 F13             - unmapped -         Amiga only has F1..F10
+--   71 ESC             Esc         ($45)
+--   72 CAPS LOCK       Caps Lock   ($62)    special, see comment below
+--   73 CURSOR UP       Crsr Up     ($4C)
+--   74 CURSOR LEFT     Crsr Left   ($4F)
+--   75 RESTORE         Right Amiga ($67)    no Amiga analog of the C64 NMI key; gives access to
+--                                           the right-Amiga menu shortcuts of Workbench & apps
+--   76..79             - unused -           not populated on the MEGA65 keyboard
+--
+-- Known limitations (by design, documented for future milestones):
+-- * Amiga keys with no MEGA65 counterpart cannot be typed: F2/F4/F6/F8 (the MEGA65 produces them
+--   as Shift+F1/F3/F5/F7, but the scanner reports the same key number, so the Amiga sees e.g.
+--   Shift+F1 - most Amiga software does not treat that as F2), Right Alt, the numeric pad
+--   (except '+' and '*' which we borrow, see above) and the international keys $2B/$30.
+-- * Ctrl+LAmiga+RAmiga (= Ctrl+MEGA+RESTORE here) is NOT translated into a core reset: on real
+--   hardware the keyboard MCU pulls the reset line, but Minimig on MiSTer has no such path either;
+--   use the M2M reset (menu/reset button) instead.
+--
+-- CAPS LOCK: A real Amiga keyboard handles Caps Lock autonomously: it sends a single make code
+-- $62 when the lock (and LED) turns ON and a single break code $E2 when the lock turns OFF -
+-- nothing in between, no codes while the key is held. The MEGA65 keyboard microcontroller also
+-- latches the Caps Lock state and reports the LOCK STATE (not the momentary key state) on a
+-- dedicated line, which the M2M framework feeds into the scan as key number 72 (see
+-- M2M/vhdl/controllers/M65/mega65kbd_to_matrix.vhdl, phase 72). Therefore the generic
+-- edge-to-make/break translation of this module reproduces the standard Amiga behavior exactly:
+-- lock engages -> press edge -> $62, lock disengages -> release edge -> $E2. No special casing
+-- needed. (Should the lock ever be reported momentarily instead, the worst case is that Caps Lock
+-- acts like a shift key only while held - a graceful degradation.)
+--
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
 
-library IEEE;
-use IEEE.STD_LOGIC_1164.ALL;
-use IEEE.NUMERIC_STD.ALL;
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
 
 entity keyboard is
    port (
-      clk_main_i           : in std_logic;               -- core clock
-         
+      clk_main_i           : in  std_logic;                  -- core clock (28.375 MHz)
+      reset_i              : in  std_logic;                  -- active high reset
+
       -- Interface to the MEGA65 keyboard
-      key_num_i            : in integer range 0 to 79;   -- cycles through all MEGA65 keys
-      key_pressed_n_i      : in std_logic;               -- low active: debounced feedback: is kb_key_num_i pressed right now?
-               
-      -- @TODO: Create the kind of keyboard output that your core needs
-      -- "example_n_o" is a low active register and used by the demo core
-      example_n_o          : out std_logic_vector(79 downto 0)
+      kb_key_num_i         : in  integer range 0 to 79;      -- cycles through all MEGA65 keys
+      kb_key_pressed_n_i   : in  std_logic;                  -- low active: debounced feedback: is kb_key_num_i pressed right now?
+
+      -- Interface to Minimig (rtl/minimig.v, consumed by rtl/ciaa.v):
+      -- raw Amiga keycode events, see protocol description in the header of this file
+      kbd_mouse_data_o     : out std_logic_vector(7 downto 0); -- bits 6:0 keycode, bit 7 = 1: release
+      kbd_mouse_type_o     : out std_logic_vector(1 downto 0); -- constant 2 = keyboard event
+      kms_level_o          : out std_logic                     -- toggles once per event
    );
-end keyboard;
+end entity keyboard;
 
 architecture beh of keyboard is
 
@@ -83,7 +189,7 @@ constant m65_k             : integer := 37;
 constant m65_o             : integer := 38;
 constant m65_n             : integer := 39;
 constant m65_plus          : integer := 40;
-constant m65_p             : integer := 41; 
+constant m65_p             : integer := 41;
 constant m65_l             : integer := 42;
 constant m65_minus         : integer := 43;
 constant m65_dot           : integer := 44;
@@ -119,17 +225,163 @@ constant m65_up_crsr       : integer := 73;  -- cursor up
 constant m65_left_crsr     : integer := 74;  -- cursor left
 constant m65_restore       : integer := 75;
 
-signal key_pressed_n : std_logic_vector(79 downto 0);
+-- Marker for MEGA65 keys that have no Amiga counterpart. All valid raw Amiga keycodes are
+-- <= $67, i.e. bit 7 of a valid table entry is always 0 and bits 6:0 carry the keycode.
+constant C_NO_KEY : std_logic_vector(7 downto 0) := x"FF";
+
+-- MEGA65 key number -> raw Amiga keycode (see the big mapping table in the header)
+type t_keymap is array(0 to 79) of std_logic_vector(7 downto 0);
+constant C_KEYMAP : t_keymap := (
+   m65_ins_del       => x"41",   -- Backspace
+   m65_return        => x"44",   -- Return
+   m65_horz_crsr     => x"4E",   -- Cursor Right
+   m65_f7            => x"56",   -- F7
+   m65_f1            => x"50",   -- F1
+   m65_f3            => x"52",   -- F3
+   m65_f5            => x"54",   -- F5
+   m65_vert_crsr     => x"4D",   -- Cursor Down
+   m65_3             => x"03",   -- 3
+   m65_w             => x"11",   -- W
+   m65_a             => x"20",   -- A
+   m65_4             => x"04",   -- 4
+   m65_z             => x"31",   -- Z
+   m65_s             => x"21",   -- S
+   m65_e             => x"12",   -- E
+   m65_left_shift    => x"60",   -- Left Shift
+   m65_5             => x"05",   -- 5
+   m65_r             => x"13",   -- R
+   m65_d             => x"22",   -- D
+   m65_6             => x"06",   -- 6
+   m65_c             => x"33",   -- C
+   m65_f             => x"23",   -- F
+   m65_t             => x"14",   -- T
+   m65_x             => x"32",   -- X
+   m65_7             => x"07",   -- 7
+   m65_y             => x"15",   -- Y
+   m65_g             => x"24",   -- G
+   m65_8             => x"08",   -- 8
+   m65_b             => x"35",   -- B
+   m65_h             => x"25",   -- H
+   m65_u             => x"16",   -- U
+   m65_v             => x"34",   -- V
+   m65_9             => x"09",   -- 9
+   m65_i             => x"17",   -- I
+   m65_j             => x"26",   -- J
+   m65_0             => x"0A",   -- 0
+   m65_m             => x"37",   -- M
+   m65_k             => x"27",   -- K
+   m65_o             => x"18",   -- O
+   m65_n             => x"36",   -- N
+   m65_plus          => x"5E",   -- Keypad +
+   m65_p             => x"19",   -- P
+   m65_l             => x"28",   -- L
+   m65_minus         => x"0B",   -- -
+   m65_dot           => x"39",   -- .
+   m65_colon         => x"29",   -- ; :  (positional, Shift+key = ':')
+   m65_at            => x"1A",   -- [ {  (positional)
+   m65_comma         => x"38",   -- ,
+   m65_gbp           => x"0D",   -- \ |  (positional)
+   m65_asterisk      => x"5D",   -- Keypad *
+   m65_semicolon     => x"2A",   -- ' "  (positional)
+   m65_clr_home      => x"46",   -- Del  (positional)
+   m65_right_shift   => x"61",   -- Right Shift
+   m65_equal         => x"0C",   -- =
+   m65_arrow_up      => x"1B",   -- ] }  (positional)
+   m65_slash         => x"3A",   -- /
+   m65_1             => x"01",   -- 1
+   m65_arrow_left    => x"00",   -- ` ~  (positional, top-left corner)
+   m65_ctrl          => x"63",   -- Control
+   m65_2             => x"02",   -- 2
+   m65_space         => x"40",   -- Space
+   m65_mega          => x"66",   -- Left Amiga
+   m65_q             => x"10",   -- Q
+   m65_tab           => x"42",   -- Tab
+   m65_alt           => x"64",   -- Left Alt
+   m65_help          => x"5F",   -- Help
+   m65_f9            => x"58",   -- F9
+   m65_f11           => x"59",   -- F10 (Amiga only has F1..F10)
+   m65_esc           => x"45",   -- Esc
+   m65_capslock      => x"62",   -- Caps Lock (lock-state semantics, see header)
+   m65_up_crsr       => x"4C",   -- Cursor Up
+   m65_left_crsr     => x"4F",   -- Cursor Left
+   m65_restore       => x"67",   -- Right Amiga
+   others            => C_NO_KEY -- RUN/STOP, NO SCRL, F13 and keys 76..79: unmapped
+);
+
+-- Pacing of the keycode events towards CIA-A: at most one event per millisecond, so that
+-- Kickstart's keyboard.device has finished reading the SDR and performing the handshake
+-- (~200 us) long before the next keycode overwrites the SDR. A real keyboard needs >500 us
+-- per code on the wire, so 1 ms is still faster than real hardware while being 100% safe.
+constant C_EVENT_PACE    : natural := 28_375;     -- 1 ms @ 28.375 MHz
+
+-- Hold back the first event after reset: minimig_syscontrol.v stretches the core-internal
+-- reset by another 4 frames (~80 ms PAL); events sent during that time would be lost in
+-- CIA-A's reset. 100 ms is safely beyond that, yet unnoticeable for the user.
+constant C_RESET_HOLDOFF : natural := 2_837_500;  -- 100 ms @ 28.375 MHz
+
+-- Mirror of the state of all 80 MEGA65 keys (low active, '1' = released), so that the 1 kHz
+-- scan generates exactly one event per press edge and one event per release edge
+signal key_pressed_n : std_logic_vector(79 downto 0) := (others => '1');
+
+-- Small event FIFO (15 usable slots): two different keys can change state only ~14 us apart
+-- within one scan sweep, while the pacer drains one event per millisecond. Humans cannot
+-- overflow 15 slots at a 1 ms drain rate; should it ever happen, the newest event is dropped.
+type t_fifo is array(0 to 15) of std_logic_vector(7 downto 0);
+signal fifo          : t_fifo;
+signal fifo_wr_ptr   : unsigned(3 downto 0) := (others => '0');
+signal fifo_rd_ptr   : unsigned(3 downto 0) := (others => '0');
+
+signal pace_cnt      : natural range 0 to C_RESET_HOLDOFF := 0;
+signal kms_level     : std_logic := '0';
+signal kbd_data      : std_logic_vector(7 downto 0) := (others => '0');
 
 begin
 
-   example_n_o <= key_pressed_n;
-   
-   keyboard_state : process(clk_main_i)
+   kbd_mouse_data_o  <= kbd_data;
+   kbd_mouse_type_o  <= "10";       -- constant: 2 = keyboard event (raw Amiga keycode)
+   kms_level_o       <= kms_level;
+
+   keyboard_events : process(clk_main_i)
+      variable v_amiga_code : std_logic_vector(7 downto 0);
    begin
       if rising_edge(clk_main_i) then
-         key_pressed_n(key_num_i) <= key_pressed_n_i;
-      end if;
-   end process;
 
-end beh;
+         -- Detect press/release edges of the key that the 1 kHz scanner currently presents.
+         -- The scanner dwells ~400 clock cycles on each key; the mirror register is updated
+         -- on the first cycle of a detected change, so each edge is queued exactly once.
+         v_amiga_code := C_KEYMAP(kb_key_num_i);
+         if kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
+            key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
+            -- only queue keys that exist on the Amiga; drop the event if the FIFO is full
+            if v_amiga_code /= C_NO_KEY and (fifo_wr_ptr + 1) /= fifo_rd_ptr then
+               -- bit 7 = release flag: key released (kb_key_pressed_n_i = '1') => bit 7 = '1'
+               fifo(to_integer(fifo_wr_ptr)) <= kb_key_pressed_n_i & v_amiga_code(6 downto 0);
+               fifo_wr_ptr <= fifo_wr_ptr + 1;
+            end if;
+         end if;
+
+         -- Pace the events towards CIA-A: put the keycode on the data output and toggle
+         -- kms_level (the level change is the strobe that ciaa.v reacts to). The data output
+         -- is held stable until the next event, as required by ciaa.v's clk7n_en sampling.
+         if pace_cnt /= 0 then
+            pace_cnt <= pace_cnt - 1;
+         elsif fifo_rd_ptr /= fifo_wr_ptr then
+            kbd_data    <= fifo(to_integer(fifo_rd_ptr));
+            kms_level   <= not kms_level;
+            fifo_rd_ptr <= fifo_rd_ptr + 1;
+            pace_cnt    <= C_EVENT_PACE;
+         end if;
+
+         if reset_i = '1' then
+            -- "all keys released": keys (re-)pressed after/during reset generate fresh events
+            key_pressed_n <= (others => '1');
+            fifo_wr_ptr   <= (others => '0');
+            fifo_rd_ptr   <= (others => '0');
+            pace_cnt      <= C_RESET_HOLDOFF;
+            -- deliberately NOT resetting kms_level/kbd_data: a stable level is a no-op for
+            -- ciaa.v, while forcing it could generate a phantom keystrobe
+         end if;
+      end if;
+   end process keyboard_events;
+
+end architecture beh;

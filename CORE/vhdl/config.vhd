@@ -1,9 +1,11 @@
 ----------------------------------------------------------------------------------
--- MiSTer2MEGA65 Framework
+-- Amiga 500 for MEGA65 (AExp)
 --
 -- Configuration data for the Shell
 --
--- MiSTer2MEGA65 done by sy2002 and MJoergen in 2023 and licensed under GPL v3
+-- Based on the MiSTer2MEGA65 framework template, done by sy2002 and MJoergen
+-- in 2023 and licensed under GPL v3.
+-- Amiga 500 port (AExp) done in 2026.
 ----------------------------------------------------------------------------------
 
 library ieee;
@@ -44,7 +46,7 @@ constant WHS_RECORDS   : natural := 2;
 
 -- define the maximum amount of pages per WHS array element: between 1 and 256
 -- (this is necessary because Vivado does not support unconstrained arrays in a record)
-constant WHS_MAX_PAGES : natural := 3;
+constant WHS_MAX_PAGES : natural := 2;
 
  -- !!! DO NOT TOUCH !!!
 constant SEL_WHS           : std_logic_vector(15 downto 0) := x"1000";
@@ -58,124 +60,86 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
--- Define all your screens as string constants. They will be synthesized as ROMs.
--- You can name these string constants as you want to, as long as you make them part of the WHS array (see below).
---
--- WHS array position 0 is defined as the "Welcome Screen" as controled by WELCOME_ACTIVE and WELCOME_AT_RESET.
--- If you are not using a Welcome Screen but only Help menu items, then you need to leave WHS array pos. 0 empty.
---
--- WHS array position 1 and onwards is for all the Option Menu items tagged as "Help": The first one in the
--- Options menu is WHS array pos. 1, the second one in the menu is WHS array pos. 2 and so on.
---
--- Maximum 16 WHS array positions: The selector's bits 11 downto 8 select the WHS array position; 0=Welcome Screen
--- That means a maximum of 15 menu items in the Options menu can be tagged as "Help"
--- The selector's bits 7 downto 0 are selecting the page within the WHS array, so maximum 256 pages per Welcome Screen or Help menu item
---
--- Within a selector's address range, address 0 is the beginning of the string itself, while address 0xFFF of the 4k
--- window contains the amount of pages, so each zero-terminated string can be up to 4095 bytes = 4094 characters long.
-
 constant SCR_WELCOME : string :=
 
-   "Name of the Demo Core Version 1.0\n" &
-   "MiSTer port done by Demo Author in 2022\n\n" &
+   "Amiga 500 for MEGA65 - Version 0.1 ALPHA\n" &
+   "MiSTer Minimig-AGA port, 2026\n\n" &
 
-   -- We are not insisting. But it would be nice if you gave us credit for MiSTer2MEGA65 by leaving these lines in
-   "Powered by MiSTer2MEGA65 Version [WIP],\n" &
-   "done by sy2002 and MJoergen in 2022\n" &
+   "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
+   "done by sy2002 and MJoergen\n\n\n" &
 
-   "\n\nEdit config.vhd to modify welcome screen.\n\n" &
-   "You can for example show the keyboard map.\n" &
-   "Look at this example for the Demo core:\n\n\n" &
+   "This core needs the Kickstart 1.3 ROM on\n" &
+   "your SD card (FAT32):\n\n" &
+   "    /amiga/kick.rom\n\n" &
+   "Raw 256 KB dump of Kickstart 1.3\n" &
+   "(rev 34.5, A500), no byte swapping.\n\n\n" &
 
-   "    Key                Demo core\n" &
+   "    Key                Amiga 500\n" &
    "    " & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_1 & CHR_LINE_1 & "\n" &
-   "    Left Cursor        Paddle left\n" &
-   "    Right Cursor       Paddle right\n" &
-   "    Space              Start game\n" &
-   "    Help               Options menu\n\n\n" &
+   "    MEGA               Amiga (left)\n" &
+   "    Help               Help / Options menu\n\n\n" &
 
    "\n\n    Press Space to continue.\n\n\n";
 
 constant HELP_1 : string :=
 
-   "\n Demo Core for MEGA65 Version 1\n\n" &
+   "\n Amiga 500 for MEGA65 - V0.1 ALPHA\n\n" &
 
-   " MiSTer port 2022 by YOU\n" &
+   " MiSTer Minimig-AGA port, 2026\n" &
    " Powered by MiSTer2MEGA65\n\n\n" &
 
-   " Lorem ipsum dolor sit amet, consetetur\n" &
-   " sadipscing elitr, sed diam nonumy eirmod\n" &
-   " Mpor invidunt ut labore et dolore magna\n" &
-   " aliquyam erat, sed diam voluptua. At vero\n" &
-   " eos et accusam et justo duo.\n\n" &
+   " Emulated machine:\n\n" &
+   " Amiga 500, OCS chipset, PAL\n" &
+   " 68000 CPU\n" &
+   " 512 KB Chip RAM + 512 KB Slow RAM\n" &
+   " Kickstart 1.3 (from /amiga/kick.rom)\n\n" &
 
-   " Dolores et ea rebum. Stet clita kasd gube\n" &
-   " gren, no sea takimata sanctus est Lorem ip\n" &
-   " Sed diam nonumy eirmod tempor invidunt ut\n" &
-   " labore et dolore magna aliquyam era\n\n" &
+   " This ALPHA version has no floppy\n" &
+   " support yet: the core boots into the\n" &
+   " Kickstart 'insert disk' screen.\n\n" &
 
-   " Cursor right to learn more.       (1 of 3)\n" &
+   " Cursor right to learn more.       (1 of 2)\n" &
    " Press Space to close the help screen.";
 
 constant HELP_2 : string :=
 
-   "\n Demo Core for MEGA65 Version 1\n\n" &
+   "\n Amiga 500 for MEGA65 - V0.1 ALPHA\n\n" &
 
-   " XYZ ABCDEFGH:\n\n" &
+   " SD card setup:\n\n" &
+   " The SD card must be FAT32 formatted\n" &
+   " and 32 GB or smaller. The card in the\n" &
+   " back slot has precedence over the\n" &
+   " bottom slot.\n\n" &
 
-   " 1. ABCD EFGH\n" &
-   " 2. IJK LM NOPQ RSTUVWXYZ\n" &
-   " 3. 10 20 30 40 50\n\n" &
+   " Mandatory file:\n\n" &
+   "    /amiga/kick.rom\n\n" &
+   " 256 KB raw dump of Kickstart 1.3.\n" &
+   " Without this file the core will not\n" &
+   " start.\n\n" &
 
-   " a) Dolores et ea rebum\n" &
-   " b) Takimata sanctus est\n" &
-   " c) Tempor Invidunt ut\n" &
-   " d) Sed Diam Nonumy eirmod te\n" &
-   " e) Awesome\n\n" &
-
-   " Ut wisi enim ad minim veniam, quis nostru\n" &
-   " exerci tation ullamcorper suscipit lobor\n" &
-   " tis nisl ut aliquip ex ea commodo.\n\n" &
-
-   " Crsr left: Prev  Crsr right: Next (2 of 3)\n" &
-   " Press Space to close the help screen.";
-
-constant HELP_3 : string :=
-
-   "\n Help Screens\n\n" &
-
-   " You can have 255 screens per help topic.\n\n" &
-
-   " 15 topics overall.\n" &
-   " 1 menu item per topic.\n\n\n\n" &
-
-   " Cursor left to go back.           (3 of 3)\n" &
+   " Crsr left: Prev                   (2 of 2)\n" &
    " Press Space to close the help screen.";
 
 -- Concatenate all your Welcome and Help screens into one large string, so that during synthesis one large string ROM can be build.
-constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2 & HELP_3;
+constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2;
 
--- The WHS array needs the start address of each page. As a best practice: Just define some constants, that you can name for example
--- just like you named the string constants and then add _START. Use the 'length attribute of VHDL to add up all previous strings
--- so that the Synthesis tool can calculate the start addresses: Your first string starts at zero, your next one at the address which
--- is equal to the length of the first one, your next one at the address which is equal to the sum of the previous ones, and so on.
+-- The WHS array needs the start address of each page.
 constant SCR_WELCOME_START : natural := 0;
 constant HELP_1_START      : natural := SCR_WELCOME'length;
 constant HELP_2_START      : natural := HELP_1_START + HELP_1'length;
-constant HELP_3_START      : natural := HELP_2_START + HELP_2'length;
 
 -- Fill the WHS array with page start addresses and the length of each page.
--- Make sure that array element 0 is always your Welcome page. If you don't use a welcome page, fill everything with zeros.
+-- Make sure that array element 0 is always your Welcome page.
 constant WHS : WHS_RECORD_ARRAY_TYPE := (
    --- Welcome Screen
    (page_count    => 1,
-    page_start    => (SCR_WELCOME_START,  0, 0),
-    page_length   => (SCR_WELCOME'length, 0, 0)),
+    page_start    => (SCR_WELCOME_START,  0),
+    page_length   => (SCR_WELCOME'length, 0)),
 
    --- Help pages
-   (page_count    => 3,
-    page_start    => (HELP_1_START,  HELP_2_START,  HELP_3_START),
-    page_length   => (HELP_1'length, HELP_2'length, HELP_3'length))
+   (page_count    => 2,
+    page_start    => (HELP_1_START,  HELP_2_START),
+    page_length   => (HELP_1'length, HELP_2'length))
 );
 
 --------------------------------------------------------------------------------------------------------------------
@@ -188,8 +152,8 @@ constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
-constant DIR_START         : string := "/m2m";
-constant CFG_FILE          : string := "/m2m/m2mcfg";
+constant DIR_START         : string := "/amiga";
+constant CFG_FILE          : string := "/amiga/aexpcfg";
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -211,7 +175,7 @@ constant WELCOME_ACTIVE    : boolean := true;
 
 -- shall the welcome screen also be shown after the core is reset?
 -- (only relevant if WELCOME_ACTIVE is true)
-constant WELCOME_AT_RESET  : boolean := true;
+constant WELCOME_AT_RESET  : boolean := false;
 
 -- keyboard and joystick connection during reset and OSD
 constant KEYBOARD_AT_RESET : boolean := false;
@@ -239,22 +203,10 @@ constant ASCAL_MODE        : natural := 0;   -- see ascal.vhd for the meaning of
 constant SAVE_SETTINGS     : boolean := true;
 
 -- Delay in ms between the last write request to a virtual drive from the core and the start of the
--- cache flushing (i.e. writing to the SD card). Since every new write from the core invalidates the cache,
--- and therefore leads to a completely new writing of the cache (flushing), this constant prevents thrashing.
--- The default is 2 seconds (2000 ms). Should be reasonable for many systems, but if you have a very fast
--- or very slow system, you might need to change this constant.
---
--- Constraint (@TODO): Currently we have only one constant for all virtual drives, i.e. the delay is
--- the same for all virtual drives. This might be absolutely OK; future will tell. If we need to have
--- more flexibility: vdrives.vhd already supports one delay per virtual drive. All what would need
--- to be done in such a case is: Enhance config.vhd to have more constants plus enhance the initialization
--- routine VD_INIT in vdrives.asm (tagged by @TODO) to store different values in the appropriate registers.
+-- cache flushing (i.e. writing to the SD card).
 constant VD_ANTI_THRASHING_DELAY : natural := 2000;
 
 -- Amount of bytes saved in one iteration of the background saving (buffer flushing) process
--- Constraint (@TODO): Similar constraint as in VD_ANTI_THRASHING_DELAY: Only one value for all drives.
--- shell.asm and shell_vars.asm already supports distinct values per drive; config.vhd and VD_INIT would
--- needs to be updated in case we would need this feature in future
 constant VD_ITERATION_SIZE       : natural := 100;
 
 --------------------------------------------------------------------------------------------------------------------
@@ -268,7 +220,7 @@ constant SEL_CORENAME      : std_logic_vector(15 downto 0) := x"0200";
 
 -- Currently this is only used in the debug console. Use the welcome screen and the
 -- help system to display the name and version of your core to the end user
-constant CORENAME          : string := "M2M DEMO CORE V1.0";
+constant CORENAME          : string := "Amiga 500 for MEGA65 V0.1 ALPHA";
 
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu  (Selectors 0x0300 .. 0x0312): DO NOT TOUCH
@@ -308,13 +260,6 @@ constant OPTM_G_LOAD_ROM   : integer := 16#18000#;        -- line item means: lo
 
 constant OPTM_GTC          : natural := 17;                -- Amount of significant bits in OPTM_G_* constants
 
--- @TODO/REMINDER: If we added in future more configuration constants that are not meant to be saved in the
--- configuration file, such as OPTM_G_MOUNT_DRV and OPTM_G_LOAD_ROM, then we need to make sure that we
--- also extend _ROSMS_4A and _ROSMC_NEXTBIT in options.asm accordingly.
--- Also: Right now OPTM_G_SUBMENU cannot have a "selected" state (and therefore cannot be saved in the config file)
--- and therefore _ROSMS_4A and _ROSMC_NEXTBIT are not yet handling the situation. If we decided to change that in future,
--- we would need to define the right semantics everywhere.
-
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu: START YOUR CONFIGURATION BELOW THIS LINE
 --------------------------------------------------------------------------------------------------------------------
@@ -329,7 +274,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 35;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 21;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -337,61 +282,47 @@ constant OPTM_SIZE         : natural := 35;  -- amount of items including empty 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
 -- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 24;
+constant OPTM_DY           : natural := 10;
 
+-- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
+--   line  5: 720p 50 Hz  /  6: 720p 60 Hz  /  7: 576p 50 4:3  /  8: 576p 50 5:4
+--   line  9: 640x480 60  / 10: 720x480 59.94 / 11: 800x600 60
+--   line 15: CRT emulation / 16: Audio improvements
 constant OPTM_ITEMS        : string :=
 
-   " Demo Headline A\n"     &
-   "\n"                     &
-   " Item A.1\n"            &
-   " Item A.2\n"            &
-   " Item A.3\n"            &
-   " Item A.4\n"            &
-   "\n"                     &
-   " Demo Headline B\n"     &
-   "\n"                     &
+   " Amiga 500\n"           &    --  0: headline
+   "\n"                     &    --  1: line
 
-   " HDMI: %s\n"            &    -- HDMI submenu
-   " HDMI Settings\n"       &
-   "\n"                     &
-   " 720p 50 Hz 16:9\n"     &
-   " 720p 60 Hz 16:9\n"     &
-   " 576p 50 Hz 4:3\n"      &
-   " 576p 50 Hz 5:4\n"      &
-   " 640x480 60 Hz\n"       &
-   " 720x480 59.94 Hz\n"    &
-   " 800x600 60 Hz\n"       &
-   "\n"                     &
-   " Back to main menu\n"   &
+   " HDMI: %s\n"            &    --  2: HDMI submenu
+   " HDMI Settings\n"       &    --  3: headline
+   "\n"                     &    --  4: line
+   " 720p 50 Hz 16:9\n"     &    --  5
+   " 720p 60 Hz 16:9\n"     &    --  6
+   " 576p 50 Hz 4:3\n"      &    --  7
+   " 576p 50 Hz 5:4\n"      &    --  8
+   " 640x480 60 Hz\n"       &    --  9
+   " 720x480 59.94 Hz\n"    &    -- 10
+   " 800x600 60 Hz\n"       &    -- 11
+   "\n"                     &    -- 12: line
+   " Back to main menu\n"   &    -- 13: close submenu
 
-   "\n"                     &
-   " Drives\n"              &
-   "\n"                     &
-   " Drive X:%s\n"          &
-   " Drive Y:%s\n"          &
-   " Drive Z:%s\n"          &
-   "\n"                     &
-   " Another Headline\n"    &
-   "\n"                     &
-   " HDMI: CRT emulation\n" &
-   " HDMI: Zoom-in\n"       &
-   " Audio improvements\n"  &
-   "\n"                     &
-   " Close Menu\n";
+   "\n"                     &    -- 14: line
+   " CRT emulation\n"       &    -- 15: on/off
+   " Audio improvements\n"  &    -- 16: on/off
+   "\n"                     &    -- 17: line
+   " About & Help\n"        &    -- 18: help
+   "\n"                     &    -- 19: line
+   " Close Menu\n";              -- 20: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
 -- and be aware that you can only have a maximum of 254 groups (255 means "Close Menu");
 -- also make sure that your group numbers are monotonic increasing (e.g. 1, 2, 3, 4, ...)
 -- single-select items and therefore also drive mount items need to have unique identifiers
-constant OPTM_G_Demo_A     : integer := 1;
-constant OPTM_G_HDMI       : integer := 2;
-constant OPTM_G_Drive_X    : integer := 3;
-constant OPTM_G_Drive_Y    : integer := 4;
-constant OPTM_G_Drive_Z    : integer := 5;
-constant OPTM_G_CRT        : integer := 6;
-constant OPTM_G_Zoom       : integer := 7;
-constant OPTM_G_Audio      : integer := 8;
+constant OPTM_G_HDMI       : integer := 1;
+constant OPTM_G_CRT        : integer := 2;
+constant OPTM_G_Audio      : integer := 3;
+constant OPTM_G_About      : integer := 4;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -399,44 +330,29 @@ type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC-
 -- define your menu groups: which menu items are belonging together to form a group?
 -- where are separator lines? which items should be selected by default?
 -- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS and defined by OPTM_SIZE
-constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Demo Headline A"
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_Demo_A + OPTM_G_START,             -- Item A.1, cursor start position
-                                             OPTM_G_Demo_A + OPTM_G_STDSEL,            -- Item A.2, selected by default
-                                             OPTM_G_Demo_A,                            -- Item A.3
-                                             OPTM_G_Demo_A,                            -- Item A.4
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Demo Headline B"
-                                             OPTM_G_LINE,                              -- Line
+constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,            --  0: Headline "Amiga 500"
+                                             OPTM_G_LINE,                              --  1: Line
 
-                                             OPTM_G_SUBMENU,                           -- HDMI submenu block: START: "HDMI: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "HDMI Settings"
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_HDMI + OPTM_G_STDSEL,              -- 720p 50 Hz 16:9, selected by default
-                                             OPTM_G_HDMI,                              -- 720p 60 Hz 16:9
-                                             OPTM_G_HDMI,                              -- 576p 50 Hz 4:3
-                                             OPTM_G_HDMI,                              -- 576p 50 Hz 5:4
-                                             OPTM_G_HDMI,                              -- 640x480 60 Hz
-                                             OPTM_G_HDMI,                              -- 720x480 59.94 Hz
-                                             OPTM_G_HDMI,                              -- 600p 60 Hz
-                                             OPTM_G_LINE,                              -- open
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- Close submenu / back to main menu
-                                                                                       -- HDMI submenu block: END
+                                             OPTM_G_SUBMENU + OPTM_G_START,            --  2: HDMI submenu block: START: "HDMI: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            --  3: Headline "HDMI Settings"
+                                             OPTM_G_LINE,                              --  4: Line
+                                             OPTM_G_HDMI + OPTM_G_STDSEL,              --  5: 720p 50 Hz 16:9, default
+                                             OPTM_G_HDMI,                              --  6: 720p 60 Hz 16:9
+                                             OPTM_G_HDMI,                              --  7: 576p 50 Hz 4:3
+                                             OPTM_G_HDMI,                              --  8: 576p 50 Hz 5:4
+                                             OPTM_G_HDMI,                              --  9: 640x480 60 Hz
+                                             OPTM_G_HDMI,                              -- 10: 720x480 59.94 Hz
+                                             OPTM_G_HDMI,                              -- 11: 800x600 60 Hz
+                                             OPTM_G_LINE,                              -- 12: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 13: Close submenu / back to main menu
 
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Drives"
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_Drive_X + OPTM_G_MOUNT_DRV,        -- Drive X
-                                             OPTM_G_Drive_Y + OPTM_G_MOUNT_DRV,        -- Drive Y
-                                             OPTM_G_Drive_Z + OPTM_G_MOUNT_DRV,        -- Drive Z
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Another Headline"
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,        -- On/Off toggle ("Single Select")
-                                             OPTM_G_Zoom    + OPTM_G_SINGLESEL,        -- On/Off toggle ("Single Select")
-                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- On/Off toggle ("Single Select")
-                                             OPTM_G_LINE,                              -- Line
-                                             OPTM_G_CLOSE                              -- Close Menu
+                                             OPTM_G_LINE,                              -- 14: Line
+                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,        -- 15: CRT emulation on/off
+                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- 16: Audio improvements on/off
+                                             OPTM_G_LINE,                              -- 17: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 18: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 19: Line
+                                             OPTM_G_CLOSE                              -- 20: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------
@@ -573,4 +489,3 @@ begin
 end process;
 
 end architecture beh;
-

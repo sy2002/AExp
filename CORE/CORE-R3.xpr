@@ -184,6 +184,348 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/vhdl/amiga_config.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/bram.vhd">
+        <FileInfo SFType="VHDL">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig_m65.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/amiga_clk.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_audiodma.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_beamcounter.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_bitplanedma.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_blitter.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_blitter_adrgen.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_blitter_barrelshifter.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_blitter_fill.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_blitter_minterm.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_copper.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_diskdma.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_refresh.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/agnus_spritedma.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_bitplane_shifter.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_bitplanes.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_collision.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_colortable.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_colortable_ram_mf.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_hamgenerator.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_playfields.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_spritepriority.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_sprites.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/denise_sprites_shifter.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_audio.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_audio_channel.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_audio_mixer.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_audio_volume.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_floppy.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_floppy_fifo.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_intcontroller.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/paula_uart.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/ciaa.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/ciab.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cia_int.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cia_timera.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cia_timerb.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cia_timerd.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/gary.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/gayle.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/ide.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cart.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/userio.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/cpu_wrapper.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig_m68k_bridge.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig_sram_bridge.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig_bankmapper.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/minimig_syscontrol.v">
+        <FileInfo SFType="Verilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/fx68k/fx68k.sv">
+        <FileInfo SFType="SystemVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/fx68k/fx68kAlu.sv">
+        <FileInfo SFType="SystemVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/Minimig_MiSTerMEGA65/rtl/fx68k/uaddrPla.sv">
+        <FileInfo SFType="SystemVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/../M2M/vhdl/QNICE/qnice.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -227,12 +569,6 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/vhdl/clk.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../M2M/vhdl/democore/democore.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -406,12 +742,6 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../M2M/vhdl/democore/vga_controller.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
       <File Path="$PPRDIR/../M2M/vhdl/vdrives.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -419,12 +749,6 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../M2M/QNICE/vhdl/cycle_counter.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../M2M/vhdl/democore/democore_audio.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -491,18 +815,6 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/vhdl/globals.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../M2M/vhdl/democore/democore_video.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../M2M/vhdl/democore/democore_game.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
