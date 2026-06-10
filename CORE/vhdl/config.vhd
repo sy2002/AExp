@@ -168,6 +168,9 @@ constant SEL_GENERAL       : std_logic_vector(15 downto 0) := x"0110";  -- !!! D
 constant RESET_COUNTER     : natural := 100;
 
 -- put the core in PAUSE state if any OSD opens
+-- IMPORTANT: must stay false for the Amiga core: main.vhd does not implement
+-- pause_i yet (minimig has no clean pause point; would need gating of the
+-- clk7/c1/c3/cck enables - later milestone)
 constant OPTM_PAUSE        : boolean := false;
 
 -- show the welcome screen in general

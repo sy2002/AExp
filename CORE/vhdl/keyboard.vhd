@@ -351,9 +351,15 @@ begin
          -- on the first cycle of a detected change, so each edge is queued exactly once.
          v_amiga_code := C_KEYMAP(kb_key_num_i);
          if kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
-            key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
-            -- only queue keys that exist on the Amiga; drop the event if the FIFO is full
-            if v_amiga_code /= C_NO_KEY and (fifo_wr_ptr + 1) /= fifo_rd_ptr then
+            -- keys that do not exist on the Amiga only update the mirror
+            if v_amiga_code = C_NO_KEY then
+               key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
+            -- Amiga keys: only consume the edge when the event can actually be queued.
+            -- If the FIFO is full (practically unreachable), the mirror is left untouched,
+            -- so the edge is retried on the next 1 kHz sweep instead of being lost -
+            -- losing a RELEASE event would leave the key stuck on the Amiga side.
+            elsif (fifo_wr_ptr + 1) /= fifo_rd_ptr then
+               key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
                -- bit 7 = release flag: key released (kb_key_pressed_n_i = '1') => bit 7 = '1'
                fifo(to_integer(fifo_wr_ptr)) <= kb_key_pressed_n_i & v_amiga_code(6 downto 0);
                fifo_wr_ptr <= fifo_wr_ptr + 1;
