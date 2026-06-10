@@ -4,3 +4,4 @@
 [submodule "CORE/Minimig_MiSTerMEGA65"]
 	path = CORE/Minimig_MiSTerMEGA65
 	url = https://github.com/MiSTer-devel/Minimig-AGA_MiSTer.git
+	branch = develop
