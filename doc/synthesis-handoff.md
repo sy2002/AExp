@@ -91,3 +91,28 @@ Whether it succeeds or fails, please bring:
 
 If the screen stays black: bring the logs above plus, if possible, the QNICE
 debug console output (115200 8N1 serial; Run/Stop+Cursor-Up, then Help).
+
+---
+
+## Post-run-1 findings (2026-06-10, run succeeded on HW, timing failed)
+
+Run 1 verdict: boots to the Kickstart hand on real hardware; WNS -6.7 ns.
+Fixes committed (fcf0a90): ascal FIFO CDC constraints in CORE.xdc + QNICE
+debug port removed from chip/slow RAM. Re-run and re-check.
+
+Facts from the run-1 synthesis log (full analysis: .research/review/ and
+git log), relevant for all future milestones:
+
+- BRAM is at TRUE capacity: 363.5/365 tiles. Vivado requested 380 and
+  auto-demoted ~16.5 tiles to LUTRAM (warning Synth 8-5835), including the
+  ascal line buffers (~4600 LUTs), Paula's floppy FIFO and the Denise CLUTs.
+  There is nothing left to demote.
+- Budget: 320 tiles = the six Amiga lanes (exact, no waste), 32 = QNICE
+  ROM+RAM, ~11.5 = video pipeline.
+- Re-enabling IDE/HDD costs +8 RAMB36 -> DOES NOT FIT. Any future buffer
+  (ADF floppy images, HDD sector buffers) MUST live in HyperRAM.
+- Synthesis is clean: 0 critical warnings, no inferred latches, no
+  multi-driven nets, fx68k microcode ROMs read successfully.
+- Later-milestone cleanups (benign today): 4x Synth 8-7137 set/reset same
+  priority (cpu_wrapper.v:387/:405, paula_floppy.v:208/:214 - sim-mismatch
+  risk only), minimig.v:709 memory_config width truncation to bankmapper.
