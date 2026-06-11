@@ -1,127 +1,196 @@
-# Demo-Lieferung fuer den Chip-RAM-Loader (Briefing an deft)
+# Lieferpaket für Demos & Games — Anleitung für deft
 
-Context (English): This is the delivery contract for test round B of
-doc/next_tests.md - running a self-contained oldskool demo on the Amiga
-core without floppy emulation. The German text below is written to be
-pasted 1:1 to the demo author (deft). The "Vertrag" section doubles as
-the implementation spec for our launcher ROM + loader (to be coded in
-the loader milestone - NOT yet implemented).
+Context (English): Complete German handover document for the demo author.
+It contains everything needed to DELIVER a title for the upcoming RamDump
+loader (doc/ramdump_format.md is the technical file-format spec; the
+author does not need it - we do the packing). Loader/launcher/packer are
+NOT yet implemented; this document defines the prerequisites so content
+can be produced now.
 
 ---
 
-## Worum es geht
+## 1. Worum es geht
 
-Wir bauen fuer den MEGA65-Amiga-Core einen "Demo-Loader": Er laedt ein
-Speicherabbild von der SD-Karte direkt ins Chip-/Slow-RAM (ueber denselben
-Upload-Pfad, den auf dem MiSTer der ARM benutzt) und springt dann ueber ein
-Mini-"Kickstart" (unser eigenes Launcher-ROM anstelle von Kick 1.3) an einen
-definierten Entry. Es gibt also KEIN Kickstart, kein exec, kein dos, kein
-trackdisk - die Demo bekommt die nackte, frisch resettete Maschine plus
-fertig befuellten Speicher.
+Der MEGA65-Amiga-Core bekommt einen **Loader**: Er lädt ein Speicherabbild
+("RamDump") von der SD-Karte direkt ins Chip- und Slow-RAM und springt
+dann kalt an eine definierte Entry-Adresse. Es gibt dabei **kein
+Kickstart** zur Laufzeit (im ROM-Bereich liegt unser Mini-Launcher),
+**kein exec, kein dos, kein trackdisk, kein Floppy-Laufwerk** — die Demo
+bekommt die nackte, frisch resettete Maschine plus fertig befüllten
+Speicher.
 
-Dein Instinkt ist genau richtig: Der Dump muss in dem Moment passieren, wo
-dein Packer/Loader den Speicher fertig organisiert hat und BEVOR der
-Hauptteil Hardware-Register anfasst. Die Hardware-Register muessen (und
-koennen) nicht im Dump sein - unsere Umgebung liefert beim Entry einen
-sauberen Reset-Zustand, und der Hauptteil initialisiert ja ohnehin alles
+**Du lieferst Rohmaterial** (Speicherinhalte + ein paar Angaben, siehe
+Abschnitt 5). Das Paketieren ins eigentliche Dateiformat übernehmen wir —
+du brauchst kein Tool von uns.
+
+## 2. Die Ziel-Maschine
+
+| Eigenschaft | Wert |
+|---|---|
+| CPU | 68000 (zyklusgenau, fx68k) |
+| Chipsatz | OCS (A500), PAL — keine ECS-/AGA-Register |
+| Chip RAM | 512 KB, $000000–$07FFFF |
+| Slow RAM ("Trapdoor", damals oft "fast" genannt) | 512 KB, $C00000–$C7FFFF |
+| Fast RAM | keins |
+| Kickstart | zur Laufzeit NICHT vorhanden (Launcher-ROM im $F8xxxx-Bereich) |
+| Floppy | nicht vorhanden (kommt mit späterem Milestone) |
+| Eingaben | Tastatur, Joystick funktionieren; Maus folgt später |
+
+## 3. Was die Demo erfüllen muss (die harten Bedingungen)
+
+Der Entry muss ein klassischer **Takeover-Entry** sein — also der normale
+Hauptteil-Einstieg eines Trackmos:
+
+1. Er **initialisiert die komplette Hardware selbst von Null weg**
+   (DMACON, INTENA, Copper, Bitplanes, eigene Interrupt-Vektoren, ...).
+   Beim Einsprung läuft nichts: kein Copper, kein Display, keine
+   Interrupts — siehe Abschnitt 4.
+2. Er setzt **seinen eigenen Stack** (oder du nennst uns einen SP-Wert).
+3. Er **kehrt nie zurück** und ruft ab dem Entry **nie mehr** etwas im
+   ROM-Bereich auf — kein exec, kein graphics, auch kein Zugriff auf
+   ExecBase über Adresse $4.
+4. **Kein Disk-Zugriff nach dem Entry.** Alles muss zum Dump-Zeitpunkt im
+   RAM sein (Single-Load). Multi-Part-Trackmos, die nachladen, gehen erst
+   mit dem Floppy-Milestone.
+5. Nur **OCS-Register**, **PAL**.
+
+Dein Instinkt mit dem Dump-Zeitpunkt war genau richtig: **Gedumpt wird in
+dem Moment, wo dein Packer/Loader den Speicher fertig organisiert hat und
+BEVOR der Hauptteil Hardware-Register anfasst.** Die Hardware-Register
+müssen (und können) nicht im Dump sein — sie werden von unserer Umgebung
+auf Reset-Zustand gestellt, und dein Hauptteil setzt ja ohnehin alles
 selbst.
 
-## Die eine harte Bedingung
+## 4. Was wir beim Entry garantieren (der Vertrag)
 
-Der Entry muss ein klassischer "Takeover-Entry" sein (= der normale
-Demo-Hauptteil-Einstieg):
+| Was | Zustand beim Einsprung |
+|---|---|
+| CPU | 68000, Supervisor-Modus, SR = $2700 (alle Interrupts maskiert) |
+| PC | deine Entry-Adresse |
+| SP (SSP) | dein Wunschwert; Default $00080000; am robustesten: dein Code setzt ihn selbst als Erstes |
+| Alle anderen Register | $00000000 (sag Bescheid, falls du etwas anderes brauchst) |
+| Custom-Chips | Reset-Zustand: DMACON = 0, INTENA = 0, INTREQ = 0, alle DMA aus, kein Copper aktiv |
+| CIAs | Reset-Zustand |
+| OVL | aus — Chip-RAM ab $000000 sichtbar, inklusive der Vektortabelle aus deinem Dump |
+| Chip RAM | $000000–$07FFFF = exakt dein Abbild; nicht gelieferte Bereiche sind 0 |
+| Slow RAM | $C00000–$C7FFFF = exakt dein Abbild; nicht gelieferte Bereiche sind 0 |
+| ROM-Bereich | unser Launcher — ein Sprung dorthin ist ein Absturz |
 
-- setzt seinen eigenen Stack (oder du sagst uns, welchen SP wir setzen
-  sollen),
-- macht seine komplette Hardware-Init selbst (DMACON/INTENA/Copper/
-  Vektoren ... von Null weg),
-- kehrt nie zurueck und ruft ab da nie mehr irgendetwas im ROM-Bereich
-  auf (auch kein ExecBase ueber $4),
-- laedt nichts mehr von Diskette nach - alles muss zum Dump-Zeitpunkt
-  im RAM sein.
+## 5. Was du lieferst (das Lieferpaket)
 
-## Was wir beim Entry garantieren (der Vertrag)
+**Variante A — Volldump** (der einfachste Weg, empfohlen für den ersten
+Versuch):
 
-- 68000, PAL, OCS (A500-Chipsatz), Supervisor-Modus, SR = $2700
-  (alle Interrupts maskiert)
-- Custom-Chips und CIAs im Reset-Zustand: DMACON = 0, INTENA = 0,
-  INTREQ = 0, alle DMA aus
-- OVL aus: Chip-RAM ab $000000 sichtbar - inklusive der Vektortabelle
-  aus deinem Dump
-- Speicher: $000000-$07FFFF = exakt dein chip.bin;
-  $C00000-$C7FFFF = exakt dein slow.bin
-- PC = dein Entry; SP = dein Wunschwert (Default $00080000 - sag
-  Bescheid, falls dort Daten liegen; am robustesten: dein Code setzt
-  den Stack selbst in den ersten Instruktionen); alle anderen Register
-  = 0, ausser du brauchst etwas Bestimmtes
-- Kein Floppy-Laufwerk; ROM-Bereich ($F80000+) enthaelt unseren
-  Launcher, nicht Kickstart - ein Sprung dorthin ist ein Absturz
+1. `chip.bin` — exakt **524.288 Bytes** = $000000–$07FFFF
+2. `slow.bin` — exakt **524.288 Bytes** = $C00000–$C7FFFF
+   (nur falls die Demo Slow RAM nutzt; sonst weglassen und im Steckbrief
+   "ungenutzt" ankreuzen)
+3. Der ausgefüllte **Steckbrief** (Abschnitt 6)
 
-## Was du lieferst (3 Dinge)
+**Variante B — direkt aus deinem Build** (oft sauberer, wenn deine
+Packer-/Linker-Map die Speicherbelegung sowieso kennt):
 
-1. **chip.bin** - exakt 524.288 Bytes = $000000-$07FFFF
-2. **slow.bin** - exakt 524.288 Bytes = $C00000-$C7FFFF
-   (falls genutzt; sonst einfach "ungenutzt" sagen)
-3. **Kurze Notiz:**
-   - Entry-Adresse (PC)
-   - SP-Wert oder "setze ich selbst"
-   - braucht irgendein Register beim Entry einen bestimmten Wert?
-   - Bestaetigung: keine Disk-Zugriffe und keine ROM-/Kickstart-Aufrufe
-     nach dem Entry; PAL; nur OCS-Register
+1. Die fertigen Binär-Segmente als Dateien
+2. Pro Segment die Ladeadresse ("part1.bin nach $400, part2.bin nach
+   $20000, musik.bin nach $C00000, ...")
+3. Der ausgefüllte Steckbrief
 
-## Zwei Wege, das zu erzeugen
+Übergabe formlos: ZIP mit den Dateien + Steckbrief als Textdatei, per
+Discord/Mail. Größen sind unkritisch (max. ~1 MB).
 
-### Weg A - WinUAE-Dump (dein Vorschlag)
+## 6. Der Steckbrief (pro Titel ausfüllen, Copy-Paste-Vorlage)
 
-1. WinUAE als A500 konfigurieren: OCS Agnus/Denise, 512K Chip +
-   512K "Slow" (Trapdoor), Kickstart 1.3, PAL, 68000 cycle-exact.
-2. Demo bis zu deinem "Packer fertig"-Moment laufen lassen. Am
-   elegantesten: vor den finalen JMP in den Hauptteil eine
-   Endlosschleife (bra.s *) einbauen - oder im Debugger einen
-   Breakpoint setzen.
-3. Shift+F12 oeffnet den WinUAE-Debugger ("h" zeigt alle Kommandos,
-   "f <adresse>" setzt einen Breakpoint).
-4. Speicher sichern (Zahlen sind hex):
+```
+Titel:               ____________________
+Autor/Gruppe:        ____________________
+Jahr:                ____________________
+
+Entry-Adresse (PC):  $___________
+Stack (SP):          [ ] setzt mein Code selbst
+                     [ ] bitte setzen auf: $___________
+Register beim Entry: [ ] alle 0 ist okay
+                     [ ] brauche: ____________________
+
+Slow RAM ($C00000):  [ ] genutzt (slow.bin liegt bei)
+                     [ ] ungenutzt
+
+Hiermit bestaetigt:
+[ ] Nach dem Entry kein Zugriff auf Kickstart/exec/ROM (auch nicht $4)
+[ ] Nach dem Entry kein Disk-Zugriff (Single-Load, alles im RAM)
+[ ] Hauptteil initialisiert Hardware komplett selbst (Takeover)
+[ ] Nur OCS-Register, PAL
+[ ] Getestet in WinUAE als A500 OCS, 512K Chip + 512K Slow, 68000
+
+Steuerung (zur Info): ____________________
+Besonderheiten:       ____________________
+```
+
+## 7. Schritt für Schritt: der WinUAE-Dump (Variante A)
+
+1. **WinUAE konfigurieren** (entspricht exakt unserem Core):
+   - Quickstart: A500, Kickstart 1.3
+   - CPU: 68000, "cycle exact"
+   - Chipset: OCS / "Original"
+   - RAM: Chip 512 KB, Slow 512 KB, Fast 0
+2. **Demo bis zum Dump-Moment laufen lassen.** Am elegantesten: bau vor
+   den finalen JMP in den Hauptteil eine Endlosschleife (`bra.s *`) ein —
+   du hast den Loader ja in der Hand. Alternativ im Debugger einen
+   Breakpoint auf die Entry-Adresse setzen.
+3. **Debugger öffnen:** Shift+F12. Nützliche Kommandos: `h` (Hilfe),
+   `f <adresse>` (Breakpoint), `r` (Register anzeigen),
+   `d <adresse>` (Disassembly), `g` (weiterlaufen).
+4. **Speicher sichern** (Zahlen sind hex):
    ```
    S chip.bin 0 80000
    S slow.bin c00000 80000
    ```
-5. Entry-Adresse (das JMP-Ziel) und ggf. SP notieren. Fertig.
+   Die Dateien landen im WinUAE-Verzeichnis.
+5. **Entry und SP notieren:** das JMP-Ziel ist die Entry-Adresse; `r`
+   zeigt dir den aktuellen Registerstand, falls du den SP übernehmen
+   willst. In den Steckbrief eintragen — fertig.
 
-### Weg B - direkt aus deinem Build (oft sauberer)
+**Wichtig:** Der Dump-Moment muss VOR dem ersten Hardware-Zugriff des
+Hauptteils liegen. Wenn zwischen "Speicher fertig" und dem JMP noch
+CPU-only-Code läuft (Register aufräumen o. Ä.), ist das egal — die Regel
+ist nur: ab dem Entry darf nichts erwartet werden außer RAM-Inhalt und
+den Werten aus dem Steckbrief.
 
-Wenn dein Build-System die Speicherbelegung sowieso kennt
-(Packer-/Linker-Map), gib uns einfach die fertigen Segmente +
-Ladeadressen + Entry ("Datei X nach $400, Datei Y nach $20000, Teil Z
-nach $C00000, Entry $20000"). Dann braucht es gar keinen Dump - wir
-setzen das Image selbst zusammen. Das Containerformat definieren wir;
-du musst nichts paketieren.
+## 8. Schritt für Schritt: aus dem Build (Variante B)
 
-## K.O.-Fragen vorab (eine Minute Nachdenken spart Wochen)
+Wenn dein Build-System die finale Speicherbelegung kennt, brauchst du gar
+keinen Dump: Exportiere die fertigen (entpackten) Segmente als Dateien,
+schreib die Ladeadressen und den Entry in den Steckbrief. Wir setzen das
+Abbild daraus zusammen — Ergebnis ist identisch zu Variante A, nur ohne
+Emulator-Schritt und mit kleineren Dateien.
 
-1. Laedt die Demo nach dem Moment noch von Diskette nach
-   (Multi-Part-Trackmo)? Dann warten wir besser auf den
-   Floppy-Milestone (der kommt auch noch).
-2. Ruft sie nach dem Entry noch irgendetwas im Kickstart auf?
-3. Reichen wirklich 512K Chip + 512K Slow? (Du sagtest ja.)
-4. Nur OCS-Register? (Der Core ist OCS - ECS/AGA-Register gibt es
-   nicht.)
-5. Reagiert die Demo auf Tastatur/Maus/Joystick? (Funktioniert alles -
-   nur gut zu wissen fuer den Test.)
+## 9. Was danach passiert
 
-Der erste Wurf muss nicht perfekt sein - Dump + Notiz reicht, wir
-iterieren zusammen auf der echten Hardware.
+Wir packen deine Lieferung in unser RamDump-Format (eine Datei pro
+Titel), der Core-Loader lädt sie über das OSM-Menü von SD-Karte, und beim
+ersten Test iterieren wir gemeinsam — **der erste Wurf muss nicht perfekt
+sein.** Wenn deine Demo läuft, können mit derselben Methode weitere
+Single-Load-Titel für die Community aufbereitet werden: bei Fremdtiteln
+über die klassische One-Filer-Technik (Takeover-Entry suchen), später
+eventuell per Konverter direkt aus WinUAE-Savestates (inklusive
+generiertem Hardware-Restore-Stub — dafür muss am Core nichts geändert
+werden, die Komplexität steckt in der Datei). Multi-Load-Titel folgen mit
+dem Floppy-Support.
 
----
+## 10. FAQ
 
-## Loader-side notes (English, for the implementation milestone)
-
-The "Vertrag" above is the launcher contract to implement:
-entry via our 256KB launcher ROM (replaces kick.rom): disable OVL
-(CIA-A PRA bit 0), optionally set SSP, fetch entry/SP from the upload
-engine's mailbox, JMP. Upload path: OSM manual-load item -> QNICE
-streams chip.bin/slow.bin -> CDC FIFO -> upload engine drives userio
-cmd 0xF1 (cpuhlt+cpurst) + 0xF0 (mem_write) onto the chipset bus, then
-releases the CPU into the launcher. Custom/CIA reset state comes free
-from the system reset that accompanies the upload. See
-doc/next_tests.md round B for the full mechanics sketch.
+- **Was, wenn die Demo beim Entry doch etwas voraussetzt, das fehlt?**
+  Dann sehen wir das beim ersten Test (schwarzes Bild / Absturz) und
+  iterieren. Die Lieferung kostet dich einmal 15 Minuten, kaputtgehen
+  kann nichts.
+- **Interrupt-Vektoren?** Liegen bei $0–$3FF im Chip-RAM und sind Teil
+  deines Dumps. Ob sie zum Dump-Zeitpunkt schon installiert sind oder
+  dein Hauptteil sie installiert, ist beides okay.
+- **Muss der Speicher außerhalb meiner Daten leer sein?** Unsere Umgebung
+  nullt vorher alles, was du nicht lieferst. Beim Volldump (Variante A)
+  ist die Frage gegenstandslos.
+- **Tastatur/Joystick in der Demo?** Funktioniert — CIA-A-Scancodes und
+  Joystick-Ports sind verdrahtet. Maus kommt später, bitte im Steckbrief
+  unter "Steuerung" vermerken.
+- **Warum kein Kickstart zur Laufzeit?** Der Loader ersetzt das Kick-ROM
+  durch einen Mini-Launcher, der nur OVL ausschaltet, SP/PC setzt und
+  springt. Deshalb die Bedingung "keine ROM-Aufrufe nach Entry".
