@@ -65,7 +65,9 @@ Mechanics sketch (no new BRAM ports, no timing exposure):
    by the upload engine to a fixed chip RAM address) and JMPs to it.
    HRTmon/freeze-cart route is a dead end: its monitor needs backing memory
    at $A10000 and the BRAM is full (1.5 tiles free).
-4. File format: small header (magic, load address, length, entry point) +
+4. Delivery contract for the demo author: see doc/demo_delivery_spec.md
+   (German briefing, dump-moment definition, entry contract).
+5. File format: small header (magic, load address, length, entry point) +
    payload; generated from the demo binary by a trivial script.
 
 Value beyond the test itself: the QNICE->userio bridge is the same bus
