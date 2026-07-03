@@ -3,10 +3,18 @@
 Port of the MiSTer Minimig-AGA core to the MEGA65, scoped to an Amiga 500
 OCS, built on the MiSTer2MEGA65 (M2M) framework V2.0.1.
 
-**Status: Milestone 1 achieved (2026-06-10/11).** The core boots Kickstart
-1.3 to the "insert disk" hand on real R3 hardware; timing closed
-(WNS +0.387 ns, run 2). Everything below is the distilled project
-knowledge — the deep material lives in `doc/` (see "Key documents").
+**Status: ADF floppy milestone achieved (2026-07-03).** Read-only ADF
+support verified on real R3 hardware: Workbench 1.3.2 boots to the
+desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
+Mount via OSM " ADF:" → Shell streams to HyperRAM (QNICE device 0x0103,
+`adf_mount_wrapper.vhd`) → `adf_track_engine.vhd` serves Paula over the
+IO_FPGA host channel with bit-exact minimig_fdd.cpp MFM encoding. Design
+spec: `.research/INTEGRATION-SPEC-floppy-adf.md` (supersedes the vdrives
+advice AND three details of `doc/floppy_milestone_brief.md`). Milestone 1
+(Kickstart hand, 2026-06-10/11) preceded it. Timing closed (run 3: all
+AExp-owned groups ≥ +0.24 ns; global WNS +0.017 ns sits on the framework
+HyperRAM PHY path). Everything below is the distilled project knowledge —
+the deep material lives in `doc/` (see "Key documents").
 
 ## The emulated machine
 
@@ -22,7 +30,11 @@ knowledge — the deep material lives in `doc/` (see "Key documents").
 - One core clock: **28.375 MHz** (PAL ideal 28.37516, −5.6 ppm), MMCM in
   `CORE/vhdl/clk.vhd` (100 MHz × 56.750 / 5 / 40). No 113.5 MHz clock —
   everything SDRAM/turbo/AGA that needed it is out of scope.
-- No floppy yet, no mouse yet, no IDE. Keyboard + joysticks work.
+- Floppy: df0 with read-only ADF mount from the OSM (image staged in
+  HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`; always reported
+  write-protected; Amiga-initiated writes are drained and discarded).
+  No write support, no df1..df3, no mouse yet, no IDE. Keyboard +
+  joysticks work.
 
 ## Repository map
 
@@ -31,13 +43,23 @@ knowledge — the deep material lives in `doc/` (see "Key documents").
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):
   - `mega65.vhd` — BRAM lanes (2×256K×8 chip, 2×256K×8 slow, 2×128K×8
-    kick), banked-address decode, QNICE device 0x0100 (kick), OSM wiring
+    kick), banked-address decode, QNICE devices 0x0100 (kick) + 0x0103
+    (ADF), HyperRAM plumbing (avm_fifo CDC + 2-master arbiter →
+    hr_core_*), OSM wiring
   - `main.vhd` — wraps minimig_m65 + cpu_wrapper + amiga_clk; fx68k phase
-    enables, frame-locked video CE, sync inversion, reset mapping
+    enables, frame-locked video CE, sync inversion, reset mapping, host
+    bus mux (amiga_config ↔ adf_track_engine) + avm_cache
   - `amiga_config.vhd` — FSM replaying MiSTer's HPS config via the userio
     protocol after every reset (0xF1=0x07 halt+reset, 0xF3=OCS,
     0xF4=68000, **0xF5=0x04** = 512K+512K, 0xF6/0xF7/0xF8/0xF9/0xF2=0,
     0xF1=0x00 release)
+  - `adf_mount_wrapper.vhd` — QNICE device 0x0103: byte-window bridge
+    into HyperRAM + M2M CSR (window 0xFFFF) + ADF size validator
+    (160–166 tracks × 5632 bytes; "mounted"+track count → cdc_stable)
+  - `adf_track_engine.vhd` — Paula floppy host service (MiSTer HandleFDD
+    in hardware): 1 ms poll + drive-status re-announce, per-sector MFM
+    streaming with status-bit-8 flow control, write drain; the protocol
+    contract is documented in its header
   - `keyboard.vhd` — MEGA65 keys → raw Amiga scancodes (kms_level toggle)
   - `clk.vhd`, `globals.vhd`, `config.vhd` (OSM menu — bit = line number,
     must match `C_MENU_*` constants in mega65.vhd)
@@ -143,19 +165,23 @@ knowledge — the deep material lives in `doc/` (see "Key documents").
 
 ## Roadmap (doc/next_tests.md has details)
 
-1. **DiagROM test round** — zero code: 256 KB DiagROM as /amiga/kick.rom
+1. **Floppy: DONE 2026-07-03** (read-only MVP, verified on hardware).
+   Before touching floppy code, read `.research/INTEGRATION-SPEC-floppy-adf.md`
+   — it supersedes doc/floppy_milestone_brief.md in three verified points
+   (DEVICE-type mount, bit-8 flow control not IO_WAIT, disk_present
+   re-announce per poll). Future increments: write support (protocol
+   groundwork documented in the spec), df1 (HyperRAM window
+   `C_HMAP_ADF_DF1` reserved), mount-status OSM feedback.
+2. **DiagROM test round** — zero code: 256 KB DiagROM as /amiga/kick.rom
    exercises slow RAM, keyboard, audio, CIAs (diagrom.com).
-2. **RamDump loader** — run deft's demo without floppy:
+3. **RamDump loader** — run deft's demo without floppy (possibly obsolete
+   now that ADFs boot — confirm with deft whether .A5R is still wanted):
    `doc/ramdump_format.md` (.A5R format: 192-byte header with full CPU
    context D0-D7/A0-A6/USP/SSP/SR/PC, segment table, RTE-based launcher
    entry) + `doc/demo_delivery_spec.md` (German delivery contract for
    deft, PDF is tracked). Loader = OSM manual-load → QNICE→main CDC FIFO
    → upload engine drives userio 0xF0 → launcher ROM replaces kick.
    Hardware state deliberately NOT restored (V1); brief color flicker OK.
-3. **Floppy** — READ doc/floppy_milestone_brief.md FIRST: Minimig's
-   floppy does NOT use vdrives/sd_* (despite what all other docs say);
-   architecture = CRT-style HYPERRAM mount + core-side track engine +
-   MFM encode. All buffers in HyperRAM (rule 3).
 4. Pending decision: publish to GitHub as sy2002/AExp (plan exists:
    fork Minimig upstream → sy2002/Minimig_MiSTerMEGA65, fix .gitmodules
    URL, add origin, push master+develop).
