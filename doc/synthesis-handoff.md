@@ -132,3 +132,34 @@ timing summary after every build.
 Run-2 OOM lesson (run 2a crashed): close the implemented design in the
 Vivado GUI before relaunching synthesis - a loaded routed 200T design holds
 several GB and starves the child synth process in the VM.
+
+## Run 3 (2026-07-03, ADF floppy milestone): TIMING CLOSED, one area finding
+
+First build with the ADF floppy support (commit 6a2c867 + submodule
+e2e4810). Fully routed, 0 errors, all 118109 endpoints met.
+
+- WNS +0.017 ns - but NOT on our logic: the single tightest path is the
+  framework HyperRAM PHY (hyperram_ctrl hb_ck_ddr_o_reg -> hr_clk_del
+  ODDR, hr_clk->hr_clk_del inter-clock group, 1 endpoint). This path's
+  slack wobbles with placement run-to-run; every AExp-owned group has
+  comfortable margin: main_clk +8.1, qnice_clk +0.24, qnice->main CDC
+  (mount-status cdc_stable bundle) +6.7, main->hr (avm_fifo) +8.0.
+- The paula_floppy 'posedge clk or negedge IO_ENA' async-clear pins are
+  LIVE now (io_fpga driven by adf_track_engine): they appear as the
+  async_default main_clk group, 75 endpoints, recovery +28.7 / removal
+  +0.64 - met, keep watching this group.
+- BRAM unchanged at 363.5/365 (the Synth 8-5835 'used 766 of 730
+  half-tiles, demoting to LUT-RAM' message is the same pre-existing
+  demotion regime as run 1/2).
+- FINDING (fixed after the run): Synth 8-7186 - the track engine's 256x16
+  sector buffer (secbuf) was NOT inferred as distributed RAM and fell
+  back to ~4096 flip-flops (total slice registers 23619, 8.77% - purely
+  an area waste, no functional or timing impact; the run-3 bitstream is
+  valid for hardware testing). Cause: reading the array through a
+  function-computed index expression at the io_din_o assignment sites is
+  not a Vivado RAM template. Fix: strict simple-dual-port form - one
+  unconditional registered read (secbuf_q <= secbuf(secbuf_raddr)) at the
+  top of the process, address primed one MFM word ahead. Verify in the
+  NEXT build that Synth 8-7186 is gone and slice registers drop by ~4k.
+- Benign new warning: Synth 8-3936 trims the engine's status register
+  16->9 bits (exactly the bits the FSM consumes).

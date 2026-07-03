@@ -142,9 +142,16 @@ architecture synthesis of adf_track_engine is
    signal dc0, dc1, dc2, dc3 : std_logic_vector(7 downto 0);
 
    -- sector buffer: 256x16, byte-swapped to 68k order (even file byte in bits 15:8).
-   -- MUST stay LUTRAM (BRAM is full, see CLAUDE.md rule 3).
+   -- MUST stay LUTRAM (BRAM is full, see CLAUDE.md rule 3). Accessed ONLY via the
+   -- textbook simple-dual-port template (one sync write in ST_FETCH_WAIT, one
+   -- unconditional registered read through secbuf_raddr/secbuf_q at the top of
+   -- fsm_proc) - anything fancier makes Vivado fall back to 4096 flip-flops
+   -- (Synth 8-7186 "not inferred as ram due to incorrect usage", seen in R3
+   -- synthesis run 3 with a read expression at the io_din_o assignment sites).
    type t_secbuf is array (0 to 255) of std_logic_vector(15 downto 0);
-   signal secbuf : t_secbuf;
+   signal secbuf       : t_secbuf;
+   signal secbuf_raddr : unsigned(7 downto 0);           -- primed one word ahead
+   signal secbuf_q     : std_logic_vector(15 downto 0);  -- registered read data
    attribute ram_style : string;
    attribute ram_style of secbuf : signal is "distributed";
 
@@ -198,10 +205,10 @@ begin
 
    fsm_proc : process (clk_main_i)
 
-      -- Buffer index for MFM stream word k: the data odd pass starts at word 32,
-      -- the even pass at 288. Meaningful only for the data ranges; elsewhere the
-      -- wrapped index is harmless (the read result is unused).
-      function f_buf_idx(k : unsigned(9 downto 0)) return integer is
+      -- Buffer read address for MFM stream word k: the data odd pass starts at
+      -- word 32, the even pass at 288. Meaningful only for the data ranges;
+      -- elsewhere the wrapped address is harmless (the read result is unused).
+      function f_buf_idx(k : unsigned(9 downto 0)) return unsigned is
          variable idx : unsigned(9 downto 0);
       begin
          if k >= 288 then
@@ -209,13 +216,12 @@ begin
          else
             idx := k - 32;
          end if;
-         return to_integer(idx(7 downto 0));
+         return idx(7 downto 0);
       end function f_buf_idx;
 
       -- MFM stream word for index k (0..543 sector, 544..893 gap).
-      -- bw = secbuf(f_buf_idx(k)), read DIRECTLY at the call sites so that
-      -- Vivado sees the standard async-read distributed-RAM template (a RAM
-      -- read buried inside this function would risk falling back to 4096 FFs).
+      -- bw = the sector-buffer word for k, delivered via the registered read
+      -- port (secbuf_q, address primed one word ahead - see secbuf's comment).
       -- Still impure: reads the per-sector scalars sync_word/inf_*/hc*/dc*.
       impure function f_stream_word(k  : unsigned(9 downto 0);
                                     bw : std_logic_vector(15 downto 0))
@@ -266,6 +272,10 @@ begin
          -- defaults: strobe and done are 1-clk pulses
          io_strobe_o <= '0';
          xfer_done   <= '0';
+
+         -- sector-buffer read port: unconditional registered read (the strict
+         -- simple-dual-port LUTRAM template; do not condition or relocate this)
+         secbuf_q <= secbuf(to_integer(secbuf_raddr));
 
          ---------------------------------------------------------------------
          -- word-transfer sub-FSM: XF_STROBE is entered by the main FSM below
@@ -540,9 +550,10 @@ begin
                            xfer     <= XF_STROBE;  -- w1
                         end if;
                      when "00" =>                  -- w1: dsksync
-                        sync_word <= f_sync_subst(xfer_resp);
-                        hdr_cnt   <= "01";
-                        xfer      <= XF_STROBE;    -- w2
+                        sync_word    <= f_sync_subst(xfer_resp);
+                        secbuf_raddr <= f_buf_idx(to_unsigned(0, 10));   -- prime word 0
+                        hdr_cnt      <= "01";
+                        xfer         <= XF_STROBE; -- w2
                      when others =>                -- w2: {dmaen, dsklen} - discarded
                         word_cnt <= (others => '0');
                         if sector = 10 then
@@ -550,10 +561,10 @@ begin
                         else
                            word_total <= to_unsigned(C_MFM_SECTOR_WORDS, 10);
                         end if;
-                        io_din_o <= f_stream_word(to_unsigned(0, 10),
-                                       secbuf(f_buf_idx(to_unsigned(0, 10))));
-                        xfer     <= XF_STROBE;
-                        state    <= ST_STREAM_DATA;
+                        io_din_o     <= f_stream_word(to_unsigned(0, 10), secbuf_q);
+                        secbuf_raddr <= f_buf_idx(to_unsigned(1, 10));   -- prime word 1
+                        xfer         <= XF_STROBE;
+                        state        <= ST_STREAM_DATA;
                   end case;
                end if;
 
@@ -567,10 +578,10 @@ begin
                      delay_cnt   <= C_GAP_DELAY;
                      state       <= ST_CLOSE;
                   else
-                     word_cnt <= word_cnt + 1;
-                     io_din_o <= f_stream_word(word_cnt + 1,
-                                    secbuf(f_buf_idx(word_cnt + 1)));
-                     xfer     <= XF_STROBE;
+                     word_cnt     <= word_cnt + 1;
+                     io_din_o     <= f_stream_word(word_cnt + 1, secbuf_q);
+                     secbuf_raddr <= f_buf_idx(word_cnt + 2);    -- prime next word
+                     xfer         <= XF_STROBE;
                   end if;
                end if;
 
