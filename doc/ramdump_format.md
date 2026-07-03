@@ -124,4 +124,4 @@ alternative capture path to the UAE debugger's "S" command.
   browser flow (nice-to-have; V1 can ignore it).
 - Where header parsing lives: QNICE firmware (m2m-rom.asm callback,
   flexible) vs hardware CSR device (rigid). Tendency: QNICE parses the
-  128-byte header + table, hardware only streams payload words.
+  192-byte header + segment table, hardware only streams payload words.
