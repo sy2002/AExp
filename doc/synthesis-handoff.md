@@ -66,9 +66,10 @@ Whether it succeeds or fails, please bring:
   **Kickstart 1.3 (rev 34.5, A500/A1000/A2000)**, big-endian as dumped,
   **no byte swapping**. Without it the Shell shows a fatal error with the
   file name and the core will not start (by design).
-- Optional: `/amiga/aexpcfg` for persistent OSM settings
-  (create with `M2M/tools/make_config.sh`, must be exactly 21 bytes =
-  OPTM_SIZE; without it, settings simply aren't saved).
+- Optional: `/amiga/aexp-wip-V1-A2.cfg` for persistent OSM settings
+  (copy the tracked master `CORE/m2m-rom/aexpcfg`, or create with
+  `M2M/tools/make_config.sh`; must be exactly 35 bytes = OPTM_SIZE;
+  without it, settings simply aren't saved).
 
 ## 5. Running the core
 
@@ -86,8 +87,9 @@ Whether it succeeds or fails, please bring:
 2. Amiga boots: dark gray → light gray screen, then after ~2–4 s the
    Kickstart 1.3 **"insert disk" hand**, in color, stable 50 Hz PAL on both
    VGA (scandoubled 31.25 kHz) and HDMI (720p50).
-3. Help key opens the OSM (HDMI modes / CRT emulation / Audio improvements /
-   About & Help, which documents the SD card setup).
+3. Help key opens the OSM (ADF mount / HDMI modes / HDMI Filter with eight
+   options, default "Scanlines" / Audio improvements / About & Help, which
+   documents the SD card setup).
 
 If the screen stays black: bring the logs above plus, if possible, the QNICE
 debug console output (115200 8N1 serial; Run/Stop+Cursor-Up, then Help).

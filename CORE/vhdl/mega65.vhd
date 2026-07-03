@@ -344,6 +344,9 @@ signal hr_adf_avm_waitrequest     : std_logic;
 
 -- (the " ADF:%s" mount item at line 2 is handled by the Shell itself and needs
 -- no C_MENU constant; it shifted everything below it by 2 lines)
+-- The HDMI Filter radio (lines 20..27) has no C_MENU constants either: with
+-- ASCAL_USAGE=1 (config.vhd) the firmware dispatcher LOAD_HDMI_FILTER in
+-- CORE/m2m-rom/m2m-rom.asm reads those lines and programs ascal directly.
 constant C_MENU_HDMI_16_9_50  : natural :=  7;
 constant C_MENU_HDMI_16_9_60  : natural :=  8;
 constant C_MENU_HDMI_4_3_50   : natural :=  9;
@@ -351,8 +354,7 @@ constant C_MENU_HDMI_5_4_50   : natural := 10;
 constant C_MENU_HDMI_640_60   : natural := 11;
 constant C_MENU_HDMI_720_5994 : natural := 12;
 constant C_MENU_SVGA_800_60   : natural := 13;
-constant C_MENU_CRT_EMULATION : natural := 17;
-constant C_MENU_IMPROVE_AUDIO : natural := 18;
+constant C_MENU_IMPROVE_AUDIO : natural := 30;
 
 begin
 
@@ -581,15 +583,12 @@ begin
    qnice_csync_o              <= '0';
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
-   -- ascal filters that are applied while processing the input
-   -- 00 : Nearest Neighbour
-   -- 01 : Bilinear
-   -- 10 : Sharp Bilinear
-   -- 11 : Bicubic
+   -- ascal mode: with ASCAL_USAGE=1 (AUSE_CUSTOM) in config.vhd these inputs to
+   -- the QNICE co-processor are ignored (the CSR ascal-autosync bit is cleared);
+   -- the HDMI Filter dispatcher in CORE/m2m-rom/m2m-rom.asm owns the ascal mode
+   -- and the polyphase coefficient RAM. Keep them tied off, like C64MEGA65 V6.
    qnice_ascal_mode_o         <= "00";
-
-   -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
-   qnice_ascal_polyphase_o    <= qnice_osm_control_i(C_MENU_CRT_EMULATION);
+   qnice_ascal_polyphase_o    <= '0';
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded

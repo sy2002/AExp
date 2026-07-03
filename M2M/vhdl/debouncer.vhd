@@ -51,9 +51,23 @@ end debouncer;
 
 architecture beh of debouncer is
 
-signal j1_u, j1_d, j1_l, j1_r, j1_f : std_logic;
-signal j2_u, j2_d, j2_l, j2_r, j2_f : std_logic;
+-- MiSTer2MEGA65 (AExp Amiga 500 port), July 2026: debouncing removed, the ten
+-- work.debounce instances (stable_time 1 ms) are replaced by plain 2-FF
+-- synchronizers. A real Amiga has no debouncing on the DB9 lines: Denise counts
+-- mouse quadrature transitions and software polls direction/fire levels, so any
+-- filtering is inauthentic - and the 1 ms stable-time filter swallowed the
+-- quadrature edges of a real Amiga mouse (frozen-then-jumping pointer on brisk
+-- movement). The port switcher and the joystick on/off gating below are kept
+-- unchanged. CLK_FREQ and reset_n remain in the interface for compatibility but
+-- are no longer used. To be turned into a proper framework option when this is
+-- upstreamed to MiSTer2MEGA65.
 
+signal j1_u, j1_d, j1_l, j1_r, j1_f : std_logic := '1';
+signal j2_u, j2_d, j2_l, j2_r, j2_f : std_logic := '1';
+
+-- first synchronizer stage
+signal j1_u_s, j1_d_s, j1_l_s, j1_r_s, j1_f_s : std_logic := '1';
+signal j2_u_s, j2_d_s, j2_l_s, j2_r_s, j2_f_s : std_logic := '1';
 
 begin
 
@@ -89,47 +103,23 @@ begin
       end if;
    end process;
    
-   -- debouncer settings for the joysticks:
-   -- 5ms for any joystick direction
-   -- 1ms for the fire button
-        
-   do_dbnce_joy1_up : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_1_up_n, result => j1_u);
+   -- 2-FF input synchronizers, NO debouncing (see the architecture header):
+   -- authentic Amiga behavior and mandatory for quadrature mice, whose fast
+   -- pulse trains a stable-time filter would swallow
+   sync_joysticks : process (clk)
+   begin
+      if rising_edge(clk) then
+         j1_u_s <= joy_1_up_n;      j1_u <= j1_u_s;
+         j1_d_s <= joy_1_down_n;    j1_d <= j1_d_s;
+         j1_l_s <= joy_1_left_n;    j1_l <= j1_l_s;
+         j1_r_s <= joy_1_right_n;   j1_r <= j1_r_s;
+         j1_f_s <= joy_1_fire_n;    j1_f <= j1_f_s;
 
-   do_dbnce_joy1_down : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_1_down_n, result => j1_d);
-
-   do_dbnce_joy1_left : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_1_left_n, result => j1_l);
-
-   do_dbnce_joy1_right : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_1_right_n, result => j1_r);
-
-   do_dbnce_joy1_fire : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_1_fire_n, result => j1_f);
-      
-   do_dbnce_joy2_up : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_2_up_n, result => j2_u);
-
-   do_dbnce_joy2_down : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_2_down_n, result => j2_d);
-
-   do_dbnce_joy2_left : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_2_left_n, result => j2_l);
-
-   do_dbnce_joy2_right : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_2_right_n, result => j2_r);
-
-   do_dbnce_joy2_fire : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
-      port map (clk => clk, reset_n => reset_n, button => joy_2_fire_n, result => j2_f);      
+         j2_u_s <= joy_2_up_n;      j2_u <= j2_u_s;
+         j2_d_s <= joy_2_down_n;    j2_d <= j2_d_s;
+         j2_l_s <= joy_2_left_n;    j2_l <= j2_l_s;
+         j2_r_s <= joy_2_right_n;   j2_r <= j2_r_s;
+         j2_f_s <= joy_2_fire_n;    j2_f <= j2_f_s;
+      end if;
+   end process sync_joysticks;
 end beh;

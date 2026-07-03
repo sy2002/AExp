@@ -62,7 +62,14 @@ the deep material lives in `doc/` (see "Key documents").
     contract is documented in its header
   - `keyboard.vhd` — MEGA65 keys → raw Amiga scancodes (kms_level toggle)
   - `clk.vhd`, `globals.vhd`, `config.vhd` (OSM menu — bit = line number,
-    must match `C_MENU_*` constants in mega65.vhd)
+    must match `C_MENU_*` constants in mega65.vhd; exception: the HDMI
+    Filter radio, lines 20–27, is read by the firmware, not mega65.vhd)
+- `CORE/m2m-rom/` — core QNICE firmware (`m2m-rom.asm`): ADF size guard
+  + HDMI Filter dispatcher `LOAD_HDMI_FILTER` (C64MEGA65-V6 port;
+  `ASCAL_USAGE=1`, includes a backported `M2M$LOAD_POLYPHASE` — delete it
+  when M2M is upgraded to V2.1+; coefficient blobs in `video_filters/`).
+  `aexpcfg` = master OSM settings file, 35 bytes = OPTM_SIZE; SD name is
+  `/amiga/aexp-wip-V1-A2.cfg`.
 - `CORE/Minimig_MiSTerMEGA65/` — git submodule, upstream
   MiSTer-devel/Minimig-AGA_MiSTer. Branch **develop** carries all
   Xilinx/MEGA65 changes; master mirrors upstream. Every change to
@@ -119,10 +126,18 @@ the deep material lives in `doc/` (see "Key documents").
   `impl_1/*_utilization_placed.rpt`, `impl_1/*_timing_summary_routed.rpt`,
   `impl_1/*_route_status.rpt`. Per-module BRAM: ask for
   `report_utilization -hierarchical`.
-- **Pre-build the QNICE firmware on the Mac** before every synthesis
-  (`cd CORE/m2m-rom && ./make_rom.sh`) — the Vivado pre-synth hook can
-  fail silently in VM setups. Toolchain (one-time):
-  `M2M/QNICE/tools/make-toolchain.sh`.
+- **QNICE firmware**: the Vivado pre-synth hook rebuilds it inside the
+  VM on every build — the VM works directly in this (mounted) folder,
+  which is why `M2M/QNICE/assembler/qasm`/`qasm2rom` are Linux ELF
+  binaries. Never overwrite them, and NEVER run
+  `CORE/m2m-rom/make_rom.sh` on the Mac: the `asm` wrapper deletes
+  `m2m-rom.out`/`m2m-rom.rom` BEFORE assembling, then dies on the Linux
+  binaries. For Mac-side sanity checks compile temporary native tools
+  into a temp dir (`cc -O2 -o "$TMP"/qasm M2M/QNICE/assembler/qasm.c`,
+  same for `qasm2rom`), then from `CORE/m2m-rom`: `cc -xc -E
+  m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
+  m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
+  produce a `.def`-identical ROM vs the VM build).
 - **Local static checks before any Vivado round-trip** (installed:
   nvc 1.21, ghdl 5.1, iverilog): analyze all CORE VHDL with
   `nvc --std=2008` in dependency order (M2M packages first: tools.vhd,

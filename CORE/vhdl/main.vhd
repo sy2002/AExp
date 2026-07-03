@@ -358,6 +358,9 @@ architecture synthesis of main is
    signal joy1_n           : std_logic_vector(15 downto 0);
    signal joy2_n           : std_logic_vector(15 downto 0);
 
+   -- Amiga mouse buttons in minimig format: active high {middle, right, left}
+   signal mouse_btn        : std_logic_vector(2 downto 0);
+
 begin
 
    ---------------------------------------------------------------------------
@@ -579,13 +582,37 @@ begin
       ); -- i_keyboard
 
    ---------------------------------------------------------------------------
-   -- Joysticks: M2M active-low directions -> minimig active-low format
-   -- {...., fire2, fire, up, down, left, right}; Amiga port 1 = mouse port,
-   -- Amiga port 2 = joystick port (the common game port)
+   -- Joysticks and mouse: M2M active-low lines -> minimig active-low format
+   -- {...., fire2, fire, up, down, left, right}. Like a real A500: mouse in
+   -- port 1, joystick in port 2. Note that userio.v CROSS-maps its inputs by
+   -- default (_sjoy1 <= _joy2, userio.v:267-274), which is why amiga_config
+   -- sets joy_swap=1 (cmd 0xF9) - together, MEGA65 port N = Amiga port N.
+   --
+   -- A real Amiga quadrature mouse needs no dedicated mouse path: userio.v's
+   -- "docking" counters (userio.v:284-338) count the transitions on the
+   -- direction pins into JOYxDAT exactly like Denise. This only works because
+   -- the M2M debouncer delivers raw, un-debounced lines (M2M debouncer.vhd is
+   -- a plain 2-FF synchronizer, changed for AExp) - a real Amiga has no
+   -- debouncing on the DB9 lines either.
    ---------------------------------------------------------------------------
 
    joy1_n <= "1111111111" & '1' & joy_1_fire_n_i & joy_1_up_n_i & joy_1_down_n_i & joy_1_left_n_i & joy_1_right_n_i;
    joy2_n <= "1111111111" & '1' & joy_2_fire_n_i & joy_2_up_n_i & joy_2_down_n_i & joy_2_left_n_i & joy_2_right_n_i;
+
+   -- Mouse buttons, active high {middle, right, left} (userio.v:419-421).
+   -- The LEFT button is not wired here: it sits on the fire pin of the mouse
+   -- port and flows through joy1_n(4) into CIA-A, exactly like real hardware.
+   -- The RIGHT button is DB9 pin 9 = POTX, which on the MEGA65 feeds the
+   -- C65-style POT measuring circuit: the framework samples it as a paddle
+   -- value (M2M mouse_input.vhdl, QNICE domain, CDC'd to clk_main) and
+   -- inverts it (255 - raw). A pressed button strongly pulls the line, so
+   -- raw ~0 => inverted >= 0x80 = pressed; a floating pin (button released,
+   -- or a joystick without pots) reads raw ~255 => inverted < 0x80 =
+   -- released, so a joystick in port 1 causes no phantom right clicks. Same
+   -- polarity that mega65-core's mouse_input.vhdl uses (raw MSB=0 =
+   -- pressed). If hardware tests show it inverted, negate pot1_x_i(7).
+   -- Middle button (DB9 pin 5 = POTY) not wired - the tank mouse has none.
+   mouse_btn <= '0' & pot1_x_i(7) & '0';
 
    ---------------------------------------------------------------------------
    -- The Minimig core itself
@@ -626,7 +653,7 @@ begin
 
          joy1_n         => joy1_n,
          joy2_n         => joy2_n,
-         mouse_btn      => "000",                -- mouse: later milestone
+         mouse_btn      => mouse_btn,
          kms_level      => kms_level,
          kbd_mouse_type => kbd_mouse_type,
          kbd_mouse_data => kbd_mouse_data,

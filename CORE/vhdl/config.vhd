@@ -190,7 +190,8 @@ constant JOY_1_AT_RESET    : boolean := false;
 constant JOY_2_AT_RESET    : boolean := false;
 
 constant KEYBOARD_AT_OSD   : boolean := false;
-constant JOY_1_AT_OSD      : boolean := false;
+constant JOY_1_AT_OSD      : boolean := true;   -- mouse (Amiga port 1) stays active while the OSM is
+                                                -- open; the keyboard belongs to the OSM (false above)
 constant JOY_2_AT_OSD      : boolean := false;
 
 -- Avalon Scaler settings (see ascal.vhd, used for HDMI output only)
@@ -200,8 +201,12 @@ constant JOY_2_AT_OSD      : boolean := false;
 -- 2=keep ascal mode in sync with the QNICE input register ascal_mode_i:
 --   use this if you want to control the ascal mode for example via the Options menu
 --   where you would wire the output of certain options menu bits with ascal_mode_i
-constant ASCAL_USAGE       : natural := 2;
-constant ASCAL_MODE        : natural := 0;   -- see ascal.vhd for the meaning of this value
+constant ASCAL_USAGE       : natural := 1;   -- AUSE_CUSTOM, like C64MEGA65 V6: the HDMI Filter dispatcher in
+                                             -- CORE/m2m-rom/m2m-rom.asm writes M2M$ASCAL_MODE directly (ASCAL_INIT
+                                             -- in M2M/rom/gencfg.asm clears the CSR ascal-autosync bit first)
+constant ASCAL_MODE        : natural := 0;   -- ignored when ASCAL_USAGE=1; m2m-rom sets the mode per HDMI Filter
+                                             -- selection (No Filter/Sharp Bilinear/Bicubic -> native
+                                             -- NEAREST/SBILINEAR/BICUBIC, the other 5 -> POLYPHASE)
 
 -- Save on-screen-display settings if the file specified by CFG_FILE exists and if it has
 -- the length of OPTM_SIZE bytes. If the first byte of the file has the value 0xFF then it
@@ -281,20 +286,26 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 23;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 35;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
--- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
+-- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
+-- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
+-- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
+-- Main menu view = 12 lines, HDMI Filter submenu view = 12 lines, HDMI Settings submenu view = 11 lines.
 constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 12;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   line  7: 720p 50 Hz  /  8: 720p 60 Hz  /  9: 576p 50 4:3  / 10: 576p 50 5:4
 --   line 11: 640x480 60  / 12: 720x480 59.94 / 13: 800x600 60
---   line 17: CRT emulation / 18: Audio improvements
+--   line 30: Audio improvements
+-- Lines 20..27 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
+-- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
+-- M2M$GET_SETTING and programs ascal directly (ASCAL_USAGE=1).
 -- Line 2 (" ADF:%s") is a manual CRT/ROM load item handled by the Shell: it
 -- opens the file browser and streams the .adf into the C_DEV_AMIGA_ADF device.
 constant OPTM_ITEMS        : string :=
@@ -319,12 +330,26 @@ constant OPTM_ITEMS        : string :=
    " Back to main menu\n"   &    -- 15: close submenu
 
    "\n"                     &    -- 16: line
-   " CRT emulation\n"       &    -- 17: on/off
-   " Audio improvements\n"  &    -- 18: on/off
+
+   " HDMI: %s\n"            &    -- 17: HDMI Filter submenu (replaces the CRT emulation toggle)
+   " HDMI Filter\n"         &    -- 18: headline
    "\n"                     &    -- 19: line
-   " About & Help\n"        &    -- 20: help
-   "\n"                     &    -- 21: line
-   " Close Menu\n";              -- 22: close
+   " No Filter\n"           &    -- 20: ascal native NEAREST
+   " Sharp Bilinear\n"      &    -- 21: ascal native SBILINEAR
+   " Bicubic\n"             &    -- 22: ascal native BICUBIC
+   " Smooth\n"              &    -- 23: polyphase
+   " Lanczos\n"             &    -- 24: polyphase; default
+   " Scanlines\n"           &    -- 25: polyphase; the former "CRT emulation" look
+   " CRT (S-Video)\n"       &    -- 26: polyphase
+   " CRT (Composite)\n"     &    -- 27: polyphase
+   "\n"                     &    -- 28: line
+   " Back to main menu\n"   &    -- 29: close submenu
+
+   " Audio improvements\n"  &    -- 30: on/off
+   "\n"                     &    -- 31: line
+   " About & Help\n"        &    -- 32: help
+   "\n"                     &    -- 33: line
+   " Close Menu\n";              -- 34: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -333,7 +358,7 @@ constant OPTM_ITEMS        : string :=
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_ADF        : integer := 1;   -- mount ADF for df0 (manual CRT/ROM load 0)
 constant OPTM_G_HDMI       : integer := 2;
-constant OPTM_G_CRT        : integer := 3;
+constant OPTM_G_FILTER     : integer := 3;   -- HDMI Filter radio; mirrored as OPTM_G_FLT in CORE/m2m-rom/m2m-rom.asm
 constant OPTM_G_Audio      : integer := 4;
 constant OPTM_G_About      : integer := 5;
 
@@ -364,12 +389,26 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 15: Close submenu / back to main menu
 
                                              OPTM_G_LINE,                              -- 16: Line
-                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,        -- 17: CRT emulation on/off
-                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- 18: Audio improvements on/off
+
+                                             OPTM_G_SUBMENU,                           -- 17: HDMI Filter submenu block: "HDMI: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 18: Headline "HDMI Filter"
                                              OPTM_G_LINE,                              -- 19: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 20: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 21: Line
-                                             OPTM_G_CLOSE                              -- 22: Close Menu
+                                             OPTM_G_FILTER,                            -- 20: No Filter
+                                             OPTM_G_FILTER,                            -- 21: Sharp Bilinear
+                                             OPTM_G_FILTER,                            -- 22: Bicubic
+                                             OPTM_G_FILTER,                            -- 23: Smooth
+                                             OPTM_G_FILTER + OPTM_G_STDSEL,            -- 24: Lanczos (default)
+                                             OPTM_G_FILTER,                            -- 25: Scanlines
+                                             OPTM_G_FILTER,                            -- 26: CRT (S-Video)
+                                             OPTM_G_FILTER,                            -- 27: CRT (Composite)
+                                             OPTM_G_LINE,                              -- 28: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 29: Close submenu / back to main menu
+
+                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- 30: Audio improvements on/off
+                                             OPTM_G_LINE,                              -- 31: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 32: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 33: Line
+                                             OPTM_G_CLOSE                              -- 34: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

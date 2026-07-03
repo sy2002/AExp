@@ -7,8 +7,9 @@
 -- minimig.v's host port (IO_UIO, IO_STROBE, IO_DIN, IO_WAIT). The MEGA65 has no HPS, so this small
 -- FSM replays the configuration sequence after every M2M reset, leaving rtl/userio.v completely
 -- UNTOUCHED. It configures: A500 OCS PAL chipset, 68000 CPU, 512KB Chip + 512KB Slow + 0 Fast RAM,
--- bootloader video defaults, 1 floppy drive, no IDE, default joysticks, default audio mix - and
--- finally releases the CPU so that the 68000 boots from the (M2M-preloaded) Kickstart ROM.
+-- bootloader video defaults, 1 floppy drive, no IDE, Amiga-authentic joystick/mouse port mapping
+-- (joy_swap, see sequence entry 7), default audio mix - and finally releases the CPU so that the
+-- 68000 boots from the (M2M-preloaded) Kickstart ROM.
 --
 -- This module runs entirely in the clk_main (28.375 MHz) domain, the same clock that drives
 -- minimig.v's "clk" input.
@@ -172,7 +173,12 @@ architecture synthesis of amiga_config is
       4 => (cmd => x"F6", payload => x"0000"),  -- video: blver=0 (Agnus hbl), ar=0, scanline=0
       5 => (cmd => x"F7", payload => x"0000"),  -- floppy: 1 drive (floppy_config[3:2]=00), normal speed
       6 => (cmd => x"F8", payload => x"0000"),  -- harddisk: no IDE controller, no master/slave HDD
-      7 => (cmd => x"F9", payload => x"0000"),  -- joystick: no swap, no CD32 pads, no analog
+      7 => (cmd => x"F9", payload => x"0008"),  -- joystick: joy_swap=1 (IO_DIN[3]), no CD32 pads,
+                                                --   no analog. userio.v CROSS-maps its inputs by
+                                                --   default (_sjoy1 <= _joy2, userio.v:267-274);
+                                                --   the swap makes MEGA65 port N = Amiga port N:
+                                                --   mouse in port 1, joystick in port 2 - like a
+                                                --   real A500
       8 => (cmd => x"F2", payload => x"0000"),  -- audio mix = 00 (full stereo separation)
       9 => (cmd => x"F1", payload => x"0000")   -- release usrrst/cpurst/cpuhlt: 4 frames later the
                                                 --   68000 boots from Kickstart via the OVL overlay
