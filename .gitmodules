@@ -3,5 +3,5 @@
 	url = https://github.com/sy2002/QNICE-FPGA
 [submodule "CORE/Minimig_MiSTerMEGA65"]
 	path = CORE/Minimig_MiSTerMEGA65
-	url = https://github.com/MiSTer-devel/Minimig-AGA_MiSTer.git
+	url = https://github.com/sy2002/Minimig_MiSTerMEGA65.git
 	branch = develop
