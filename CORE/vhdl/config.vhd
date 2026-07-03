@@ -62,8 +62,8 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 constant SCR_WELCOME : string :=
 
-   "Amiga 500 for MEGA65 - Version 0.1 ALPHA\n" &
-   "MiSTer Minimig-AGA port, 2026\n\n" &
+   "Amiga 500 for MEGA65 - Version 1 ALPHA 2\n" &
+   "MiSTer Minimig-AGA port, by sy2002 in 2026\n\n" &
 
    "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
    "done by sy2002 and MJoergen\n\n\n" &
@@ -83,9 +83,9 @@ constant SCR_WELCOME : string :=
 
 constant HELP_1 : string :=
 
-   "\n Amiga 500 for MEGA65 - V0.1 ALPHA\n\n" &
+   "\n Amiga 500 for MEGA65 - V1 ALPHA 2\n\n" &
 
-   " MiSTer Minimig-AGA port, 2026\n" &
+   " MiSTer Minimig-AGA port, by sy2002 in 2026\n" &
    " Powered by MiSTer2MEGA65\n\n\n" &
 
    " Emulated machine:\n\n" &
@@ -103,7 +103,7 @@ constant HELP_1 : string :=
 
 constant HELP_2 : string :=
 
-   "\n Amiga 500 for MEGA65 - V0.1 ALPHA\n\n" &
+   "\n Amiga 500 for MEGA65 - V1 ALPHA 2\n\n" &
 
    " SD card setup:\n\n" &
    " The SD card must be FAT32 formatted\n" &
@@ -153,7 +153,7 @@ constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
 constant DIR_START         : string := "/amiga";
-constant CFG_FILE          : string := "/amiga/aexpcfg";
+constant CFG_FILE          : string := "/amiga/aexp-wip-V1-A2.cfg";
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
