@@ -71,16 +71,39 @@ SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
 
 ; FILTER_FILES callback function:
 ;
-; Called by the file- and directory browser. Used to make sure that the 
+; Called by the file- and directory browser. Used to make sure that the
 ; browser is only showing valid files and directories.
 ;
 ; Input:
 ;   R8: Name of the file in capital letters
 ;   R9: 0=file, 1=directory
-;  R10: @TODO: Future release: Context (see CTX_* in sysdef.asm)
+;  R10: Context (see CTX_* in sysdef.asm)
+;  R11: Menu group id (see config.vhd) of the menu item that is responsible
+;       for triggering FILTER_FILES
 ; Output:
 ;   R8: 0=do not filter file, i.e. show file
-FILTER_FILES    XOR     R8, R8                  ; R8 = 0 = do not filter file
+FILTER_FILES    INCRB
+                MOVE    R9, R0
+
+                CMP     1, R9                   ; do not filter directories
+                RBRA    _FFILES_RET_0, Z
+
+                CMP     CTX_LOAD_ROM, R10       ; only filter in the ADF
+                RBRA    _FFILES_RET_0, !Z       ; load context
+                CMP     OPTM_G_ADF, R11         ; menu item " ADF:%s"?
+                RBRA    _FFILES_RET_0, !Z
+
+                MOVE    ADF_FILE_EXT, R9        ; only show .adf files
+                RSUB    M2M$CHK_EXT, 1          ; preserves R8/R9/R10
+                RBRA    _FFILES_RET_0, C        ; extension matched: show it
+
+                MOVE    1, R8                   ; no match: filter it
+                RBRA    _FFILES_RET, 1
+
+_FFILES_RET_0   XOR     R8, R8                  ; R8 = 0 = do not filter file
+
+_FFILES_RET     MOVE    R0, R9
+                DECRB
                 RET
 
 ; PREP_LOAD_IMAGE callback function:
@@ -92,14 +115,67 @@ FILTER_FILES    XOR     R8, R8                  ; R8 = 0 = do not filter file
 ; "image type". In case this is used at the core of your choice, make sure
 ; you return the correct image type.
 ;
+; The ADF is streamed into the C_DEV_AMIGA_ADF device, which bridges into a
+; 4 MB HyperRAM region (see globals.vhd). We range-guard the file size to
+; 160..166 tracks x 5632 bytes = 901,120..934,912 bytes BEFORE streaming, so
+; an absurd (renamed) file can never stream past the region. The exact
+; multiple-of-5632 validation happens in the core-side CSR responder
+; (adf_mount_wrapper.vhd), which reports "Invalid ADF size" to the OSM.
+;
 ; Input:
 ;   R8: File handle: You are allowed to modify the read pointer of the handle
-;   R9: @TODO: Future release: Context (see CTX_* in sysdef.asm)
+;   R9: Context (see CTX_* in sysdef.asm)
+;  R10: Menu group id (see config.vhd) of the menu item that is responsible
+;       for triggering PREP_LOAD_IMAGE
 ; Output:
 ;   R8: 0=OK, error code otherwise
 ;   R9: image type if R8=0, otherwise 0 or optional ptr to  error msg string
-PREP_LOAD_IMAGE XOR     R8, R8                  ; no errors
+PREP_LOAD_IMAGE INCRB
+
+                CMP     CTX_LOAD_ROM, R9        ; only guard the ADF load
+                RBRA    _PREP_LI_OK, !Z
+                CMP     OPTM_G_ADF, R10
+                RBRA    _PREP_LI_OK, !Z
+
+                MOVE    R8, R0                  ; R0: file size low word
+                MOVE    R8, R1                  ; R1: file size high word
+                ADD     FAT32$FDH_SIZE_LO, R0
+                MOVE    @R0, R0
+                ADD     FAT32$FDH_SIZE_HI, R1
+                MOVE    @R1, R1
+
+                ; valid range: 901,120 (0x000DC000) .. 934,912 (0x000E4400).
+                ; QNICE CMP sets N for UNSIGNED src>dst (V is the signed one),
+                ; so plain compares would work for any value; the bit masks
+                ; below are used purely for clarity/symmetry.
+                CMP     0x000D, R1              ; high word 0x000D?
+                RBRA    _PREP_LI_HID, Z
+                CMP     0x000E, R1              ; high word 0x000E?
+                RBRA    _PREP_LI_BAD, !Z
+
+                ; high word 0x000E: low word must be <= 0x4400
+                MOVE    R0, R2
+                AND     0x8000, R2              ; lo >= 0x8000 can never be ok
+                RBRA    _PREP_LI_BAD, !Z
+                CMP     0x4400, R0              ; both positive: exact compare
+                RBRA    _PREP_LI_OK, N          ; lo <  0x4400: OK
+                RBRA    _PREP_LI_OK, Z          ; lo == 0x4400: OK
+                RBRA    _PREP_LI_BAD, 1         ; lo >  0x4400: too big
+
+                ; high word 0x000D: low word must be >= 0xC000
+_PREP_LI_HID    MOVE    R0, R2
+                AND     0xC000, R2              ; >= 0xC000 iff bits 15+14 set
+                CMP     0xC000, R2
+                RBRA    _PREP_LI_BAD, !Z
+
+_PREP_LI_OK     XOR     R8, R8                  ; no errors
                 XOR     R9, R9                  ; image type hardcoded to 0
+                DECRB
+                RET
+
+_PREP_LI_BAD    MOVE    1, R8                   ; error: invalid size
+                MOVE    WRN_ADF_SIZE, R9
+                DECRB
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -183,7 +259,19 @@ CUSTOM_MSG      XOR     R8, R8
 ; Core specific constants and strings
 ; ----------------------------------------------------------------------------
 
-; Add your core specific constants and strings here
+; Menu group id of the " ADF:%s" mount item - MUST match OPTM_G_ADF in
+; config.vhd (the Shell passes the plain group id to the callbacks)
+OPTM_G_ADF      .EQU    1
+
+; ADF file extension (needs to be upper case)
+ADF_FILE_EXT    .ASCII_W ".ADF"
+
+; Warning: file size out of the valid ADF range
+WRN_ADF_SIZE    .ASCII_P "\n\nThis is not a valid ADF disk image:\n"
+                .ASCII_P "the file size must be 901,120 bytes\n"
+                .ASCII_P "(880 KB standard ADF; 81..83-track over-\n"
+                .ASCII_P "dumps up to 934,912 bytes are accepted)."
+                .ASCII_W "\n\nPress SPACE to continue.\n"
 
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0

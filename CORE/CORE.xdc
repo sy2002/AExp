@@ -45,5 +45,9 @@ set_max_delay -datapath_only 13.400 \
 ## Notes for timing review after the first synthesis (do not enable blindly):
 ## - rtl/minimig_m68k_bridge.v uses a logic signal (_as_and_cs) as an async
 ##   preset (infers FDPE) - check the timing report for it.
-## - rtl/paula_floppy.v has 'posedge clk or negedge IO_ENA' blocks; IO_FPGA is
-##   tied '0' in this milestone, so these registers stay cleared.
+## - rtl/paula_floppy.v has 'posedge clk or negedge IO_ENA' blocks. Since the
+##   ADF floppy milestone, IO_ENA (= IO_FPGA) is LIVE: it is driven by a
+##   plain main_clk register in adf_track_engine.vhd (io_fpga_o, no
+##   combinational gating), so the async CLR pins get same-clock
+##   recovery/removal checks that Vivado analyzes automatically - verify
+##   them in the timing report of every build.

@@ -4,7 +4,7 @@
 -- Wrapper for the MiSTer Minimig core that runs exclusively in the core's
 -- clock domain (28.375 MHz). This file replaces MiSTer's emu module
 -- (Minimig.sv): clocking enables, CPU phase generation, host configuration,
--- keyboard, video and audio glue.
+-- ADF floppy service, keyboard, video and audio glue.
 --
 -- Wiring follows .research/INTEGRATION-SPEC-video-audio.md and the port
 -- contract in .research/phase-a/sweep-minimig.md / cpu_wrapper.md.
@@ -23,7 +23,8 @@ use work.video_modes_pkg.all;
 
 entity main is
    generic (
-      G_VDNUM                 : natural                     -- amount of virtual drives
+      G_VDNUM                 : natural;                    -- amount of virtual drives
+      G_ADF_BASE_ADDRESS      : std_logic_vector(21 downto 0)  -- ADF image HyperRAM word base
    );
    port (
       clk_main_i              : in  std_logic;
@@ -65,6 +66,23 @@ entity main is
       -- LEDs of the emulated Amiga
       pwr_led_o               : out std_logic;
       fdd_led_o               : out std_logic;
+
+      -- ADF floppy mount status (from adf_mount_wrapper via mega65.vhd,
+      -- already CDC'd to clk_main)
+      adf_mounted_i           : in  std_logic;
+      adf_tracks_i            : in  std_logic_vector(7 downto 0);
+
+      -- ADF floppy image read port: Avalon-MM master in the clk_main domain
+      -- (post avm_cache; mega65.vhd crosses it to the HyperRAM clock)
+      adf_avm_write_o         : out std_logic;
+      adf_avm_read_o          : out std_logic;
+      adf_avm_address_o       : out std_logic_vector(31 downto 0);
+      adf_avm_writedata_o     : out std_logic_vector(15 downto 0);
+      adf_avm_byteenable_o    : out std_logic_vector( 1 downto 0);
+      adf_avm_burstcount_o    : out std_logic_vector( 7 downto 0);
+      adf_avm_readdata_i      : in  std_logic_vector(15 downto 0);
+      adf_avm_readdatavalid_i : in  std_logic;
+      adf_avm_waitrequest_i   : in  std_logic;
 
       -- M2M Keyboard interface
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
@@ -156,9 +174,11 @@ architecture synthesis of main is
          hdd_led        : out std_logic;
 
          io_uio         : in  std_logic;
+         io_fpga        : in  std_logic;
          io_strobe      : in  std_logic;
          io_wait        : out std_logic;
          io_din         : in  std_logic_vector(15 downto 0);
+         io_dout        : out std_logic_vector(15 downto 0);
 
          hsync_n        : out std_logic;
          vsync_n        : out std_logic;
@@ -265,11 +285,40 @@ architecture synthesis of main is
    signal cpu_ph1          : std_logic := '0';
    signal cpu_ph2          : std_logic := '0';
 
-   -- host config interface (amiga_config FSM -> minimig userio)
+   -- shared minimig host bus: amiga_config (userio channel, enable io_uio) and
+   -- adf_track_engine (floppy channel, enable io_fpga) share IO_STROBE/IO_DIN.
+   -- The enables are mutually exclusive by construction: amiga_config owns the
+   -- bus from reset until it parks in ST_DONE (cfg_done), the engine only runs
+   -- while cfg_done='1' and drops everything the moment amiga_rst asserts.
    signal io_uio           : std_logic;
+   signal io_fpga          : std_logic;
    signal io_strobe        : std_logic;
    signal io_din           : std_logic_vector(15 downto 0);
+   signal io_dout          : std_logic_vector(15 downto 0);
    signal io_wait          : std_logic;
+
+   signal cfg_strobe       : std_logic;
+   signal cfg_din          : std_logic_vector(15 downto 0);
+   signal cfg_done         : std_logic;
+
+   signal eng_strobe       : std_logic;
+   signal eng_din          : std_logic_vector(15 downto 0);
+
+   -- adf_track_engine -> avm_cache (raw single-word Avalon reads)
+   signal flp_avm_write         : std_logic;
+   signal flp_avm_read          : std_logic;
+   signal flp_avm_address       : std_logic_vector(31 downto 0);
+   signal flp_avm_writedata     : std_logic_vector(15 downto 0);
+   signal flp_avm_byteenable    : std_logic_vector( 1 downto 0);
+   signal flp_avm_burstcount    : std_logic_vector( 7 downto 0);
+   signal flp_avm_readdata      : std_logic_vector(15 downto 0);
+   signal flp_avm_readdatavalid : std_logic;
+   signal flp_avm_waitrequest   : std_logic;
+
+   -- cache held in reset while nothing is mounted: in-flight HyperRAM responses
+   -- from an aborted fetch drain into the reset cache and are discarded (the
+   -- C64 REU precedent; both conditions hold for >= tens of ms)
+   signal adf_cache_rst    : std_logic;
 
    -- keyboard
    signal kbd_mouse_data   : std_logic_vector(7 downto 0);
@@ -424,11 +473,85 @@ begin
          clk_main_i       => clk_main_i,
          reset_i          => amiga_rst,
          io_uio_o         => io_uio,
-         io_strobe_o      => io_strobe,
-         io_din_o         => io_din,
+         io_strobe_o      => cfg_strobe,
+         io_din_o         => cfg_din,
          io_wait_i        => io_wait,
-         cpu_reset_done_o => open
+         cpu_reset_done_o => cfg_done
       ); -- i_amiga_config
+
+   ---------------------------------------------------------------------------
+   -- ADF floppy: track engine on the floppy host channel + host-bus mux
+   --
+   -- The engine replaces MiSTer's ARM-side HandleFDD: it polls Paula over
+   -- io_fpga frames, MFM-encodes the mounted ADF's sectors from HyperRAM and
+   -- pushes them into Paula's FIFO. Read-only; details and protocol contract
+   -- in adf_track_engine.vhd / .research/INTEGRATION-SPEC-floppy-adf.md.
+   ---------------------------------------------------------------------------
+
+   -- the strobe OR is safe only because the enables are mutually exclusive
+   io_strobe <= cfg_strobe or eng_strobe;
+   io_din    <= cfg_din when cfg_done = '0' else eng_din;
+
+   i_adf_track_engine : entity work.adf_track_engine
+      generic map (
+         G_BASE_ADDRESS => G_ADF_BASE_ADDRESS
+      )
+      port map (
+         clk_main_i          => clk_main_i,
+         reset_i             => amiga_rst,
+         bus_grant_i         => cfg_done,
+         disk_mounted_i      => adf_mounted_i,
+         disk_tracks_i       => adf_tracks_i,
+
+         io_fpga_o           => io_fpga,
+         io_strobe_o         => eng_strobe,
+         io_din_o            => eng_din,
+         io_dout_i           => io_dout,
+         io_wait_i           => io_wait,
+
+         avm_write_o         => flp_avm_write,
+         avm_read_o          => flp_avm_read,
+         avm_address_o       => flp_avm_address,
+         avm_writedata_o     => flp_avm_writedata,
+         avm_byteenable_o    => flp_avm_byteenable,
+         avm_burstcount_o    => flp_avm_burstcount,
+         avm_readdata_i      => flp_avm_readdata,
+         avm_readdatavalid_i => flp_avm_readdatavalid,
+         avm_waitrequest_i   => flp_avm_waitrequest
+      ); -- i_adf_track_engine
+
+   -- single-line read cache: turns the engine's sequential single-word reads
+   -- into 8-word HyperRAM bursts (the proven C64 REU value)
+   adf_cache_rst <= amiga_rst or not adf_mounted_i;
+
+   i_avm_cache : entity work.avm_cache
+      generic map (
+         G_CACHE_SIZE   => 8,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                 => clk_main_i,
+         rst_i                 => adf_cache_rst,
+         s_avm_waitrequest_o   => flp_avm_waitrequest,
+         s_avm_write_i         => flp_avm_write,
+         s_avm_read_i          => flp_avm_read,
+         s_avm_address_i       => flp_avm_address,
+         s_avm_writedata_i     => flp_avm_writedata,
+         s_avm_byteenable_i    => flp_avm_byteenable,
+         s_avm_burstcount_i    => flp_avm_burstcount,
+         s_avm_readdata_o      => flp_avm_readdata,
+         s_avm_readdatavalid_o => flp_avm_readdatavalid,
+         m_avm_waitrequest_i   => adf_avm_waitrequest_i,
+         m_avm_write_o         => adf_avm_write_o,
+         m_avm_read_o          => adf_avm_read_o,
+         m_avm_address_o       => adf_avm_address_o,
+         m_avm_writedata_o     => adf_avm_writedata_o,
+         m_avm_byteenable_o    => adf_avm_byteenable_o,
+         m_avm_burstcount_o    => adf_avm_burstcount_o,
+         m_avm_readdata_i      => adf_avm_readdata_i,
+         m_avm_readdatavalid_i => adf_avm_readdatavalid_i
+      ); -- i_avm_cache
 
    ---------------------------------------------------------------------------
    -- Keyboard: MEGA65 keys -> raw Amiga scancode events
@@ -505,9 +628,11 @@ begin
          hdd_led        => open,
 
          io_uio         => io_uio,
+         io_fpga        => io_fpga,
          io_strobe      => io_strobe,
          io_wait        => io_wait,
          io_din         => io_din,
+         io_dout        => io_dout,
 
          hsync_n        => vid_hsync_n,
          vsync_n        => vid_vsync_n,

@@ -276,6 +276,20 @@ signal main_kick_q_l          : std_logic_vector(7 downto 0);
 signal main_pwr_led           : std_logic;
 signal main_fdd_led           : std_logic;
 
+-- ADF floppy: track engine's HyperRAM read port (main_clk side, post avm_cache
+-- in main.vhd) and the mount status CDC'd from the QNICE domain
+signal main_adf_avm_write         : std_logic;
+signal main_adf_avm_read          : std_logic;
+signal main_adf_avm_address       : std_logic_vector(31 downto 0);
+signal main_adf_avm_writedata     : std_logic_vector(15 downto 0);
+signal main_adf_avm_byteenable    : std_logic_vector( 1 downto 0);
+signal main_adf_avm_burstcount    : std_logic_vector( 7 downto 0);
+signal main_adf_avm_readdata      : std_logic_vector(15 downto 0);
+signal main_adf_avm_readdatavalid : std_logic;
+signal main_adf_avm_waitrequest   : std_logic;
+signal main_adf_mounted           : std_logic;
+signal main_adf_tracks            : std_logic_vector(7 downto 0);
+
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
@@ -291,28 +305,59 @@ signal qnice_kick_we_l        : std_logic;
 signal qnice_kick_q_u         : std_logic_vector(7 downto 0);
 signal qnice_kick_q_l         : std_logic_vector(7 downto 0);
 
+-- ADF mount buffer device 0x0103 (adf_mount_wrapper)
+signal qnice_adf_ce           : std_logic;
+signal qnice_adf_data         : std_logic_vector(15 downto 0);
+signal qnice_adf_wait         : std_logic;
+signal qnice_adf_mounted      : std_logic;
+signal qnice_adf_tracks       : std_logic_vector(7 downto 0);
+
+---------------------------------------------------------------------------------------------
+-- hr_clk (HyperRAM clock domain)
+---------------------------------------------------------------------------------------------
+
+-- ADF track engine read chain after the main->hr CDC (avm_fifo below)
+signal hr_flp_avm_write           : std_logic;
+signal hr_flp_avm_read            : std_logic;
+signal hr_flp_avm_address         : std_logic_vector(31 downto 0);
+signal hr_flp_avm_writedata       : std_logic_vector(15 downto 0);
+signal hr_flp_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal hr_flp_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal hr_flp_avm_readdata        : std_logic_vector(15 downto 0);
+signal hr_flp_avm_readdatavalid   : std_logic;
+signal hr_flp_avm_waitrequest     : std_logic;
+
+-- ADF mount wrapper's Avalon master (the QNICE->hr CDC lives inside the wrapper)
+signal hr_adf_avm_write           : std_logic;
+signal hr_adf_avm_read            : std_logic;
+signal hr_adf_avm_address         : std_logic_vector(31 downto 0);
+signal hr_adf_avm_writedata       : std_logic_vector(15 downto 0);
+signal hr_adf_avm_byteenable      : std_logic_vector( 1 downto 0);
+signal hr_adf_avm_burstcount      : std_logic_vector( 7 downto 0);
+signal hr_adf_avm_readdata        : std_logic_vector(15 downto 0);
+signal hr_adf_avm_readdatavalid   : std_logic;
+signal hr_adf_avm_waitrequest     : std_logic;
+
 ---------------------------------------------------------------------------------------------
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
 ---------------------------------------------------------------------------------------------
 
-constant C_MENU_HDMI_16_9_50  : natural :=  5;
-constant C_MENU_HDMI_16_9_60  : natural :=  6;
-constant C_MENU_HDMI_4_3_50   : natural :=  7;
-constant C_MENU_HDMI_5_4_50   : natural :=  8;
-constant C_MENU_HDMI_640_60   : natural :=  9;
-constant C_MENU_HDMI_720_5994 : natural := 10;
-constant C_MENU_SVGA_800_60   : natural := 11;
-constant C_MENU_CRT_EMULATION : natural := 15;
-constant C_MENU_IMPROVE_AUDIO : natural := 16;
+-- (the " ADF:%s" mount item at line 2 is handled by the Shell itself and needs
+-- no C_MENU constant; it shifted everything below it by 2 lines)
+constant C_MENU_HDMI_16_9_50  : natural :=  7;
+constant C_MENU_HDMI_16_9_60  : natural :=  8;
+constant C_MENU_HDMI_4_3_50   : natural :=  9;
+constant C_MENU_HDMI_5_4_50   : natural := 10;
+constant C_MENU_HDMI_640_60   : natural := 11;
+constant C_MENU_HDMI_720_5994 : natural := 12;
+constant C_MENU_SVGA_800_60   : natural := 13;
+constant C_MENU_CRT_EMULATION : natural := 17;
+constant C_MENU_IMPROVE_AUDIO : natural := 18;
 
 begin
 
-   hr_core_write_o      <= '0';
-   hr_core_read_o       <= '0';
-   hr_core_address_o    <= (others => '0');
-   hr_core_writedata_o  <= (others => '0');
-   hr_core_byteenable_o <= (others => '0');
-   hr_core_burstcount_o <= (others => '0');
+   -- hr_core_* is driven by the 2-master HyperRAM arbiter at the bottom of this
+   -- file (ADF track engine read chain + ADF mount wrapper write/read chain)
 
    -- Tristate all expansion port drivers that we can directly control
    cart_ctrl_oe_o       <= '0';
@@ -391,15 +436,15 @@ begin
    main_power_led_o     <= '1';
    main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else x"00FF00";
 
-   -- Amiga floppy LED on the MEGA65 drive LED (DMA activity; no drive in milestone 1,
-   -- but Paula still flashes it during boot probing)
+   -- Amiga floppy LED on the MEGA65 drive LED (Paula disk-DMA activity)
    main_drive_led_o     <= main_fdd_led;
    main_drive_led_col_o <= x"00FF00";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
       generic map (
-         G_VDNUM              => C_VDNUM
+         G_VDNUM              => C_VDNUM,
+         G_ADF_BASE_ADDRESS   => C_HMAP_ADF_DF0(9 downto 0) & x"000"
       )
       port map (
          clk_main_i           => main_clk,
@@ -438,6 +483,19 @@ begin
          -- LEDs of the emulated Amiga
          pwr_led_o            => main_pwr_led,
          fdd_led_o            => main_fdd_led,
+
+         -- ADF floppy: mount status and HyperRAM read port
+         adf_mounted_i        => main_adf_mounted,
+         adf_tracks_i         => main_adf_tracks,
+         adf_avm_write_o      => main_adf_avm_write,
+         adf_avm_read_o       => main_adf_avm_read,
+         adf_avm_address_o    => main_adf_avm_address,
+         adf_avm_writedata_o  => main_adf_avm_writedata,
+         adf_avm_byteenable_o => main_adf_avm_byteenable,
+         adf_avm_burstcount_o => main_adf_avm_burstcount,
+         adf_avm_readdata_i   => main_adf_avm_readdata,
+         adf_avm_readdatavalid_i => main_adf_avm_readdatavalid,
+         adf_avm_waitrequest_i   => main_adf_avm_waitrequest,
 
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
@@ -546,6 +604,9 @@ begin
    -- Device map (QNICE dev_addr is a BYTE address into the Amiga memories;
    -- even byte = data bits 15:8 (lane U), odd byte = bits 7:0 (lane L)):
    --   0x0100  C_DEV_AMIGA_KICK  256 KB  Kickstart ROM (mandatory auto-load target)
+   --   0x0103  C_DEV_AMIGA_ADF   ADF mount buffer in HyperRAM + CSR window 0xFFFF
+   --           (adf_mount_wrapper packs its own byte order - byte address bit 0
+   --           selects the HyperRAM word's LOW byte lane for EVEN addresses)
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
    -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
@@ -558,6 +619,7 @@ begin
 
       qnice_kick_we_u  <= '0';
       qnice_kick_we_l  <= '0';
+      qnice_adf_ce     <= '0';
 
       case qnice_dev_id_i is
 
@@ -569,6 +631,11 @@ begin
             else
                qnice_dev_data_o <= x"00" & qnice_kick_q_l;
             end if;
+
+         when C_DEV_AMIGA_ADF =>
+            qnice_adf_ce     <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_adf_data;
+            qnice_dev_wait_o <= qnice_adf_wait;
 
          when others => null;
       end case;
@@ -705,5 +772,141 @@ begin
          wren_b    => qnice_kick_we_l,
          q_b       => qnice_kick_q_l
       ); -- kick_rom_l
+
+   ---------------------------------------------------------------------------------------------
+   -- ADF floppy: HyperRAM plumbing
+   --
+   -- Two Avalon masters share the framework's hr_core_* port (100 MHz hr_clk):
+   --   * the mount wrapper (QNICE device 0x0103): Shell streams the ADF into
+   --     HyperRAM at load time; contains its own QNICE->hr avm_fifo CDC
+   --   * the track engine's read chain from main.vhd (post avm_cache), crossed
+   --     main->hr by the avm_fifo below
+   -- Pattern and generics follow C64MEGA65 (REU + mount buffer chains).
+   ---------------------------------------------------------------------------------------------
+
+   i_adf_mount_wrapper : entity work.adf_mount_wrapper
+      generic map (
+         G_BASE_ADDRESS => C_HMAP_ADF_DF0(9 downto 0) & x"000"
+      )
+      port map (
+         qnice_clk_i          => qnice_clk_i,
+         qnice_rst_i          => qnice_rst_i,
+         qnice_addr_i         => qnice_dev_addr_i,
+         qnice_data_i         => qnice_dev_data_i,
+         qnice_ce_i           => qnice_adf_ce,
+         qnice_we_i           => qnice_dev_we_i,
+         qnice_data_o         => qnice_adf_data,
+         qnice_wait_o         => qnice_adf_wait,
+
+         qnice_disk_mounted_o => qnice_adf_mounted,
+         qnice_disk_tracks_o  => qnice_adf_tracks,
+
+         hr_clk_i             => hr_clk_i,
+         hr_rst_i             => hr_rst_i,
+         hr_write_o           => hr_adf_avm_write,
+         hr_read_o            => hr_adf_avm_read,
+         hr_address_o         => hr_adf_avm_address,
+         hr_writedata_o       => hr_adf_avm_writedata,
+         hr_byteenable_o      => hr_adf_avm_byteenable,
+         hr_burstcount_o      => hr_adf_avm_burstcount,
+         hr_readdata_i        => hr_adf_avm_readdata,
+         hr_readdatavalid_i   => hr_adf_avm_readdatavalid,
+         hr_waitrequest_i     => hr_adf_avm_waitrequest
+      ); -- i_adf_mount_wrapper
+
+   -- mount status into the core clock domain (slowly varying flag + track count;
+   -- covered by M2M/common.xdc's cdc_stable set_max_delay constraint)
+   i_cdc_adf_mount : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 9,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i               => qnice_clk_i,
+         src_data_i(7 downto 0)  => qnice_adf_tracks,
+         src_data_i(8)           => qnice_adf_mounted,
+         dst_clk_i               => main_clk,
+         dst_data_o(7 downto 0)  => main_adf_tracks,
+         dst_data_o(8)           => main_adf_mounted
+      ); -- i_cdc_adf_mount
+
+   -- track engine read chain: main_clk -> hr_clk (domain resets - never the
+   -- core reset: the command FIFO resets from the s side, the response FIFO
+   -- from the m side, and resetting only one side desynchronizes the chain)
+   i_avm_fifo_adf : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => main_clk,
+         s_rst_i               => main_reset_m2m_i,
+         s_avm_waitrequest_o   => main_adf_avm_waitrequest,
+         s_avm_write_i         => main_adf_avm_write,
+         s_avm_read_i          => main_adf_avm_read,
+         s_avm_address_i       => main_adf_avm_address,
+         s_avm_writedata_i     => main_adf_avm_writedata,
+         s_avm_byteenable_i    => main_adf_avm_byteenable,
+         s_avm_burstcount_i    => main_adf_avm_burstcount,
+         s_avm_readdata_o      => main_adf_avm_readdata,
+         s_avm_readdatavalid_o => main_adf_avm_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => hr_flp_avm_waitrequest,
+         m_avm_write_o         => hr_flp_avm_write,
+         m_avm_read_o          => hr_flp_avm_read,
+         m_avm_address_o       => hr_flp_avm_address,
+         m_avm_writedata_o     => hr_flp_avm_writedata,
+         m_avm_byteenable_o    => hr_flp_avm_byteenable,
+         m_avm_burstcount_o    => hr_flp_avm_burstcount,
+         m_avm_readdata_i      => hr_flp_avm_readdata,
+         m_avm_readdatavalid_i => hr_flp_avm_readdatavalid
+      ); -- i_avm_fifo_adf
+
+   -- round-robin per whole transaction; the two masters never compete in
+   -- practice (mount writes while the engine is idle and vice versa)
+   i_avm_arbit_adf : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => false,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+
+         s0_avm_write_i         => hr_flp_avm_write,
+         s0_avm_read_i          => hr_flp_avm_read,
+         s0_avm_address_i       => hr_flp_avm_address,
+         s0_avm_writedata_i     => hr_flp_avm_writedata,
+         s0_avm_byteenable_i    => hr_flp_avm_byteenable,
+         s0_avm_burstcount_i    => hr_flp_avm_burstcount,
+         s0_avm_readdata_o      => hr_flp_avm_readdata,
+         s0_avm_readdatavalid_o => hr_flp_avm_readdatavalid,
+         s0_avm_waitrequest_o   => hr_flp_avm_waitrequest,
+
+         s1_avm_write_i         => hr_adf_avm_write,
+         s1_avm_read_i          => hr_adf_avm_read,
+         s1_avm_address_i       => hr_adf_avm_address,
+         s1_avm_writedata_i     => hr_adf_avm_writedata,
+         s1_avm_byteenable_i    => hr_adf_avm_byteenable,
+         s1_avm_burstcount_i    => hr_adf_avm_burstcount,
+         s1_avm_readdata_o      => hr_adf_avm_readdata,
+         s1_avm_readdatavalid_o => hr_adf_avm_readdatavalid,
+         s1_avm_waitrequest_o   => hr_adf_avm_waitrequest,
+
+         m_avm_write_o          => hr_core_write_o,
+         m_avm_read_o           => hr_core_read_o,
+         m_avm_address_o        => hr_core_address_o,
+         m_avm_writedata_o      => hr_core_writedata_o,
+         m_avm_byteenable_o     => hr_core_byteenable_o,
+         m_avm_burstcount_o     => hr_core_burstcount_o,
+         m_avm_readdata_i       => hr_core_readdata_i,
+         m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i    => hr_core_waitrequest_i
+      ); -- i_avm_arbit_adf
 
 end architecture synthesis;

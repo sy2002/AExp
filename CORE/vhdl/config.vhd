@@ -94,9 +94,9 @@ constant HELP_1 : string :=
    " 512 KB Chip RAM + 512 KB Slow RAM\n" &
    " Kickstart 1.3 (from /amiga/kick.rom)\n\n" &
 
-   " This ALPHA version has no floppy\n" &
-   " support yet: the core boots into the\n" &
-   " Kickstart 'insert disk' screen.\n\n" &
+   " Floppy: mount an .adf disk image via\n" &
+   " the ' ADF:' menu item (read-only).\n" &
+   " The disk boots after mounting.\n\n" &
 
    " Cursor right to learn more.       (1 of 2)\n" &
    " Press Space to close the help screen.";
@@ -281,7 +281,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 21;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 23;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,47 +289,53 @@ constant OPTM_SIZE         : natural := 21;  -- amount of items including empty 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
 -- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 10;
+constant OPTM_DY           : natural := 12;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
---   line  5: 720p 50 Hz  /  6: 720p 60 Hz  /  7: 576p 50 4:3  /  8: 576p 50 5:4
---   line  9: 640x480 60  / 10: 720x480 59.94 / 11: 800x600 60
---   line 15: CRT emulation / 16: Audio improvements
+--   line  7: 720p 50 Hz  /  8: 720p 60 Hz  /  9: 576p 50 4:3  / 10: 576p 50 5:4
+--   line 11: 640x480 60  / 12: 720x480 59.94 / 13: 800x600 60
+--   line 17: CRT emulation / 18: Audio improvements
+-- Line 2 (" ADF:%s") is a manual CRT/ROM load item handled by the Shell: it
+-- opens the file browser and streams the .adf into the C_DEV_AMIGA_ADF device.
 constant OPTM_ITEMS        : string :=
 
    " Amiga 500\n"           &    --  0: headline
    "\n"                     &    --  1: line
 
-   " HDMI: %s\n"            &    --  2: HDMI submenu
-   " HDMI Settings\n"       &    --  3: headline
-   "\n"                     &    --  4: line
-   " 720p 50 Hz 16:9\n"     &    --  5
-   " 720p 60 Hz 16:9\n"     &    --  6
-   " 576p 50 Hz 4:3\n"      &    --  7
-   " 576p 50 Hz 5:4\n"      &    --  8
-   " 640x480 60 Hz\n"       &    --  9
-   " 720x480 59.94 Hz\n"    &    -- 10
-   " 800x600 60 Hz\n"       &    -- 11
-   "\n"                     &    -- 12: line
-   " Back to main menu\n"   &    -- 13: close submenu
+   " ADF:%s\n"              &    --  2: mount ADF disk image (df0:)
+   "\n"                     &    --  3: line
 
+   " HDMI: %s\n"            &    --  4: HDMI submenu
+   " HDMI Settings\n"       &    --  5: headline
+   "\n"                     &    --  6: line
+   " 720p 50 Hz 16:9\n"     &    --  7
+   " 720p 60 Hz 16:9\n"     &    --  8
+   " 576p 50 Hz 4:3\n"      &    --  9
+   " 576p 50 Hz 5:4\n"      &    -- 10
+   " 640x480 60 Hz\n"       &    -- 11
+   " 720x480 59.94 Hz\n"    &    -- 12
+   " 800x600 60 Hz\n"       &    -- 13
    "\n"                     &    -- 14: line
-   " CRT emulation\n"       &    -- 15: on/off
-   " Audio improvements\n"  &    -- 16: on/off
-   "\n"                     &    -- 17: line
-   " About & Help\n"        &    -- 18: help
+   " Back to main menu\n"   &    -- 15: close submenu
+
+   "\n"                     &    -- 16: line
+   " CRT emulation\n"       &    -- 17: on/off
+   " Audio improvements\n"  &    -- 18: on/off
    "\n"                     &    -- 19: line
-   " Close Menu\n";              -- 20: close
+   " About & Help\n"        &    -- 20: help
+   "\n"                     &    -- 21: line
+   " Close Menu\n";              -- 22: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
 -- and be aware that you can only have a maximum of 254 groups (255 means "Close Menu");
 -- also make sure that your group numbers are monotonic increasing (e.g. 1, 2, 3, 4, ...)
 -- single-select items and therefore also drive mount items need to have unique identifiers
-constant OPTM_G_HDMI       : integer := 1;
-constant OPTM_G_CRT        : integer := 2;
-constant OPTM_G_Audio      : integer := 3;
-constant OPTM_G_About      : integer := 4;
+constant OPTM_G_ADF        : integer := 1;   -- mount ADF for df0 (manual CRT/ROM load 0)
+constant OPTM_G_HDMI       : integer := 2;
+constant OPTM_G_CRT        : integer := 3;
+constant OPTM_G_Audio      : integer := 4;
+constant OPTM_G_About      : integer := 5;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -340,26 +346,30 @@ type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC-
 constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,            --  0: Headline "Amiga 500"
                                              OPTM_G_LINE,                              --  1: Line
 
-                                             OPTM_G_SUBMENU + OPTM_G_START,            --  2: HDMI submenu block: START: "HDMI: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            --  3: Headline "HDMI Settings"
-                                             OPTM_G_LINE,                              --  4: Line
-                                             OPTM_G_HDMI + OPTM_G_STDSEL,              --  5: 720p 50 Hz 16:9, default
-                                             OPTM_G_HDMI,                              --  6: 720p 60 Hz 16:9
-                                             OPTM_G_HDMI,                              --  7: 576p 50 Hz 4:3
-                                             OPTM_G_HDMI,                              --  8: 576p 50 Hz 5:4
-                                             OPTM_G_HDMI,                              --  9: 640x480 60 Hz
-                                             OPTM_G_HDMI,                              -- 10: 720x480 59.94 Hz
-                                             OPTM_G_HDMI,                              -- 11: 800x600 60 Hz
-                                             OPTM_G_LINE,                              -- 12: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 13: Close submenu / back to main menu
+                                             OPTM_G_ADF + OPTM_G_LOAD_ROM
+                                                        + OPTM_G_START,                --  2: mount ADF (df0:); cursor start
+                                             OPTM_G_LINE,                              --  3: Line
 
+                                             OPTM_G_SUBMENU,                           --  4: HDMI submenu block: "HDMI: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            --  5: Headline "HDMI Settings"
+                                             OPTM_G_LINE,                              --  6: Line
+                                             OPTM_G_HDMI + OPTM_G_STDSEL,              --  7: 720p 50 Hz 16:9, default
+                                             OPTM_G_HDMI,                              --  8: 720p 60 Hz 16:9
+                                             OPTM_G_HDMI,                              --  9: 576p 50 Hz 4:3
+                                             OPTM_G_HDMI,                              -- 10: 576p 50 Hz 5:4
+                                             OPTM_G_HDMI,                              -- 11: 640x480 60 Hz
+                                             OPTM_G_HDMI,                              -- 12: 720x480 59.94 Hz
+                                             OPTM_G_HDMI,                              -- 13: 800x600 60 Hz
                                              OPTM_G_LINE,                              -- 14: Line
-                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,        -- 15: CRT emulation on/off
-                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- 16: Audio improvements on/off
-                                             OPTM_G_LINE,                              -- 17: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 18: About & Help (WHS(1))
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 15: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 16: Line
+                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,        -- 17: CRT emulation on/off
+                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,        -- 18: Audio improvements on/off
                                              OPTM_G_LINE,                              -- 19: Line
-                                             OPTM_G_CLOSE                              -- 20: Close Menu
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 20: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 21: Line
+                                             OPTM_G_CLOSE                              -- 22: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

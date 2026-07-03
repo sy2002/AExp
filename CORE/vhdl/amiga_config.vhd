@@ -112,7 +112,10 @@
 -- Integration notes for main.vhd:
 --   * io_uio_o    -> minimig IO_UIO,    io_strobe_o -> minimig IO_STROBE,
 --     io_din_o    -> minimig IO_DIN,    io_wait_i   <- minimig IO_WAIT.
---   * minimig IO_FPGA must be tied to '0' (no floppy/HDD host transfers in milestone 1).
+--   * IO_STROBE/IO_DIN are SHARED with the floppy channel (IO_FPGA, driven by
+--     adf_track_engine.vhd): main.vhd muxes the two masters, this FSM owns the
+--     bus from reset until cpu_reset_done_o (the engine's bus grant) - the two
+--     enables are never high simultaneously by construction.
 --   * reset_i must be the same M2M core reset that drives minimig's rst_ext, so that the
 --     sequence reruns after every core reset.
 --

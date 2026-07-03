@@ -79,9 +79,13 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 -- HyperRAM memory map (in units of 4kW)
 ----------------------------------------------------------------------------------------------------------
 
+-- The M2M framework's ascal framebuffer occupies bytes 0..2 MB (window 0x0000..
+-- 0x00FF); ascal triple-buffering MUST stay off (mega65.vhd qnice_ascal_triplebuf_o
+-- is tied '0'), otherwise the scaler would grow to 6 MB and overwrite the ADF.
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Reserved for the M2M framework
-constant C_HMAP_DEMO          : std_logic_vector(15 downto 0) := x"0200";     -- Start address reserved for core
-                                                                              -- (future: ADF disk image buffers)
+constant C_HMAP_ADF_DF0       : std_logic_vector(15 downto 0) := x"0200";     -- df0: ADF disk image, 880-935 KB
+                                                                              -- packed 2 bytes/word (adf_mount_wrapper.vhd)
+constant C_HMAP_ADF_DF1       : std_logic_vector(15 downto 0) := x"0280";     -- reserved for a future df1 (+1 MB)
 
 ----------------------------------------------------------------------------------------------------------
 -- QNICE device IDs of the Amiga core (must be >= 0x0100)
@@ -98,14 +102,21 @@ constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 constant C_DEV_AMIGA_CHIP     : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 
+-- ADF mount buffer (df0): byte-window bridge into HyperRAM plus the M2M CSR
+-- protocol in window 0xFFFF; the OSM " ADF:%s" menu item streams the disk
+-- image here (adf_mount_wrapper.vhd)
+constant C_DEV_AMIGA_ADF      : std_logic_vector(15 downto 0) := x"0103";
+
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System
 ----------------------------------------------------------------------------------------------------------
 
 -- Virtual drive management system (handled by vdrives.vhd and the firmware)
--- Milestone 1 of the Amiga port comes without floppy support, so the virtual
--- drive system is switched off. Later, ADF images (880 KB) will be mounted
--- here, buffered in HyperRAM.
+-- Permanently OFF for this core: Minimig's floppy does not speak the
+-- sd_*/img_mounted protocol that vdrives implements - ADF images are mounted
+-- via the manual CRT/ROM loader below (C_DEV_AMIGA_ADF) and served to Paula
+-- by adf_track_engine.vhd over the IO_FPGA host channel instead.
+-- See .research/INTEGRATION-SPEC-floppy-adf.md.
 type vd_buf_array is array(natural range <>) of std_logic_vector;
 constant C_VDNUM              : natural := 0;                                 -- amount of virtual drives; maximum is 15
 constant C_VD_DEVICE          : std_logic_vector(15 downto 0) := x"EEEE";     -- device number of vdrives.vhd device
@@ -129,9 +140,12 @@ constant C_CRTROMTYPE_MANDATORY  : std_logic_vector(15 downto 0) := x"0003";
 constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 
 -- Manually loadable ROMs and cartridges as defined in config.vhd
--- Not used by the Amiga core (yet).
-constant C_CRTROMS_MAN_NUM       : natural := 0;                                       -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE",
+-- Entry 0: the ADF disk image for df0, loaded via the OSM " ADF:%s" item into
+-- the C_DEV_AMIGA_ADF device (DEVICE type: the device itself bridges to
+-- HyperRAM and answers the CSR handshake - do NOT use C_CRTROMTYPE_HYPERRAM,
+-- whose manual-load CSR handshake has no responder and hangs the Shell).
+constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts
