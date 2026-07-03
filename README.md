@@ -1,76 +1,135 @@
-MiSTer2MEGA65
-=============
+Amiga 500 for MEGA65
+====================
 
-MiSTer2MEGA65 is a framework to simplify porting MiSTer cores to the MEGA65.
+Experience the [Commodore Amiga 500](https://en.wikipedia.org/wiki/Amiga_500)
+on your [MEGA65](https://mega65.org/)!
 
-![Title Image](doc/wiki/assets/MiSTer2MEGA65-Title.png)
+This core turns the MEGA65 into an Amiga 500 with the original OCS chipset
+(PAL), a cycle accurate 68000 CPU, 512 KB of Chip RAM and a 512 KB memory
+expansion in the trapdoor slot (known as Slow RAM, this is what the classic
+Commodore A501 expansion did). The Amiga therefore has 1 MB of RAM in total.
 
-Learn more by
-[watching this YouTube video](https://youtu.be/9Ib7z64z9N4)
-and get started by reading the
-[MiSTer2MEGA65 Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki).
+The core is work in progress and not officially released yet. There are
+rough edges and missing features, but the basics work: Workbench 1.3 boots
+from a mounted ADF disk image and classic demos and games load and run.
 
-TL;DR
------
+![Amiga500](doc/a500_ocs.jpg)
 
-1. Scroll up and press the "Use this template" button to start a new
-   MiSTer2MEGA65 project. Then fork the MiSTer core you want to port
-   and make it a Git submodule of your newly created project.
+Credits
+-------
 
-2. Wrap the MiSTer core inside `CORE/vhdl/main.vhd` while
-   adjusting the clocks in `CORE/vhdl/clk.vhd`. Provide RAMs, ROMs and other
-   devices in `CORE/vhdl/mega65.vhd` and wire everything correctly.
+* This core is based on the
+  [Minimig-AGA core of the MiSTer project](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer).
+  Minimig was originally created by Dennis van Weeren and has been improved
+  by many others over the years.
+* The CPU is [fx68k](https://github.com/ijor/fx68k) by Jorge Cwik, a cycle
+  accurate implementation of the 68000.
+* [sy2002](http://www.sy2002.de) ported the core to the MEGA65 in 2026.
+* The core uses the [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65)
+  framework and [QNICE-FPGA](https://github.com/sy2002/QNICE-FPGA) for
+  FAT32 support (loading the Kickstart ROM, mounting disks) and for the
+  on-screen-menu.
 
-3. Configure your core's behavior, including how the start screen looks like,
-   what ROMs should be loaded (and where to), the abilities of the
-   <kbd>Help</kbd> menu and more in `CORE/vhdl/config.vhd` and in
-   `CORE/vhdl/globals.vhd`.
+Features
+--------
 
-**DONE** your core is ported to MEGA65! :-)
+* Amiga 500, OCS chipset, PAL
+* Cycle accurate 68000 CPU
+* 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in total
+* One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
+  via the on-screen-menu, currently read-only
+* Kickstart 1.3
+* Real Amiga mouse in port 1, joystick in port 2, exactly like on a
+  real Amiga
+* MEGA65 keyboard mapped to the Amiga keyboard
 
-*Obviously, this is a shameless exaggeration of how easy it is to work with
-MiSTer2MEGA65, but you get the gist of it.*
+### Kickstart ROM
 
-Getting started, detailed documentation and support
----------------------------------------------------
+The core needs the Kickstart 1.3 ROM (revision 34.5, the 256 KB version
+that shipped with the Amiga 500). Put it on your SD card as
 
-* Please visit our official
-  [MiSTer2MEGA65 Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki). It
-  contains everything you ever wanted to know about M2M, including a
-  "Getting Started" tutorial and a step-by-step guide to port a MiSTer core.
-  You might whant to start your journey
-  [here](https://github.com/sy2002/MiSTer2MEGA65/wiki/1.-What-is-MiSTer2MEGA65)
-  and then follow the reading track that is pointed out in the
-  respective chapters.
+    /amiga/kick.rom
 
-* Post a question in our
-  [Discussion Forum](https://github.com/sy2002/MiSTer2MEGA65/discussions).
+as a raw dump of exactly 256 KB (262,144 bytes), no byte swapping. Without
+this file the core stops with an error message. Kickstart is copyrighted
+software, so it is not part of this repository or of any release; you need
+to obtain a legal copy yourself, for example from Cloanto's Amiga Forever.
 
-Status of the framework
+### Floppy disks
+
+Press <kbd>Help</kbd> to open the menu and mount a `*.adf` image via the
+`ADF:` item. The disk boots after mounting. Writing is not supported yet:
+every mounted disk appears write protected to the Amiga.
+
+### Mouse and joystick
+
+Plug the mouse into port 1 and the joystick into port 2, the same way you
+would on a real Amiga. A real Amiga mouse (the classic "tank mouse") works:
+movement and the left button behave exactly like on the original machine.
+
+The right mouse button is the one exception: an Amiga mouse signals it on a
+line that the MEGA65 hardware cannot read. The core therefore maps the right
+mouse button to the <kbd>Run/Stop</kbd> key. Hold <kbd>Run/Stop</kbd> to
+hold the right mouse button, for example to open the Workbench menus while
+moving the mouse.
+
+### Keyboard
+
+The most important mappings:
+
+| MEGA65                                                | Amiga                                    |
+|-------------------------------------------------------|------------------------------------------|
+| <kbd>MEGA</kbd>                                       | Left Amiga                               |
+| <kbd>RESTORE</kbd>                                    | Right Amiga                              |
+| <kbd>CTRL</kbd> + <kbd>MEGA</kbd> + <kbd>RESTORE</kbd> | Ctrl + Left Amiga + Right Amiga (reset) |
+| <kbd>Run/Stop</kbd>                                   | Right mouse button (hold)                |
+| <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9      |
+| <kbd>Shift</kbd> + F-key                              | F2, F4, F6, F8, F10 (as printed on the MEGA65 keycaps) |
+| <kbd>Help</kbd>                                       | Opens and closes the core's menu         |
+
+<kbd>Esc</kbd>, <kbd>Tab</kbd> and <kbd>Caps Lock</kbd> work as expected.
+Amiga keys that have no MEGA65 counterpart (for example the right Alt key
+and most of the numeric keypad) cannot be typed at the moment.
+
+### Video and audio
+
+HDMI outputs 720p at 50 Hz by default. You can select other HDMI modes and
+several scaling filters in the menu, from pixel sharp to CRT looks; the
+default is a Lanczos filter. We are still figuring out which modes and
+filters look best, so expect changes here. The VGA port carries an analog
+picture in parallel. Audio is available on HDMI and on the 3.5 mm jack.
+
+Constraints and roadmap
 -----------------------
 
-**The MiSTer2MEGA (M2M) framework is stable and ready for being used.**
-The first production quality core that is based on M2M is the
-[Commodore 64 for MEGA65](https://github.com/MJoergen/C64MEGA65).
-Additionally there is already
-[a decent amount of cores](https://sy2002.github.io/m65cores/)
-that are based on the M2M framework. Head to the
-[Alternate MEGA65 cores](https://sy2002.github.io/m65cores/)
-website to learn more.
+At this moment the core is an alpha version. The largest known gaps:
 
-The documentation of the M2M framework needs quite some more work before
-we will be able to call it "good enough" - let alone complete:
-[MiSTer2MEGA65 Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki)
+* Writing to disk images is not supported yet
+* Only one floppy drive (`df0:`)
+* No hard disk support
+* OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
 
-This should not discourage you from using the MiSTer2MEGA65 framework right
-now to port MiSTer cores and other cores to the MEGA65. You can use the
-source code of the
-[Commodore 64 for MEGA65](https://github.com/MJoergen/C64MEGA65)
-as your "user's manual" and "reference handbook" for the M2M framework.
+The list of work-in-progress builds lives in [doc/inofficial.md](doc/inofficial.md).
 
-Additionally to helping yourself with the Wiki (and the turorials there) and
-the C64 source code as your "user's manual" and "reference handbook": Post
-your question in the
-[Discussion Forum](https://github.com/sy2002/MiSTer2MEGA65/discussions)
-and join the
-[friendly MEGA65 community on Discord](https://discord.com/channels/719326990221574164/1177364456896999485).
+Installation
+------------
+
+There is no official release on the MEGA65 Filehost yet. If you have a
+`*.cor` or `*.bit` file of one of the work-in-progress builds:
+
+1. Use a FAT32 formatted SD card with a maximum capacity of 32 GB. The card
+   in the back slot has precedence over the card in the bottom slot.
+2. Copy the Kickstart ROM to `/amiga/kick.rom` as described above.
+3. Optional: copy the `aexp-<version>.cfg` file that comes with the build
+   into `/amiga` so that the core remembers your menu settings. Without the
+   file nothing breaks, your settings are just not saved. The file name
+   contains the core version, so after an upgrade you need the matching
+   file and need to re-select your settings once.
+4. Put your `*.adf` disk images into `/amiga`, the file browser starts
+   there.
+5. Flash the `*.cor` file using the MEGA65's bitstream utility, or, if you
+   have a JTAG adaptor, load the `*.bit` file directly with the
+   [M65 tool](https://github.com/MEGA65/mega65-tools):
+   `m65 -q yourbitstream.bit`.
+6. Press <kbd>Help</kbd> as soon as the core is running to mount a disk
+   and to configure the core.

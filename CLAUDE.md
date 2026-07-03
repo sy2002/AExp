@@ -69,7 +69,11 @@ the deep material lives in `doc/` (see "Key documents").
   `ASCAL_USAGE=1`, includes a backported `M2M$LOAD_POLYPHASE` — delete it
   when M2M is upgraded to V2.1+; coefficient blobs in `video_filters/`).
   `aexpcfg` = master OSM settings file, 35 bytes = OPTM_SIZE; SD name is
-  `/amiga/aexp-wip-V1-A2.cfg`.
+  `/amiga/aexp-<CORE_VERSION>.cfg` (currently `aexp-WIP-V1-A2.cfg`) —
+  `CORE_VERSION` in config.vhd is the single version source (welcome/help
+  screens, CORENAME, CFG_FILE all derive from it; `make_release.py`
+  validates it and packages releases, alpha rows live in
+  `doc/inofficial.md`).
 - `CORE/Minimig_MiSTerMEGA65/` — git submodule, upstream
   MiSTer-devel/Minimig-AGA_MiSTer. Branch **develop** carries all
   Xilinx/MEGA65 changes; master mirrors upstream. Every change to

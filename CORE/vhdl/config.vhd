@@ -60,9 +60,18 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
+-- The core's version string. Single source of truth (same convention as
+-- C64MEGA65, its GitHub issue #182): this constant is used by SCR_WELCOME,
+-- HELP_1 and HELP_2 (the welcome and help screens just below), by CORENAME
+-- (the serial-terminal banner further down) and by CFG_FILE (the on-SD-card
+-- config filename further down). Update this one line when releasing a new
+-- version; make_release.py parses it and uses it as the official version
+-- string for that release.
+constant CORE_VERSION : string := "WIP-V1-A2";
+
 constant SCR_WELCOME : string :=
 
-   "Amiga 500 for MEGA65 - Version 1 ALPHA 2\n" &
+   "Amiga 500 for MEGA65 - " & CORE_VERSION & "\n" &
    "MiSTer Minimig-AGA port, by sy2002 in 2026\n\n" &
 
    "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
@@ -83,7 +92,7 @@ constant SCR_WELCOME : string :=
 
 constant HELP_1 : string :=
 
-   "\n Amiga 500 for MEGA65 - V1 ALPHA 2\n\n" &
+   "\n Amiga 500 for MEGA65 - " & CORE_VERSION & "\n\n" &
 
    " MiSTer Minimig-AGA port, by sy2002 in 2026\n" &
    " Powered by MiSTer2MEGA65\n\n\n" &
@@ -103,7 +112,7 @@ constant HELP_1 : string :=
 
 constant HELP_2 : string :=
 
-   "\n Amiga 500 for MEGA65 - V1 ALPHA 2\n\n" &
+   "\n Amiga 500 for MEGA65 - " & CORE_VERSION & "\n\n" &
 
    " SD card setup:\n\n" &
    " The SD card must be FAT32 formatted\n" &
@@ -153,7 +162,7 @@ constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
 constant DIR_START         : string := "/amiga";
-constant CFG_FILE          : string := "/amiga/aexp-wip-V1-A2.cfg";
+constant CFG_FILE          : string := "/amiga/aexp-" & CORE_VERSION & ".cfg";
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -232,7 +241,7 @@ constant SEL_CORENAME      : std_logic_vector(15 downto 0) := x"0200";
 
 -- Currently this is only used in the debug console. Use the welcome screen and the
 -- help system to display the name and version of your core to the end user
-constant CORENAME          : string := "Amiga 500 for MEGA65 V0.1 ALPHA";
+constant CORENAME          : string := "Amiga 500 for MEGA65 " & CORE_VERSION;
 
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu  (Selectors 0x0300 .. 0x0312): DO NOT TOUCH

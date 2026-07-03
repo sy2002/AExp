@@ -1,42 +1,41 @@
-YOUR PROJECT NAME for MEGA65 aka GITHUB REPO SHORT NAME
-=======================================================
+Amiga 500 for MEGA65 aka AExp
+=============================
 
-done in YEAR by YOUR NAME
+done in 2026 by sy2002    github.com/sy2002    www.sy2002.de
 
-YOUR WEBSITE
-YOUR GITHUB SITE
+AExp is licensed under the terms of GNU/GPL v3, for more information
+please read the file LICENSE. Parts of AExp are licensed under other
+Free-software licenses as described in the source code.
 
-REPO SHORT NAME is licensed under the terms of GNU/GPL v3, for more information please read the file LICENSE
-Parts of REPO SHORT NAME are licensed under other Free-software licenses as described in the source code
+AExp:
+-----
 
-GITHUB REPO SHORT NAME:
------------------------
-
-  GITHUB REPO SHORT NAME is a port of MISTER'S REPO SHORT NAME
+  AExp is a port of MiSTer's Minimig-AGA core, reduced in scope to an
+  Amiga 500 with the OCS chipset,
       done by the MiSTer Development Team
-      Original GitHub Repository: https://github.com/MiSTer-devel/MISTER-REPO-LINK
+      Original GitHub Repository: https://github.com/MiSTer-devel/Minimig-AGA_MiSTer
       Significant contributors:
-      * NAME THE MAIN
-      * CONTRIBUTORS
-      * ON MiSTer's SIDE
+      * Alexey Melnikov (sorgelig)
 
-  MISTER'S REPO SHORT NAME is a port of MiST's MiST NAME/OTHER SOURCE IN CASE MiSTer ported it from MIST/OTHER SOURCE
-      done by the MiST Development Team
-      Original GitHub Repository: https://github.com/mist-devel/MIST-REPO-LINK OR OTHER SOURCE
+  MiSTer's Minimig-AGA continues the Minimig ports for the MiST and
+  Altera DE1 boards, which added the AGA chipset and many other features,
       Significant contributors:
-      * NAME THE MAIN
-      * CONTRIBUTORS
-      * ON MiST's SIDE (OR OTHER SOURCE)
+      * Rok Krajnc
+      * Tobias Gubener
 
-  LIST SOME MORE SIGNIFICANT / MAIN AUTHERS OF SUBMODULES
-  HAVE A LOOK AT THIS EXAMPLE HOW TO: https://github.com/sy2002/gbc4mega65/blob/master/AUTHORS
+  Minimig is the original re-implementation of the Amiga in an FPGA,
+      done by Dennis van Weeren in 2005-2007
+      https://en.wikipedia.org/wiki/Minimig
+      Significant contributors:
+      * Jakub Bednarski
 
-Other than that and my own work, REPO SHORT NAME uses:
-------------------------------------------------------
+  The 68000 CPU is fx68k, a cycle accurate implementation,
+      done by Jorge Cwik
+      https://github.com/ijor/fx68k
 
-DO NOT FORGET TO CREDIT EVERYTHING YOU USE FROM OTHER PEOPLE HERE
-THE FOLLOWING LIST NEEDS ALWAYS TO BE PART OF YOUR LIST:
-  
+Other than that and my own work, AExp uses:
+-------------------------------------------
+
   * MiSTer2MEGA65 by The MiSTer2MEGA65 Development Team
     https://github.com/sy2002/MiSTer2MEGA65
 
@@ -46,19 +45,23 @@ THE FOLLOWING LIST NEEDS ALWAYS TO BE PART OF YOUR LIST:
   * Various MEGA65 drivers taken from the MEGA65 VHDL source by Paul Gardner-Stephen
     https://github.com/MEGA65/mega65-core
 
-  * VGA Timing Generator, done by Scott Larson
-    https://www.digikey.com/eewiki/pages/viewpage.action?pageId=15925278
-
   * VGA to HDMI converter IP core, done by Adam Barnes
     https://github.com/amb5l/tyto2
 
   * AVALON SCALER used for scaling to 720p for HDMI, done by temlib.org
     http://temlib.org/site/?page_id=10
 
+  * Polyphase video scaling filter coefficients from the MiSTer project,
+    taken from the collection curated for C64MEGA65
+    https://github.com/MiSTer-devel/Filters_MiSTer
+
   * HyperRAM controller, done by MJoergen
     https://mjoergen.github.io/HyperRAM/
 
-  * Debouncer: I/O debouncing used for the joysticks, done by Scott Larson
+  * VGA Timing Generator, done by Scott Larson
+    https://www.digikey.com/eewiki/pages/viewpage.action?pageId=15925278
+
+  * Debouncer: I/O debouncing, done by Scott Larson
     https://www.digikey.com/eewiki/pages/viewpage.action?pageId=4980758
 
   * Anikki-16x16 font, archived and provided by k80w
@@ -69,3 +72,12 @@ THE FOLLOWING LIST NEEDS ALWAYS TO BE PART OF YOUR LIST:
 
   * PSF font to C include file converter psftools-1.1.1 by John Elliott
     https://www.seasip.info/Unix/PSF/
+
+The following resources were invaluable for developing AExp:
+------------------------------------------------------------
+
+  * Anthropic Fable 5
+
+  * The ARM-side Minimig support code of the MiSTer project (Main_MiSTer):
+    the floppy disk protocol of this core follows its implementation
+    https://github.com/MiSTer-devel/Main_MiSTer
