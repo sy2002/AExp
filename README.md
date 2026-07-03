@@ -68,7 +68,8 @@ would on a real Amiga. A real Amiga mouse (the classic "tank mouse") works:
 movement and the left button behave exactly like on the original machine.
 
 The right mouse button is the one exception: an Amiga mouse signals it on a
-line that the MEGA65 hardware cannot read. The core therefore maps the right
+line that the MEGA65 R3 hardware cannot read. Maybe there is a path on the
+R6 hardware that we will explore later. The core therefore maps the right
 mouse button to the <kbd>Run/Stop</kbd> key. Hold <kbd>Run/Stop</kbd> to
 hold the right mouse button, for example to open the Workbench menus while
 moving the mouse.
