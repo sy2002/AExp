@@ -256,7 +256,10 @@ architecture synthesis of main is
    -- Modeled on C64 main.vhd "RESET SEMANTICS", simplified: no prevent_reset
    -- yet (no vdrives in milestone 1), hard and soft reset both perform a full
    -- Amiga reset. Replaces MiSTer's Minimig.sv reset_d synchronizer.
+   -- July 2026: the keyboard's CTRL+MEGA+RESTORE warm-boot pulse is a third
+   -- reset source (the real Amiga keyboard MCU's reset line).
    signal amiga_rst        : std_logic := '1';
+   signal kbd_core_reset   : std_logic;
 
    -- amiga_clk outputs
    signal clk7_en          : std_logic;
@@ -315,9 +318,13 @@ architecture synthesis of main is
    signal flp_avm_readdatavalid : std_logic;
    signal flp_avm_waitrequest   : std_logic;
 
-   -- cache held in reset while nothing is mounted: in-flight HyperRAM responses
-   -- from an aborted fetch drain into the reset cache and are discarded (the
-   -- C64 REU precedent; both conditions hold for >= tens of ms)
+   -- cache held in reset while nothing is mounted or the Amiga resets:
+   -- in-flight HyperRAM responses from an aborted fetch are discarded (the C64
+   -- REU precedent). Note amiga_rst can be as short as ~64 cycles (keyboard
+   -- warm boot) - shorter than a worst-case in-flight burst - so the guarantee
+   -- is NOT the reset duration: it is that (a) avm_cache ignores readdatavalid
+   -- outside its refill state, and (b) the engine cannot issue new reads until
+   -- bus grant + poll delay (>> 1 ms), long after any residue has drained.
    signal adf_cache_rst    : std_logic;
 
    -- keyboard
@@ -364,7 +371,7 @@ begin
    reset_proc : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then
-         amiga_rst <= reset_hard_i or reset_soft_i;
+         amiga_rst <= reset_hard_i or reset_soft_i or kbd_core_reset;
       end if;
    end process reset_proc;
 
@@ -567,7 +574,8 @@ begin
 
          kbd_mouse_data_o   => kbd_mouse_data,
          kbd_mouse_type_o   => kbd_mouse_type,
-         kms_level_o        => kms_level
+         kms_level_o        => kms_level,
+         core_reset_o       => kbd_core_reset
       ); -- i_keyboard
 
    ---------------------------------------------------------------------------

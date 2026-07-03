@@ -51,10 +51,10 @@
 --    0 INS/DEL         Backspace   ($41)    C64 DEL deletes to the left = Amiga Backspace
 --    1 RETURN          Return      ($44)
 --    2 CURSOR RIGHT    Crsr Right  ($4E)
---    3 F7              F7          ($56)
---    4 F1              F1          ($50)
---    5 F3              F3          ($52)
---    6 F5              F5          ($54)
+--    3 F7              F7          ($56)    Shift+F7 = F8 ($57), see "shifted F-keys" below
+--    4 F1              F1          ($50)    Shift+F1 = F2 ($51)
+--    5 F3              F3          ($52)    Shift+F3 = F4 ($53)
+--    6 F5              F5          ($54)    Shift+F5 = F6 ($55)
 --    7 CURSOR DOWN     Crsr Down   ($4D)
 --    8..39, 41, 42     3 W A 4 Z S E LSHIFT 5 R D 6 C F T X 7 Y G 8 B H U V 9 I J 0 M K O N P L:
 --                      direct 1:1 mapping, see table below
@@ -89,8 +89,9 @@
 --   65 TAB             Tab         ($42)
 --   66 ALT             Left Alt    ($64)
 --   67 HELP            Help        ($5F)
---   68 F9              F9          ($58)
---   69 F11             F10         ($59)    Amiga only has F1..F10
+--   68 F9              F9          ($58)    Shift+F9 = F10 ($59)
+--   69 F11             F10         ($59)    Amiga only has F1..F10; note F10 is reachable
+--                                           both here and via Shift+F9 (harmless overlap)
 --   70 F13             - unmapped -         Amiga only has F1..F10
 --   71 ESC             Esc         ($45)
 --   72 CAPS LOCK       Caps Lock   ($62)    special, see comment below
@@ -100,14 +101,44 @@
 --                                           the right-Amiga menu shortcuts of Workbench & apps
 --   76..79             - unused -           not populated on the MEGA65 keyboard
 --
+-- SHIFTED F-KEYS (July 2026): the MEGA65 keycaps promise F2/F4/F6/F8/F10 as the shifted variants
+-- of the physical F1/F3/F5/F7/F9 keys, but the scanner reports the PHYSICAL key plus the shift
+-- key - forwarding that 1:1 would make the Amiga see Shift+F1, which Amiga software does not
+-- treat as F2 (and worse: in apps like ProTracker the shift qualifier changes the meaning).
+-- Therefore this module translates: when a shift key is physically held while F1/F3/F5/F7/F9 is
+-- pressed, the Amiga receives the NEXT F-keycode (all Amiga F-codes are $50..$59 with even base
+-- codes, so "shifted variant" = base+1) - and the shift keys are HIDDEN from the Amiga for the
+-- whole duration ("phantom shift" suppression, like PS/2-to-Amiga converters):
+-- * The Amiga-side shift state is tracked separately (shift_l_sent/shift_r_sent) and converges
+--   to "physical AND NOT suppressed". The shift BREAK codes are queued BEFORE the F2 make (the
+--   press edge is held back until the Amiga-side shifts read released), and the shift MAKE codes
+--   are re-queued only AFTER the F2 break - the Amiga never sees a shift qualifier together
+--   with a substituted F-key.
+-- * The substituted code is latched per key (fkey_shifted), so releasing shift before the F-key
+--   still sends the matching F2 break - no stuck keys.
+-- * Consequences, by design: Shift+F2 (etc.) cannot be typed (the shift is consumed by the
+--   substitution - same as on any C64-style keyboard); pressing shift WHILE an unshifted
+--   F1 is already held simply types Shift+F1 (no substitution after the fact); while a
+--   substituted F-key is held, the shift qualifier is hidden for ALL keys (inherent to
+--   phantom-shift suppression - shifted characters resume when the F-key is released);
+--   and the shift must lead the F-key by at least one scan sweep (~1 ms) - a faster chord
+--   (or holding Shift+F1 across a reset, which rebuilds the key mirror in scan order)
+--   delivers plain F1 plus shift for that press.
+--
+-- WARM BOOT (July 2026): Ctrl+LAmiga+RAmiga = CTRL+MEGA+RESTORE is detected here and pulses
+-- core_reset_o (one shot; re-armed only after the combo has been released for several scan
+-- sweeps, because the reset itself clears the key mirror). main.vhd ORs this into amiga_rst,
+-- which resets CPU+chipset via rst_ext while all memories keep their content - exactly the
+-- reset-line semantics of the real keyboard MCU. Note the FSM deliberately survives reset_i.
+-- Detection is by mirror STATE, so the combo also fires when it BECOMES visible: e.g. when
+-- the OSM closes (the OSM blanks the scan) or right after an M2M reset while the keys are
+-- still held - consistent with the user's intent of holding a reset combo. Keys still held
+-- after the boot are re-delivered as plain make codes once the 100 ms holdoff expires
+-- (real Amiga keyboards resend held keys after reset, too); Kickstart ignores them.
+--
 -- Known limitations (by design, documented for future milestones):
--- * Amiga keys with no MEGA65 counterpart cannot be typed: F2/F4/F6/F8 (the MEGA65 produces them
---   as Shift+F1/F3/F5/F7, but the scanner reports the same key number, so the Amiga sees e.g.
---   Shift+F1 - most Amiga software does not treat that as F2), Right Alt, the numeric pad
+-- * Amiga keys with no MEGA65 counterpart cannot be typed: Right Alt, the numeric pad
 --   (except '+' and '*' which we borrow, see above) and the international keys $2B/$30.
--- * Ctrl+LAmiga+RAmiga (= Ctrl+MEGA+RESTORE here) is NOT translated into a core reset: on real
---   hardware the keyboard MCU pulls the reset line, but Minimig on MiSTer has no such path either;
---   use the M2M reset (menu/reset button) instead.
 --
 -- CAPS LOCK: A real Amiga keyboard handles Caps Lock autonomously: it sends a single make code
 -- $62 when the lock (and LED) turns ON and a single break code $E2 when the lock turns OFF -
@@ -140,7 +171,10 @@ entity keyboard is
       -- raw Amiga keycode events, see protocol description in the header of this file
       kbd_mouse_data_o     : out std_logic_vector(7 downto 0); -- bits 6:0 keycode, bit 7 = 1: release
       kbd_mouse_type_o     : out std_logic_vector(1 downto 0); -- constant 2 = keyboard event
-      kms_level_o          : out std_logic                     -- toggles once per event
+      kms_level_o          : out std_logic;                    -- toggles once per event
+
+      -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot (one-shot pulse, see header)
+      core_reset_o         : out std_logic
    );
 end entity keyboard;
 
@@ -319,6 +353,20 @@ constant C_EVENT_PACE    : natural := 28_375;     -- 1 ms @ 28.375 MHz
 -- CIA-A's reset. 100 ms is safely beyond that, yet unnoticeable for the user.
 constant C_RESET_HOLDOFF : natural := 2_837_500;  -- 100 ms @ 28.375 MHz
 
+-- Warm-boot combo: reset pulse width and the re-arm guard time. The guard must exceed
+-- several 1 kHz scan sweeps, because the reset clears the key mirror and the still-held
+-- combo keys get re-mirrored within one sweep - without the guard that would re-trigger.
+constant C_RESET_PULSE   : natural := 63;         -- pulse = C_RESET_PULSE+1 cycles; minimig_
+                                                  -- syscontrol stretches it to ~80 ms anyway
+constant C_COMBO_REARM   : natural := 227_000;    -- ~8 ms of continuous release
+
+-- The five MEGA65 F-keys whose SHIFTED variant exists on the Amiga (F2/F4/F6/F8/F10).
+-- All Amiga F-key codes are $50..$59 with even base codes: shifted variant = base+1.
+pure function f_shiftable_fkey(n : integer) return boolean is
+begin
+   return n = m65_f1 or n = m65_f3 or n = m65_f5 or n = m65_f7 or n = m65_f9;
+end function f_shiftable_fkey;
+
 -- Mirror of the state of all 80 MEGA65 keys (low active, '1' = released), so that the 1 kHz
 -- scan generates exactly one event per press edge and one event per release edge
 signal key_pressed_n : std_logic_vector(79 downto 0) := (others => '1');
@@ -335,30 +383,129 @@ signal pace_cnt      : natural range 0 to C_RESET_HOLDOFF := 0;
 signal kms_level     : std_logic := '0';
 signal kbd_data      : std_logic_vector(7 downto 0) := (others => '0');
 
+-- shifted F-key substitution state (see "SHIFTED F-KEYS" in the header):
+-- fkey_shifted(k)='1': key k's make was sent as its shifted variant (base+1) - the
+-- matching break must use the same code, and the Amiga-side shifts stay suppressed
+-- while any such key is down. Only the five F-key positions are ever set.
+signal fkey_shifted  : std_logic_vector(79 downto 0) := (others => '0');
+signal shift_l_sent  : std_logic := '0';   -- shift state as the Amiga currently believes it
+signal shift_r_sent  : std_logic := '0';
+signal fwait         : std_logic := '0';   -- shifted-F make pending, waiting for shift breaks
+signal fwait_num     : integer range 0 to 79 := 0;
+
+-- CTRL+MEGA+RESTORE warm-boot one-shot (deliberately NOT cleared by reset_i - it
+-- triggers that very reset; see header)
+type t_rst_state is (RST_ARMED, RST_PULSE, RST_RELEASE);
+signal rst_state     : t_rst_state := RST_ARMED;
+signal rst_cnt       : natural range 0 to C_COMBO_REARM := 0;
+signal core_reset    : std_logic := '0';
+
 begin
 
    kbd_mouse_data_o  <= kbd_data;
    kbd_mouse_type_o  <= "10";       -- constant: 2 = keyboard event (raw Amiga keycode)
    kms_level_o       <= kms_level;
+   core_reset_o      <= core_reset;
 
    keyboard_events : process(clk_main_i)
-      variable v_amiga_code : std_logic_vector(7 downto 0);
+      variable v_amiga_code  : std_logic_vector(7 downto 0);
+      variable v_shift_phys  : std_logic;
+      variable v_suppress    : std_logic;
+      variable v_shift_des_l : std_logic;
+      variable v_shift_des_r : std_logic;
+      variable v_fifo_free   : boolean;
    begin
       if rising_edge(clk_main_i) then
 
-         -- Detect press/release edges of the key that the 1 kHz scanner currently presents.
-         -- The scanner dwells ~400 clock cycles on each key; the mirror register is updated
-         -- on the first cycle of a detected change, so each edge is queued exactly once.
          v_amiga_code := C_KEYMAP(kb_key_num_i);
-         if kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
-            -- keys that do not exist on the Amiga only update the mirror
-            if v_amiga_code = C_NO_KEY then
+         v_fifo_free  := (fifo_wr_ptr + 1) /= fifo_rd_ptr;
+         v_shift_phys := (not key_pressed_n(m65_left_shift)) or
+                         (not key_pressed_n(m65_right_shift));
+
+         -- Amiga-side shift suppression is wanted while a shifted-F make is pending
+         -- (fwait) or while any F-key sent as its shifted variant is still down
+         v_suppress := fwait
+                       or ((not key_pressed_n(m65_f1)) and fkey_shifted(m65_f1))
+                       or ((not key_pressed_n(m65_f3)) and fkey_shifted(m65_f3))
+                       or ((not key_pressed_n(m65_f5)) and fkey_shifted(m65_f5))
+                       or ((not key_pressed_n(m65_f7)) and fkey_shifted(m65_f7))
+                       or ((not key_pressed_n(m65_f9)) and fkey_shifted(m65_f9));
+
+         v_shift_des_l := (not key_pressed_n(m65_left_shift))  and (not v_suppress);
+         v_shift_des_r := (not key_pressed_n(m65_right_shift)) and (not v_suppress);
+
+         -- a pending shifted-F make goes stale when its key is released or the shift
+         -- is let go before consumption (the scanner revisits the key within 1 ms;
+         -- without shift the edge is then consumed as a plain unshifted F-key)
+         if fwait = '1' and kb_key_num_i = fwait_num then
+            if kb_key_pressed_n_i = '1' or v_shift_phys = '0' then
+               fwait <= '0';
+            end if;
+         end if;
+
+         -- One queued event per cycle, priority: converge the Amiga-side shift keys
+         -- first (this is what emits the phantom shift breaks/makes in the right
+         -- order relative to the substituted F-key events), then handle the edge of
+         -- the key the 1 kHz scanner currently presents. The scanner dwells ~400
+         -- cycles per key, so a one-cycle postponement never loses an edge; the
+         -- mirror register is only updated when an edge is actually consumed, so
+         -- postponed edges are simply retried (same mechanism as the FIFO-full case).
+         if shift_l_sent /= v_shift_des_l then
+            if v_fifo_free then
+               fifo(to_integer(fifo_wr_ptr)) <= (not v_shift_des_l) & "1100000";  -- $60 Left Shift
+               fifo_wr_ptr  <= fifo_wr_ptr + 1;
+               shift_l_sent <= v_shift_des_l;
+            end if;
+         elsif shift_r_sent /= v_shift_des_r then
+            if v_fifo_free then
+               fifo(to_integer(fifo_wr_ptr)) <= (not v_shift_des_r) & "1100001";  -- $61 Right Shift
+               fifo_wr_ptr  <= fifo_wr_ptr + 1;
+               shift_r_sent <= v_shift_des_r;
+            end if;
+         elsif kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
+
+            -- shift keys: mirror only - their Amiga events are generated by the
+            -- convergence logic above (from physical state minus suppression)
+            if kb_key_num_i = m65_left_shift or kb_key_num_i = m65_right_shift then
                key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
-            -- Amiga keys: only consume the edge when the event can actually be queued.
-            -- If the FIFO is full (practically unreachable), the mirror is left untouched,
-            -- so the edge is retried on the next 1 kHz sweep instead of being lost -
-            -- losing a RELEASE event would leave the key stuck on the Amiga side.
-            elsif (fifo_wr_ptr + 1) /= fifo_rd_ptr then
+
+            -- keys that do not exist on the Amiga only update the mirror
+            elsif v_amiga_code = C_NO_KEY then
+               key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
+
+            -- shifted-variant F-key make (Shift+F1 = F2 etc.): the Amiga-side shifts
+            -- must read as released BEFORE the substituted make is delivered, so the
+            -- edge is held back (fwait raises v_suppress, the convergence above queues
+            -- the shift breaks) until both sent-shift states are off
+            elsif kb_key_pressed_n_i = '0' and f_shiftable_fkey(kb_key_num_i)
+                  and v_shift_phys = '1' then
+               if shift_l_sent = '0' and shift_r_sent = '0' and v_fifo_free then
+                  key_pressed_n(kb_key_num_i)   <= '0';
+                  fifo(to_integer(fifo_wr_ptr)) <= '0' & v_amiga_code(6 downto 1) & '1';
+                  fifo_wr_ptr                   <= fifo_wr_ptr + 1;
+                  fkey_shifted(kb_key_num_i)    <= '1';
+                  fwait                         <= '0';
+               else
+                  fwait     <= '1';
+                  fwait_num <= kb_key_num_i;
+               end if;
+
+            -- release of an F-key that was sent as its shifted variant: break the SAME
+            -- code (base+1), regardless of where the physical shift is by now; the
+            -- suppressed shift makes follow one cycle later via the convergence logic
+            elsif kb_key_pressed_n_i = '1' and fkey_shifted(kb_key_num_i) = '1' then
+               if v_fifo_free then
+                  key_pressed_n(kb_key_num_i)   <= '1';
+                  fifo(to_integer(fifo_wr_ptr)) <= '1' & v_amiga_code(6 downto 1) & '1';
+                  fifo_wr_ptr                   <= fifo_wr_ptr + 1;
+                  fkey_shifted(kb_key_num_i)    <= '0';
+               end if;
+
+            -- all other Amiga keys: only consume the edge when the event can actually
+            -- be queued. If the FIFO is full (practically unreachable), the mirror is
+            -- left untouched, so the edge is retried on the next 1 kHz sweep instead
+            -- of being lost - losing a RELEASE would leave the key stuck on the Amiga.
+            elsif v_fifo_free then
                key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
                -- bit 7 = release flag: key released (kb_key_pressed_n_i = '1') => bit 7 = '1'
                fifo(to_integer(fifo_wr_ptr)) <= kb_key_pressed_n_i & v_amiga_code(6 downto 0);
@@ -384,10 +531,53 @@ begin
             fifo_wr_ptr   <= (others => '0');
             fifo_rd_ptr   <= (others => '0');
             pace_cnt      <= C_RESET_HOLDOFF;
+            -- the Amiga side resets too: shift/substitution bookkeeping restarts clean
+            fkey_shifted  <= (others => '0');
+            shift_l_sent  <= '0';
+            shift_r_sent  <= '0';
+            fwait         <= '0';
             -- deliberately NOT resetting kms_level/kbd_data: a stable level is a no-op for
             -- ciaa.v, while forcing it could generate a phantom keystrobe
          end if;
       end if;
    end process keyboard_events;
+
+   -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot. One-shot with a re-arm guard:
+   -- the reset pulse clears the key mirror (via reset_i in the process above), and the
+   -- still-held combo keys get re-mirrored within one 1 kHz sweep - so re-arming
+   -- requires the combo to be continuously absent for ~8 ms. This FSM is deliberately
+   -- NOT cleared by reset_i (it is the source of that reset).
+   reset_combo : process(clk_main_i)
+      variable v_combo : boolean;
+   begin
+      if rising_edge(clk_main_i) then
+         v_combo := key_pressed_n(m65_ctrl) = '0' and key_pressed_n(m65_mega) = '0'
+                    and key_pressed_n(m65_restore) = '0';
+         case rst_state is
+            when RST_ARMED =>
+               if v_combo then
+                  core_reset <= '1';
+                  rst_cnt    <= C_RESET_PULSE;
+                  rst_state  <= RST_PULSE;
+               end if;
+            when RST_PULSE =>
+               if rst_cnt /= 0 then
+                  rst_cnt <= rst_cnt - 1;
+               else
+                  core_reset <= '0';
+                  rst_cnt    <= C_COMBO_REARM;
+                  rst_state  <= RST_RELEASE;
+               end if;
+            when RST_RELEASE =>
+               if v_combo then
+                  rst_cnt <= C_COMBO_REARM;
+               elsif rst_cnt /= 0 then
+                  rst_cnt <= rst_cnt - 1;
+               else
+                  rst_state <= RST_ARMED;
+               end if;
+         end case;
+      end if;
+   end process reset_combo;
 
 end architecture beh;
