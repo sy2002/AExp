@@ -84,7 +84,8 @@
 --   60 SPACE           Space       ($40)
 --   61 MEGA            Left Amiga  ($66)    Workbench/Intuition shortcuts (LAmiga+N/M etc.)
 --   62 Q               Q           ($10)
---   63 RUN/STOP        - unmapped -         no Amiga counterpart (ESC has its own key)
+--   63 RUN/STOP        RIGHT MOUSE BUTTON   no Amiga keycode (ESC has its own key); the held
+--                                           state is exported on mouse_rmb_o, see below
 --   64 NO SCRL         - unmapped -         no Amiga counterpart
 --   65 TAB             Tab         ($42)
 --   66 ALT             Left Alt    ($64)
@@ -136,6 +137,17 @@
 -- after the boot are re-delivered as plain make codes once the 100 ms holdoff expires
 -- (real Amiga keyboards resend held keys after reset, too); Kickstart ignores them.
 --
+-- RIGHT MOUSE BUTTON substitute (July 2026): holding RUN/STOP (key 63, which has no Amiga
+-- keycode) is exported as a level on mouse_rmb_o; main.vhd ORs it into Minimig's mouse_btn(1).
+-- Hold RUN/STOP while moving/clicking the mouse = Amiga right mouse button (Workbench menus).
+-- Background: on a real Amiga the mouse right button shorts DB9 pin 9 (POTX) to GND while
+-- PAULA actively drives the pot lines high (input.device writes POTGO $FF00 and reads the pin
+-- level back via POTINP). The MEGA65's C64-style paddle circuit can only drain the line and
+-- passively time its recharge - it cannot drive it high - so a GND-shorting button is
+-- electrically invisible to it (verified with two Amiga tank mice on real R3 hardware,
+-- 2026-07-03). RUN/STOP events never reach the Amiga (C_NO_KEY, mirror-only), so the
+-- substitute cannot interfere with the keycode stream.
+--
 -- Known limitations (by design, documented for future milestones):
 -- * Amiga keys with no MEGA65 counterpart cannot be typed: Right Alt, the numeric pad
 --   (except '+' and '*' which we borrow, see above) and the international keys $2B/$30.
@@ -174,7 +186,10 @@ entity keyboard is
       kms_level_o          : out std_logic;                    -- toggles once per event
 
       -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot (one-shot pulse, see header)
-      core_reset_o         : out std_logic
+      core_reset_o         : out std_logic;
+
+      -- RUN/STOP held = Amiga right mouse button substitute (level, active high, see header)
+      mouse_rmb_o          : out std_logic
    );
 end entity keyboard;
 
@@ -406,6 +421,10 @@ begin
    kbd_mouse_type_o  <= "10";       -- constant: 2 = keyboard event (raw Amiga keycode)
    kms_level_o       <= kms_level;
    core_reset_o      <= core_reset;
+
+   -- right mouse button substitute: level straight from the key mirror (registered there);
+   -- reset_i clears the mirror, so the button reads released during/after reset
+   mouse_rmb_o       <= not key_pressed_n(m65_run_stop);
 
    keyboard_events : process(clk_main_i)
       variable v_amiga_code  : std_logic_vector(7 downto 0);

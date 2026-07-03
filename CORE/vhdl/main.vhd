@@ -360,6 +360,7 @@ architecture synthesis of main is
 
    -- Amiga mouse buttons in minimig format: active high {middle, right, left}
    signal mouse_btn        : std_logic_vector(2 downto 0);
+   signal kbd_mouse_rmb    : std_logic;   -- RUN/STOP held (right mouse button substitute)
 
 begin
 
@@ -578,7 +579,8 @@ begin
          kbd_mouse_data_o   => kbd_mouse_data,
          kbd_mouse_type_o   => kbd_mouse_type,
          kms_level_o        => kms_level,
-         core_reset_o       => kbd_core_reset
+         core_reset_o       => kbd_core_reset,
+         mouse_rmb_o        => kbd_mouse_rmb
       ); -- i_keyboard
 
    ---------------------------------------------------------------------------
@@ -602,17 +604,21 @@ begin
    -- Mouse buttons, active high {middle, right, left} (userio.v:419-421).
    -- The LEFT button is not wired here: it sits on the fire pin of the mouse
    -- port and flows through joy1_n(4) into CIA-A, exactly like real hardware.
-   -- The RIGHT button is DB9 pin 9 = POTX, which on the MEGA65 feeds the
-   -- C65-style POT measuring circuit: the framework samples it as a paddle
-   -- value (M2M mouse_input.vhdl, QNICE domain, CDC'd to clk_main) and
-   -- inverts it (255 - raw). A pressed button strongly pulls the line, so
-   -- raw ~0 => inverted >= 0x80 = pressed; a floating pin (button released,
-   -- or a joystick without pots) reads raw ~255 => inverted < 0x80 =
-   -- released, so a joystick in port 1 causes no phantom right clicks. Same
-   -- polarity that mega65-core's mouse_input.vhdl uses (raw MSB=0 =
-   -- pressed). If hardware tests show it inverted, negate pot1_x_i(7).
+   -- The RIGHT button of a real Amiga mouse shorts DB9 pin 9 (POTX) to GND
+   -- while PAULA actively drives the pot lines high (input.device writes
+   -- POTGO $FF00 and reads the pin level back via POTINP). The MEGA65's
+   -- C64-style paddle circuit can only drain the line and passively time its
+   -- recharge - it cannot drive it high - so a GND-shorting button is
+   -- electrically invisible to it (verified with two tank mice on real R3
+   -- hardware, 2026-07-03). The PRIMARY right button is therefore the
+   -- RUN/STOP key (no Amiga keycode, see keyboard.vhd): hold RUN/STOP =
+   -- right button held. The POT threshold stays wired in parallel for
+   -- third-party devices that DO pull the line high: the framework delivers
+   -- 255-x inverted paddle values (CDC'd to clk_main), so a line pulled high
+   -- reads >= 0x80 after inversion; a floating pin reads < 0x80 = released,
+   -- and a plain joystick in port 1 causes no phantom right clicks.
    -- Middle button (DB9 pin 5 = POTY) not wired - the tank mouse has none.
-   mouse_btn <= '0' & pot1_x_i(7) & '0';
+   mouse_btn <= '0' & (kbd_mouse_rmb or pot1_x_i(7)) & '0';
 
    ---------------------------------------------------------------------------
    -- The Minimig core itself
