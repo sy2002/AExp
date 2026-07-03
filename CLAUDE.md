@@ -152,9 +152,10 @@ knowledge — the deep material lives in `doc/` (see "Key documents").
    deft, PDF is tracked). Loader = OSM manual-load → QNICE→main CDC FIFO
    → upload engine drives userio 0xF0 → launcher ROM replaces kick.
    Hardware state deliberately NOT restored (V1); brief color flicker OK.
-3. **Floppy** (vdrives + HyperRAM ADF buffer + QNICE MFM service; MiSTer
-   does MFM encoding on the HPS — check M2M/QNICE/SD bandwidth first).
-   All floppy buffers in HyperRAM (rule 3).
+3. **Floppy** — READ doc/floppy_milestone_brief.md FIRST: Minimig's
+   floppy does NOT use vdrives/sd_* (despite what all other docs say);
+   architecture = CRT-style HYPERRAM mount + core-side track engine +
+   MFM encode. All buffers in HyperRAM (rule 3).
 4. Pending decision: publish to GitHub as sy2002/AExp (plan exists:
    fork Minimig upstream → sy2002/Minimig_MiSTerMEGA65, fix .gitmodules
    URL, add origin, push master+develop).
