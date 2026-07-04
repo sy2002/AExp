@@ -36,6 +36,11 @@ entity main is
       -- Make sure you pass very exact numbers here, because they are used for avoiding clock drift at derived clocks
       clk_main_speed_i        : in  natural;
 
+      -- Analog (VGA) output configuration: '1' = one of the retro 15 kHz OSM
+      -- modes is selected, i.e. the framework's scandoubler is bypassed; the
+      -- OSM overlay sampling rate follows suit (see video_ce_ovl_o)
+      video_retro15khz_i      : in  std_logic;
+
       -- Video output
       video_ce_o              : out std_logic;
       video_ce_ovl_o          : out std_logic;
@@ -352,6 +357,10 @@ architecture synthesis of main is
    signal fs_res           : std_logic_vector(1 downto 0) := "00";
    signal frame_hires      : std_logic := '0';
    signal vid_vs_d         : std_logic := '0';
+
+   -- divide-by-2 enable (14.19 MHz) for the OSM overlay sampling in the
+   -- retro 15 kHz VGA modes
+   signal vid_ce_ovl_half  : std_logic := '0';
 
    -- audio
    signal aud_ldata        : std_logic_vector(14 downto 0);
@@ -730,9 +739,17 @@ begin
 
    video_ce_o     <= clk7_en or (clk7n_en and frame_hires);
 
-   -- OSM overlay / analog sampling run at the full 28.375 MHz post-scandoubler
-   -- rate (retro 15 kHz mode is fixed off in milestone 1)
-   video_ce_ovl_o <= '1';
+   -- OSM overlay / analog sampling: full 28.375 MHz post-scandoubler rate in
+   -- the Standard VGA mode; half rate (14.19 MHz) when the scandoubler is
+   -- bypassed in the retro 15 kHz modes (same scheme as C64MEGA65 main.vhd)
+   ce_ovl_proc : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         vid_ce_ovl_half <= not vid_ce_ovl_half;
+      end if;
+   end process ce_ovl_proc;
+
+   video_ce_ovl_o <= '1' when video_retro15khz_i = '0' else vid_ce_ovl_half;
 
    ---------------------------------------------------------------------------
    -- Audio: Paula 15-bit signed -> 16-bit signed PCM (as MiSTer: {data, 1'b0})

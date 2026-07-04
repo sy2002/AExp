@@ -1,0 +1,28 @@
+# Release packaging metadata for the generic M2M make_release.py tool.
+
+[core]
+file_base = "AExp"
+display_name = "Amiga 500 for MEGA65"
+
+[version]
+check = "core_version_constant"
+file = "CORE/vhdl/config.vhd"
+constant = "CORE_VERSION"
+
+[cor]
+bit2core_tail = ""
+coretool_flags = ""
+coretool_caps = ""
+
+[shell_config]
+enabled = true
+filename = "aexp-{version}.cfg"
+
+[release_notes]
+versions_md = "optional"
+
+[alpha]
+inofficial_md = "required"
+
+[cleanup]
+stale_files = []

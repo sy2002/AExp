@@ -66,11 +66,12 @@ Whether it succeeds or fails, please bring:
   **Kickstart 1.3 (rev 34.5, A500/A1000/A2000)**, big-endian as dumped,
   **no byte swapping**. Without it the Shell shows a fatal error with the
   file name and the core will not start (by design).
-- Optional: `/amiga/aexp-WIP-V1-A2.cfg` for persistent OSM settings
+- Optional: `/amiga/aexp-<version>.cfg` for persistent OSM settings
   (the name derives from `CORE_VERSION` in config.vhd: `aexp-<version>.cfg`)
-  (copy the tracked master `CORE/m2m-rom/aexpcfg`, or create with
-  `M2M/tools/make_config.sh`; must be exactly 35 bytes = OPTM_SIZE;
-  without it, settings simply aren't saved).
+  (release packages built by `make_release.py` include it; for a dev SD
+  card create it with `M2M/tools/make_config.sh <name> auto`, run from
+  inside `M2M/tools`; must be exactly OPTM_SIZE bytes — 44 as of
+  WIP-V1-A3; without it, settings simply aren't saved).
 
 ## 5. Running the core
 
