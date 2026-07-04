@@ -46,6 +46,9 @@ entity main is
       video_hs_o              : out std_logic;
       video_hblank_o          : out std_logic;
       video_vblank_o          : out std_logic;
+      video_fl_o              : out std_logic;   -- interlace field flag: toggles per field
+                                                 -- while the Amiga sets BPLCON0 LACE, constant
+                                                 -- '0' otherwise; drives ascal's weave deinterlacer
 
       -- Audio output (Signed PCM)
       audio_left_o            : out signed(15 downto 0);
@@ -684,8 +687,10 @@ begin
          blue           => video_blue_o,
          ce_pix         => open,                 -- we use the frame-locked CE instead
          res            => vid_res,
-         lace           => open,                 -- milestone 1: cosmetic bob accepted
-         field1         => open,
+         lace           => open,                 -- would only gate the analog scandoubler
+                                                 -- (MiSTer: "& ~lace"); VGA keeps bob for now
+         field1         => video_fl_o,           -- field identity for ascal's weave deinterlacer
+                                                 -- (as MiSTer: assign VGA_F1 = field1)
 
          ldata          => aud_ldata,
          rdata          => aud_rdata

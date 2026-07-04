@@ -391,10 +391,13 @@ HDMI_FLT_TABLE  .DW OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,              
 ;                    the core.
 ;
 ;                    BACKPORT from M2M V2.1 (M2M/rom/tools.asm): our M2M
-;                    V2.0.1 framework does not ship this routine and M2M/ is
-;                    never modified in this repo, so it lives here. When the
+;                    V2.0.1 framework does not ship this routine and M2M/rom
+;                    firmware stays unmodified in this repo, so it lives here
+;                    (the only sanctioned M2M/ change is the VHDL interlace
+;                    feature, tagged M2M-UPSTREAM interlace). When the
 ;                    framework is upgraded to V2.1+, delete this copy -- the
-;                    assembler will flag the duplicate label.
+;                    assembler will flag the duplicate label -- and re-apply
+;                    or upstream the M2M-UPSTREAM interlace patch.
 ;
 ; Input:  R8 = pointer to a 256-word horizontal coefficient table
 ;         R9 = pointer to a 256-word vertical   coefficient table

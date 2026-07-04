@@ -42,6 +42,8 @@ entity av_pipeline is
       video_hs_i              : in  std_logic;
       video_hblank_i          : in  std_logic;
       video_vblank_i          : in  std_logic;
+      -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag for ascal
+      video_fl_i              : in  std_logic := '0';
       audio_clk_i             : in  std_logic; -- 12.288 MHz
       audio_rst_i             : in  std_logic;
       audio_left_i            : in  std_logic_vector(15 downto 0);
@@ -547,6 +549,10 @@ begin
          video_vs_i               => video_crop_vs,
          video_hblank_i           => video_crop_hblank,
          video_vblank_i           => video_crop_vblank,
+         -- M2M-UPSTREAM interlace (AExp 2026-07-04): frame-level metadata, bypasses
+         -- i_crop on purpose (ascal evaluates i_fl only at frame granularity, so the
+         -- one-clock pixel-path delay of crop is irrelevant)
+         video_fl_i               => video_fl_i,
          video_hdmax_o            => video_hdmax,
          video_vdmax_o            => video_vdmax,
          audio_clk_i              => audio_clk_i,

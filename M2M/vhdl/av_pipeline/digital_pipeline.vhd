@@ -40,6 +40,8 @@ entity digital_pipeline is
       video_vs_i               : in  std_logic;
       video_hblank_i           : in  std_logic;
       video_vblank_i           : in  std_logic;
+      -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag for ascal
+      video_fl_i               : in  std_logic := '0';
       audio_clk_i              : in  std_logic;  -- 12.288 MHz
       audio_rst_i              : in  std_logic;
       audio_left_i             : in  signed(15 downto 0); -- Signed PCM format
@@ -299,7 +301,13 @@ begin
          -- to the next power of two
          RAMSIZE   => to_unsigned(2**f_log2(G_VGA_DX * G_VGA_DY * 3), 32),
 
-         INTER     => false,        -- Not needed: Progressive input only
+         -- M2M-UPSTREAM interlace (AExp 2026-07-04): autodetect interlaced input from
+         -- i_fl toggling and weave both fields into a double-height framebuffer.
+         -- Behavior is bit-identical to INTER => false while i_fl stays constant
+         -- (ascal arms interlace handling only on an i_fl edge and disarms it three
+         -- vsyncs after toggling stops). Original: INTER => false ("Not needed:
+         -- Progressive input only")
+         INTER     => true,
          HEADER    => false,        -- Not needed: Used on MiSTer to read the sampled image back from the ARM side to do screenshots. The header provides informations such as image size.
          DOWNSCALE => false,        -- Not needed: We use ascal only to upscale
          DOWNSCALE_NN => true,      -- Not needed: true = remove logic
@@ -321,7 +329,7 @@ begin
          i_b               => unsigned(video_blue_i),       -- input
          i_hs              => video_hs_i,                   -- input
          i_vs              => video_vs_i,                   -- input
-         i_fl              => '0',                          -- input
+         i_fl              => video_fl_i,                   -- input -- M2M-UPSTREAM interlace (AExp 2026-07-04), original: '0'
          i_de              => not (video_hblank_i or video_vblank_i), -- input
          i_ce              => video_ce_i,                   -- input
          i_clk             => video_clk_i,                  -- input

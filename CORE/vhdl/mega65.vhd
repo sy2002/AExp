@@ -112,6 +112,7 @@ port (
    video_hs_o              : out std_logic;
    video_hblank_o          : out std_logic;
    video_vblank_o          : out std_logic;
+   video_fl_o              : out std_logic;  -- interlace field flag for ascal weave deinterlacing
 
    --------------------------------------------------------------------------------------------------------
    -- Core Clock Domain
@@ -458,7 +459,10 @@ begin
 
          -- Video output: PAL 15.625 kHz raw Amiga signal on the 28.375 MHz clock;
          -- the framework's scandoubler (qnice_scandoubler_o='1') doubles it for VGA
-         -- and ascal scales it for HDMI
+         -- and ascal scales it for HDMI. video_fl_o carries the interlace field
+         -- (toggles while LACE is set), which lets ascal weave-deinterlace laced
+         -- modes like 640x512 on the HDMI output; the VGA scandoubler stays
+         -- field-blind (bob).
          video_ce_o           => video_ce_o,
          video_ce_ovl_o       => video_ce_ovl_o,
          video_red_o          => video_red_o,
@@ -468,6 +472,7 @@ begin
          video_hs_o           => video_hs_o,
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
+         video_fl_o           => video_fl_o,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,

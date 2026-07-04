@@ -13,7 +13,10 @@ spec: `.research/INTEGRATION-SPEC-floppy-adf.md` (supersedes the vdrives
 advice AND three details of `doc/floppy_milestone_brief.md`). Milestone 1
 (Kickstart hand, 2026-06-10/11) preceded it. Timing closed (run 3: all
 AExp-owned groups ≥ +0.24 ns; global WNS +0.017 ns sits on the framework
-HyperRAM PHY path). Everything below is the distilled project knowledge —
+HyperRAM PHY path). **Interlace weave deinterlacing implemented
+2026-07-04** (minimig `field1` → new `video_fl` chain → ascal `i_fl`,
+`INTER => true`; see `doc/video_modes.md`), pending synthesis + hardware
+test. Everything below is the distilled project knowledge —
 the deep material lives in `doc/` (see "Key documents").
 
 ## The emulated machine
@@ -38,8 +41,14 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify.** Framework fixes go into
-  `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
+- `M2M/` — the framework. **NEVER modify**, with ONE sanctioned
+  exception: the interlace feature (new `video_fl_i` input through
+  framework → av_pipeline → digital_pipeline → ascal `i_fl`,
+  `INTER => true`), developed here as testbed for a later M2M upstream
+  merge. Every such change is tagged `M2M-UPSTREAM interlace` in-code
+  (greppable) and new inputs default to '0' (progressive cores
+  unaffected). All other framework fixes go into `CORE/CORE.xdc`
+  (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):
   - `mega65.vhd` — BRAM lanes (2×256K×8 chip, 2×256K×8 slow, 2×128K×8
@@ -47,7 +56,8 @@ the deep material lives in `doc/` (see "Key documents").
     (ADF), HyperRAM plumbing (avm_fifo CDC + 2-master arbiter →
     hr_core_*), OSM wiring
   - `main.vhd` — wraps minimig_m65 + cpu_wrapper + amiga_clk; fx68k phase
-    enables, frame-locked video CE, sync inversion, reset mapping, host
+    enables, frame-locked video CE, sync inversion, interlace field
+    export (`video_fl_o` ← minimig `field1`), reset mapping, host
     bus mux (amiga_config ↔ adf_track_engine) + avm_cache
   - `amiga_config.vhd` — FSM replaying MiSTer's HPS config via the userio
     protocol after every reset (0xF1=0x07 halt+reset, 0xF3=OCS,
@@ -212,6 +222,9 @@ the deep material lives in `doc/` (see "Key documents").
   grep it for any Vivado error), debugging playbook, port tables.
 - `doc/synthesis-handoff.md` — build/run history, expected warnings,
   timing-closure war story, OOM lesson.
+- `doc/video_modes.md` — Amiga OCS video modes and flicker taxonomy
+  (interlace vs intentional temporal effects), the field1→ascal weave
+  implementation, test recipes (incl. Batman Rises case study).
 - `doc/next_tests.md`, `doc/ramdump_format.md`,
   `doc/demo_delivery_spec.md` — roadmap and content pipeline.
 - `.research/` (local only) — integration specs and agent review reports

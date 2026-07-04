@@ -309,6 +309,7 @@ architecture synthesis of mega65_r6 is
    signal video_hs               : std_logic;
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
+   signal video_fl               : std_logic;   -- M2M-UPSTREAM interlace (AExp 2026-07-04)
 
    -- Joysticks and Paddles
    signal main_joy1_up_n_in      : std_logic;
@@ -664,6 +665,7 @@ begin
       video_hs_i              => video_hs,
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
+      video_fl_i              => video_fl,     -- M2M-UPSTREAM interlace (AExp 2026-07-04)
       main_joy1_up_n_o        => main_joy1_up_n_in,
       main_joy1_down_n_o      => main_joy1_down_n_in,
       main_joy1_left_n_o      => main_joy1_left_n_in,
@@ -834,6 +836,7 @@ begin
          video_hs_o              => video_hs,
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
+         video_fl_o              => video_fl,  -- M2M-UPSTREAM interlace (AExp 2026-07-04)
 
          -- Audio output (Signed PCM)
          main_audio_left_o       => main_audio_l,

@@ -132,6 +132,9 @@ port (
    video_hs_i              : in    std_logic;
    video_hblank_i          : in    std_logic;
    video_vblank_i          : in    std_logic;
+   -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag from the core,
+   -- feeds ascal's weave deinterlacer; the default keeps progressive-only cores unchanged
+   video_fl_i              : in    std_logic := '0';
    main_joy1_up_n_o        : out   std_logic;
    main_joy1_down_n_o      : out   std_logic;
    main_joy1_left_n_o      : out   std_logic;
@@ -884,6 +887,7 @@ begin
          video_hs_i              => video_hs_i,
          video_hblank_i          => video_hblank_i,
          video_vblank_i          => video_vblank_i,
+         video_fl_i              => video_fl_i,  -- M2M-UPSTREAM interlace (AExp 2026-07-04)
          audio_clk_i             => audio_clk,
          audio_rst_i             => audio_rst,
          audio_left_i            => audio_left,
