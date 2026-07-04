@@ -167,3 +167,24 @@ e2e4810). Fully routed, 0 errors, all 118109 endpoints met.
   NEXT build that Synth 8-7186 is gone and slice registers drop by ~4k.
 - Benign new warning: Synth 8-3936 trims the engine's status register
   16->9 bits (exactly the bits the FSM consumes).
+
+## Run 4 (2026-07-04, WIP-V1-A3 scope): TIMING CLOSED, all checks green
+
+Interlace weave deinterlacing (M2M-UPSTREAM tagged chain into ascal) plus
+the POT-line mouse buttons for active adapters (main.vhd pot_buttons:
+Amiga-true polarity, presence latch, 30 s unplug watchdog, middle button
+on pot1_y; doc/mouse.md section 8) plus the VGA 15 kHz modes.
+
+- WNS +0.176 ns, TNS 0, all 110411 endpoints met (hold +0.056, pulse
+  width +0.264). Worst path is again the framework HyperRAM PHY
+  (hb_ck_ddr_o_reg -> hr_clk_del ODDR), the same placement-wobbling
+  1-endpoint group as run 3 - not AExp logic; every AExp-owned group has
+  comfortable margin.
+- Fully routed, 0 routing errors. Synthesis: 0 errors, 0 critical
+  warnings. fx68k microrom/nanorom read successfully.
+- BRAM unchanged at 363.5/365 (the interlace weave lives in the HyperRAM
+  framebuffer, the mouse fix uses no memory; same Synth 8-5835 demotion
+  regime as before).
+- Run-3 finding VERIFIED FIXED: Synth 8-7186 is gone and slice registers
+  dropped 23619 -> 19509 (-4110): the track engine's sector buffer is
+  distributed RAM now.

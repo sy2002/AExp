@@ -70,12 +70,20 @@ Plug the mouse into port 1 and the joystick into port 2, the same way you
 would on a real Amiga. A real Amiga mouse (the classic "tank mouse") works:
 movement and the left button behave exactly like on the original machine.
 
-The right mouse button is the one exception: an Amiga mouse signals it on a
-line that the MEGA65 R3 hardware cannot read. Maybe there is a path on the
-R6 hardware that we will explore later. The core therefore maps the right
-mouse button to the <kbd>Run/Stop</kbd> key. Hold <kbd>Run/Stop</kbd> to
-hold the right mouse button, for example to open the Workbench menus while
-moving the mouse.
+The right mouse button is the one exception: an original Amiga mouse
+signals it on a wire that the MEGA65 hardware cannot sense. This applies
+to all MEGA65 models, R3 through R6 (we checked the schematics). The core
+therefore maps the right mouse button to the <kbd>Run/Stop</kbd> key: hold
+<kbd>Run/Stop</kbd> to hold the right mouse button, for example to open
+the Workbench menus while moving the mouse.
+
+Modern USB mouse adapters (mouSTer and similar) drive that wire actively,
+and with them the right mouse button, and even a middle button, simply
+work, on all MEGA65 models. One quirk is worth knowing: if you unplug such
+an adapter while the Amiga is running, the core can see a held right mouse
+button for up to half a minute (Workbench then shows its menu bar and
+pauses drawing) before everything returns to normal by itself. So swap
+your devices as you like, just give the core that moment.
 
 ### Keyboard
 

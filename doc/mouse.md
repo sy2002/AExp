@@ -125,7 +125,7 @@ The A2 build maps the right button as `mouse_btn(1) <= RUN/STOP-held OR main_pot
 The board revision does not appear in any row as a differentiator: **the mouse situation is identical on R3 through R6.** The R4+ bidirectional digital lines change nothing for mice.
 
 
-## 8. Fix concept (proposed, not yet implemented)
+## 8. Fix concept (implemented 2026-07-04 in `main.vhd`, `pot_buttons` process; targeted for the WIP-V1-A3 build)
 
 One board-independent change in `CORE/vhdl/main.vhd`, no M2M changes, no XDC changes, no per-revision builds:
 
@@ -160,9 +160,20 @@ Validation plan: bench-test with a real mouSTer (or any active adapter). Multime
 
 ## 10. Open items
 
-- [ ] Implement the section 8 fix (polarity + presence latch with the unplug timeout, optional MMB).
-- [ ] Bench-verify a mouSTer in Amiga mode (drive style, then RMB in Workbench on the fixed build).
-- [ ] Fix the latch auto-clear timeout value (order 30-60 s).
+- [x] Implement the section 8 fix: done 2026-07-04, `main.vhd` `pot_buttons`
+      process (RMB from `pot1_x`, MMB from `pot1_y`, per-button presence
+      latch and watchdog, cleared on core reset). Synthesized in run 4
+      (timing closed, see doc/synthesis-handoff.md) and regression-verified
+      on real R3 hardware with a tank mouse the same day: movement, left
+      button and RUN/STOP unchanged, no phantom clicks. Adapter-side
+      verification still open (next item).
+- [x] Latch auto-clear timeout fixed at 30 s (`C_POT_BTN_TIMEOUT`,
+      30 x 28,375,000 clk_main cycles). Rationale: without it, unplugging
+      an active adapter jams the right button permanently (only a core
+      reset recovers) and even the routine mouse-to-joystick swap for
+      two-player games breaks; with it, the worst legitimate cost is one
+      interrupted 30-second-plus button hold.
+- [ ] Bench-verify a mouSTer in Amiga mode (drive style, then RMB in Workbench on the fixed build); ask the R6 field tester to re-test with the fixed build.
 - [ ] Consider upstreaming a note to mega65-core: its `mouse_input.vhdl` Amiga-mouse right-button mapping (`pota_x_internal(7)`, pressed = line high) cannot trigger with passive Amiga mice for the same board-level reason (no pull-up on the POT pins); it likely only ever worked with active adapters, if at all.
 
 

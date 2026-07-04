@@ -374,6 +374,18 @@ architecture synthesis of main is
    signal mouse_btn        : std_logic_vector(2 downto 0);
    signal kbd_mouse_rmb    : std_logic;   -- RUN/STOP held (right mouse button substitute)
 
+   -- POT-line mouse buttons for active adapters (mouSTer and friends), see
+   -- the comment block at the mouse_btn assignment and doc/mouse.md.
+   -- Watchdog: 30 s at 28.375 MHz; releases a phantom "pressed" after the
+   -- adapter has been unplugged (floating line reads like a held button)
+   constant C_POT_BTN_TIMEOUT : natural := 30 * 28_375_000;
+   signal rmb_capable      : std_logic := '0';
+   signal mmb_capable      : std_logic := '0';
+   signal rmb_watchdog     : natural range 0 to C_POT_BTN_TIMEOUT := 0;
+   signal mmb_watchdog     : natural range 0 to C_POT_BTN_TIMEOUT := 0;
+   signal pot_rmb          : std_logic;
+   signal pot_mmb          : std_logic;
+
 begin
 
    ---------------------------------------------------------------------------
@@ -616,21 +628,73 @@ begin
    -- Mouse buttons, active high {middle, right, left} (userio.v:419-421).
    -- The LEFT button is not wired here: it sits on the fire pin of the mouse
    -- port and flows through joy1_n(4) into CIA-A, exactly like real hardware.
-   -- The RIGHT button of a real Amiga mouse shorts DB9 pin 9 (POTX) to GND
-   -- while PAULA actively drives the pot lines high (input.device writes
-   -- POTGO $FF00 and reads the pin level back via POTINP). The MEGA65's
-   -- C64-style paddle circuit can only drain the line and passively time its
-   -- recharge - it cannot drive it high - so a GND-shorting button is
-   -- electrically invisible to it (verified with two tank mice on real R3
-   -- hardware, 2026-07-03). The PRIMARY right button is therefore the
-   -- RUN/STOP key (no Amiga keycode, see keyboard.vhd): hold RUN/STOP =
-   -- right button held. The POT threshold stays wired in parallel for
-   -- third-party devices that DO pull the line high: the framework delivers
-   -- 255-x inverted paddle values (CDC'd to clk_main), so a line pulled high
-   -- reads >= 0x80 after inversion; a floating pin reads < 0x80 = released,
-   -- and a plain joystick in port 1 causes no phantom right clicks.
-   -- Middle button (DB9 pin 5 = POTY) not wired - the tank mouse has none.
-   mouse_btn <= '0' & (kbd_mouse_rmb or pot1_x_i(7)) & '0';
+   --
+   -- RIGHT (DB9 pin 9) and MIDDLE (pin 5) buttons: on a real Amiga these are
+   -- passive switches to GND, and PAULA itself drives the pot lines high
+   -- (input.device writes POTGO $FF00, then POTINP reads 0 = pressed). The
+   -- MEGA65's paddle circuit on ALL board revisions R3..R6 can only sense
+   -- these lines, never drive or pull them high (schematic-proven, see
+   -- doc/mouse.md) - a passive Amiga mouse's right/middle buttons are
+   -- therefore electrically invisible, and the PRIMARY right button is the
+   -- RUN/STOP key (no Amiga keycode, exported by keyboard.vhd).
+   --
+   -- Active mouse adapters (mouSTer and friends) DO drive the pot lines, and
+   -- for them the framework's paddle sampler is a good receiver: it delivers
+   -- 255-x inverted readings (CDC'd to clk_main), so a line driven high
+   -- reads >= 0x80 and a grounded or floating line reads < 0x80. Amiga-true
+   -- polarity is pressed = line LOW - but on its own that would misread a
+   -- passive mouse or an empty port (both idle low) as a permanently held
+   -- button. The presence latch below is therefore load-bearing, not an
+   -- optimization: only after a line has been seen driven HIGH (something
+   -- only an active adapter can cause) is "low" trusted to mean "pressed".
+   -- The watchdog completes the unplug story: an unplugged adapter leaves
+   -- the line floating, which reads "pressed" forever; after
+   -- C_POT_BTN_TIMEOUT of continuous "pressed" the latch disarms and the
+   -- port behaves as empty again. Re-arming is automatic within one sampler
+   -- cycle (~0.5 ms) as soon as a line is driven high again (replug, or
+   -- button release). Inversion symptom and adapter behavior are
+   -- field-confirmed on R6 (2026-07-04, doc/mouse.md section 6).
+   pot_buttons : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         -- right button, DB9 pin 9 (MEGA65 naming: POTX = pot1_x; the Amiga
+         -- reads this pin through its "Y" register channel DATLY - see the
+         -- naming trap in doc/mouse.md section 1)
+         if pot1_x_i(7) = '1' then
+            rmb_capable  <= '1';
+            rmb_watchdog <= 0;
+         elsif rmb_capable = '1' then
+            if rmb_watchdog = C_POT_BTN_TIMEOUT then
+               rmb_capable <= '0';
+            else
+               rmb_watchdog <= rmb_watchdog + 1;
+            end if;
+         end if;
+
+         -- middle button, DB9 pin 5 (MEGA65: POTY = pot1_y / Amiga: DATLX)
+         if pot1_y_i(7) = '1' then
+            mmb_capable  <= '1';
+            mmb_watchdog <= 0;
+         elsif mmb_capable = '1' then
+            if mmb_watchdog = C_POT_BTN_TIMEOUT then
+               mmb_capable <= '0';
+            else
+               mmb_watchdog <= mmb_watchdog + 1;
+            end if;
+         end if;
+
+         if amiga_rst = '1' then
+            rmb_capable  <= '0';
+            rmb_watchdog <= 0;
+            mmb_capable  <= '0';
+            mmb_watchdog <= 0;
+         end if;
+      end if;
+   end process pot_buttons;
+
+   pot_rmb   <= rmb_capable and not pot1_x_i(7);
+   pot_mmb   <= mmb_capable and not pot1_y_i(7);
+   mouse_btn <= pot_mmb & (kbd_mouse_rmb or pot_rmb) & '0';
 
    ---------------------------------------------------------------------------
    -- The Minimig core itself
