@@ -22,12 +22,15 @@ AExp:
       Significant contributors:
       * Rok Krajnc
       * Tobias Gubener
+      * Till Harbaum
+      * A.M. Robinson
 
   Minimig is the original re-implementation of the Amiga in an FPGA,
       done by Dennis van Weeren in 2005-2007
       https://en.wikipedia.org/wiki/Minimig
       Significant contributors:
       * Jakub Bednarski
+      * Sascha Boing
 
   The 68000 CPU is fx68k, a cycle accurate implementation,
       done by Jorge Cwik
