@@ -67,8 +67,14 @@ every mounted disk appears write protected to the Amiga.
 ### Mouse and joystick
 
 Plug the mouse into **port 1** and the joystick into **port 2**, exactly
-like on a real Amiga. A classic Amiga "tank mouse" works out of the box:
-movement and the **left button** behave just like on the original machine.
+like on a real Amiga. The only officially supported mouse is the **original
+Amiga "tank mouse"** (or an adapter that behaves like one). Commodore C64
+mice do **not** work: neither the 1350 ("joystick mouse") nor the 1351
+(proportional mouse) speaks the Amiga's protocol. We may add support for
+them in a future version.
+
+The Amiga tank mouse works out of the box: movement and the **left button**
+behave just like on the original machine.
 
 The **right mouse button** (in Workbench it pulls down the menu bar) is the
 tricky one. On a real Amiga the mouse signals it on a special line that the
@@ -86,6 +92,8 @@ So what works depends on what you plug in:
 | Original Amiga "tank" mouse                        | Yes                | <kbd>Run/Stop</kbd> key   |
 | Adapter that *actively drives* the line (Micro Tom)| Yes                | Works natively            |
 | mouSTer in Amiga-mouse mode                         | Yes                | <kbd>Run/Stop</kbd> key (see note) |
+| Commodore 1351 (proportional mouse)                | No                 | No (maybe supported later) |
+| Commodore 1350 ("joystick mouse")                  | No                 | No (maybe supported later) |
 
 Note on the mouSTer: it emulates a real tank mouse so faithfully that it
 inherits the exact same limitation. A future mouSTer firmware option, or a
