@@ -13,7 +13,8 @@ offers convenient features.
 * Cycle accurate 68000 CPU
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in total
 * One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
-  via the on-screen-menu, currently read-only
+  via the on-screen-menu, read and write (changes are saved back to the SD
+  card in the background)
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a
   real Amiga
@@ -22,7 +23,6 @@ offers convenient features.
 As this is a "Version 1" there are many large and small features missing. Here
 are some of the larger features that are not there yet:
 
-* Writing to disk images is not supported yet
 * Only one floppy drive (`df0:`)
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM

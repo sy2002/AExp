@@ -37,7 +37,7 @@ Features
 * Cycle accurate 68000 CPU
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in total
 * One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
-  via the on-screen-menu, currently read-only
+  via the on-screen-menu, read and write
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a
   real Amiga
@@ -61,8 +61,18 @@ to obtain a legal copy yourself, for example from Cloanto's Amiga Forever.
 ### Floppy disks
 
 Press <kbd>Help</kbd> to open the menu and mount a `*.adf` image via the
-`ADF:` item. The disk boots after mounting. Writing is not supported yet:
-every mounted disk appears write protected to the Amiga.
+`ADF:` item. The disk boots after mounting. Disks are **read/write**: when
+the Amiga writes to a disk — saving a file, formatting, storing a high
+score — the change is written back to the `*.adf` file on your SD card.
+
+Saving happens in the background, so the Amiga never stalls. After a write,
+the MEGA65's drive LED turns **yellow** while the change is being saved and
+**green** again once it is safely on the SD card. Please **wait until the LED
+has stayed green for a few seconds** before you unmount a disk, swap disks,
+reset, or switch the machine off — the yellow light can briefly come back on
+as more data is flushed. Switching off while it is yellow loses the
+not-yet-saved changes, exactly like ejecting a real floppy while its drive
+light is still on.
 
 ### Mouse and joystick
 
@@ -204,7 +214,6 @@ Constraints and roadmap
 
 At this moment the core is an alpha version. The largest known gaps:
 
-* Writing to disk images is not supported yet
 * Only one floppy drive (`df0:`)
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
