@@ -39,8 +39,13 @@
 ; ----------------------------------------------------------------------------
 
                 ; Run the Shell: This is where you could put your own system
-                ; instead of the shell
-START_FIRMWARE  RBRA    START_SHELL, 1
+                ; instead of the shell.
+                ; Before that: deterministic init of the ADF write-back state.
+                ; It cannot live in PREP_START - HANDLE_CORE_IO can already be
+                ; reached during boot (HANDLE_IO is polled from boot-time wait
+                ; loops), and RAM variables are undefined at power-on.
+START_FIRMWARE  RSUB    ADF_WB_INIT, 1
+                RBRA    START_SHELL, 1
 
 ; ----------------------------------------------------------------------------
 ; Core specific callback functions: Submenus
@@ -136,6 +141,50 @@ PREP_LOAD_IMAGE INCRB
                 RBRA    _PREP_LI_OK, !Z
                 CMP     OPTM_G_ADF, R10
                 RBRA    _PREP_LI_OK, !Z
+
+                ; ADF context confirmed: BEFORE anything else, force-flush all
+                ; unsaved writes of the currently mounted disk - the streaming
+                ; that follows overwrites the HyperRAM image, and the Shell
+                ; has already re-opened HANDLE_RM_FILE1 for the NEW file
+                ; (which is exactly why the flush works from our own FDH
+                ; snapshot, see FLUSH_ADF_STEP). Bounded to >4 full disks of
+                ; chunks so an Amiga that re-dirties tracks forever cannot
+                ; starve the OSM; in that case we bail out with a friendly,
+                ; non-fatal message (the Shell re-opens the file browser).
+                MOVE    R8, R3                  ; R3: handle of the new file
+                MOVE    8192, R4                ; R4: chunk budget
+_PREP_LI_FL     MOVE    1, R8                   ; forced step (ignore the
+                RSUB    FLUSH_ADF_STEP, 1       ; anti-thrashing gate)
+                CMP     0, R8                   ; clean and idle?
+                RBRA    _PREP_LI_FLD, Z
+                SUB     1, R4
+                RBRA    _PREP_LI_FL, !Z
+                MOVE    1, R8                   ; budget exhausted: bail out
+                MOVE    WRN_ADF_BUSY, R9
+                DECRB
+                RET
+
+                ; The mount flow OWNS the arm state: disarm the write-back
+                ; here and let the PARSEST=READY of the NEW mount re-arm it
+                ; with a fresh handle snapshot. HANDLE_CORE_IO alone cannot
+                ; do that: the whole load runs without HANDLE_IO polling, so
+                ; the READY -> LOADING -> READY transient of a re-mount is
+                ; invisible to it - without this disarm, flushes after a disk
+                ; swap would write the new disk into the OLD file.
+_PREP_LI_FLD    MOVE    ADF_FDH_VALID, R4
+                MOVE    0, @R4
+                MOVE    ADF_MOUNT_SEEN, R4
+                MOVE    0, @R4                  ; 0: a fresh READY may arm
+                MOVE    ADF_FL_STATE, R4
+                MOVE    0, @R4
+                MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 0 until the new
+                MOVE    AEXP_DEV_ADF, @R4       ; mount is complete
+                MOVE    M2M$RAMROM_4KWIN, R4
+                MOVE    ADF_WBC_4KWIN, @R4
+                MOVE    ADF_WBC_CTRL, R4
+                MOVE    0, @R4
+
+                MOVE    R3, R8                  ; restore the file handle
 
                 MOVE    R8, R0                  ; R0: file size low word
                 MOVE    R8, R1                  ; R1: file size high word
@@ -278,7 +327,348 @@ OSM_SEL_PRE     INCRB
 ;   R8: 0=no custom message available, otherwise pointer to string
 
 CUSTOM_MSG      XOR     R8, R8
-                RET              
+                RET
+
+; ----------------------------------------------------------------------------
+; ADF write-back: background flush of Amiga-written tracks to the SD card
+;
+; The track engine (CORE/vhdl/adf_track_engine.vhd) MFM-decodes Amiga writes
+; and commits verified sectors into the ADF image in HyperRAM; the mount
+; wrapper (CORE/vhdl/adf_mount_wrapper.vhd) collects the affected tracks in
+; a dirty bitmap behind window ADF_WBC_4KWIN of device AEXP_DEV_ADF and runs
+; the vdrives-style anti-thrashing countdown. The firmware side below mirrors
+; the proven C64MEGA65 vdrives discipline (background flushing driven from
+; HANDLE_IO, chunked to stay responsive, still-open FAT32 handle, errors are
+; fatal) against our non-vdrives device. Full design:
+; .research/INTEGRATION-SPEC-floppy-adf-write.md
+; ----------------------------------------------------------------------------
+
+; ADF_WB_INIT: called once from START_FIRMWARE, before the Shell starts.
+; Zero-initializes the write-back state and loads VD_ANTI_THRASHING_DELAY
+; from config.vhd into the WBC hardware countdown register (mirrors the
+; vdrives VD_INIT pattern, M2M/rom/vdrives.asm).
+ADF_WB_INIT     INCRB
+
+                MOVE    ADF_FDH_VALID, R0
+                MOVE    0, @R0
+                MOVE    ADF_MOUNT_SEEN, R0
+                MOVE    0, @R0
+                MOVE    ADF_FL_STATE, R0
+                MOVE    0, @R0
+
+                MOVE    M2M$RAMROM_DEV, R0      ; anti-thrashing delay (ms)
+                MOVE    M2M$CONFIG, @R0         ; from config.vhd
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    M2M$CFG_GENERAL, @R0
+                MOVE    M2M$CFG_VD_AT_DELAY, R0
+                MOVE    @R0, R1
+
+                MOVE    M2M$RAMROM_DEV, R0      ; ... into the WBC register
+                MOVE    AEXP_DEV_ADF, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    ADF_WBC_4KWIN, @R0
+                MOVE    ADF_WBC_ATDELAY, R0
+                MOVE    R1, @R0
+
+                DECRB
+                RET
+
+; HANDLE_CORE_IO callback function:
+;
+; Called from HANDLE_IO in every iteration of the main loop and of all
+; blocking wait loops - see the M2M-UPSTREAM core-io-hook contract in
+; M2M/rom/shell.asm. AExp uses the time slice to run the ADF write-back:
+;
+;   1. SD-card-change guard: a swapped card invalidates the retained file
+;      handle - disable write-back and discard the dirty state (the
+;      ROSM_INTEGRITY precedent: never write to a card we did not open on).
+;   2. Mount tracking: when a mount reaches PARSEST=READY, snapshot the
+;      Shell handle HANDLE_RM_FILE1 into our own FDH (the Shell re-opens
+;      that struct for the NEXT load before PREP_LOAD_IMAGE even runs!) and arm
+;      the write-back: WBC WR_EN=1 makes the track engine announce df0 as
+;      writable to the Amiga.
+;   3. One background flush step (respects the anti-thrashing gate).
+;
+; Input/Output: none; all registers are preserved
+HANDLE_CORE_IO  SYSCALL(enter, 1)
+
+                ; be transparent about the active RAMROM device selection
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R1
+                MOVE    M2M$RAMROM_4KWIN, R2
+                MOVE    @R2, R3
+
+                ; --- 1. SD guards: a shell-detected card change OR an
+                ;        active-slot switch. The file browser F1/F3 switch
+                ;        updates SD_ACTIVE WITHOUT raising SD_CHANGED, so the
+                ;        slot the handle was snapshotted on is compared, too.
+                MOVE    SD_CHANGED, R4
+                CMP     1, @R4
+                RBRA    _HCIO_KILL, Z
+                MOVE    ADF_FDH_VALID, R4       ; slot check only when armed
+                CMP     1, @R4
+                RBRA    _HCIO_MOUNT, !Z
+                MOVE    M2M$CSR, R4
+                MOVE    @R4, R4
+                AND     M2M$CSR_SD_ACTIVE, R4
+                MOVE    ADF_SD_SLOT, R5
+                CMP     @R5, R4
+                RBRA    _HCIO_MOUNT, Z
+
+_HCIO_KILL      MOVE    ADF_FDH_VALID, R4       ; already disabled: done
+                CMP     0, @R4
+                RBRA    _HCIO_RET, Z
+                MOVE    0, @R4                  ; invalidate the FDH snapshot
+                MOVE    ADF_MOUNT_SEEN, R4      ; 1: BLOCK re-arming from the
+                MOVE    1, @R4                  ; STALE PARSEST=READY of the
+                                                ; old mount - the next ADF
+                                                ; load (PREP_LOAD_IMAGE)
+                                                ; re-enables arming
+                MOVE    ADF_FL_STATE, R4        ; abort a running session
+                MOVE    0, @R4
+                MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 0 (df0 reverts to
+                MOVE    AEXP_DEV_ADF, @R4       ; write-protected) and wipe
+                MOVE    M2M$RAMROM_4KWIN, R4    ; the whole dirty bitmap
+                MOVE    ADF_WBC_4KWIN, @R4
+                MOVE    ADF_WBC_CTRL, R4
+                MOVE    0, @R4
+                MOVE    ADF_WBC_DIRTY0, R4
+                MOVE    11, R5
+_HCIO_WIPE      MOVE    0xFFFF, @R4++           ; write-1-to-clear
+                SUB     1, R5
+                RBRA    _HCIO_WIPE, !Z
+                RBRA    _HCIO_RET, 1
+
+                ; --- 2. mount tracking (PARSEST=READY rising edge) ---
+_HCIO_MOUNT     MOVE    AEXP_DEV_ADF, R8
+                MOVE    CRTROM_CSR_PARSEST, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10: parse status
+                CMP     CRTROM_CSR_PT_OK, R10
+                RBRA    _HCIO_NOMNT, !Z
+                MOVE    ADF_MOUNT_SEEN, R4
+                CMP     1, @R4
+                RBRA    _HCIO_FLUSH, Z          ; this mount is already armed
+                MOVE    1, @R4
+                MOVE    HANDLE_RM_FILE1, R8     ; snapshot the file handle
+                MOVE    ADF_FDH, R9
+                MOVE    FAT32$FDH_STRUCT_SIZE, R10
+                SYSCALL(memcpy, 1)
+                MOVE    ADF_FDH_VALID, R4
+                MOVE    1, @R4
+                MOVE    ADF_FL_STATE, R4
+                MOVE    0, @R4
+                MOVE    M2M$CSR, R4             ; remember the active SD slot
+                MOVE    @R4, R4                 ; the snapshot was taken on
+                AND     M2M$CSR_SD_ACTIVE, R4   ; (see the SD guards above)
+                MOVE    ADF_SD_SLOT, R5
+                MOVE    R4, @R5
+                MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 1
+                MOVE    AEXP_DEV_ADF, @R4
+                MOVE    M2M$RAMROM_4KWIN, R4
+                MOVE    ADF_WBC_4KWIN, @R4
+                MOVE    ADF_WBC_CTRL, R4
+                MOVE    1, @R4
+                RBRA    _HCIO_FLUSH, 1
+
+_HCIO_NOMNT     MOVE    ADF_MOUNT_SEEN, R4      ; re-arm the edge detection
+                MOVE    0, @R4                  ; for the next mount
+
+                ; --- 3. one background flush step ---
+_HCIO_FLUSH     XOR     R8, R8                  ; 0 = respect anti-thrashing
+                RSUB    FLUSH_ADF_STEP, 1
+
+_HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
+                MOVE    R3, @R2
+                SYSCALL(leave, 1)
+                RET
+
+; FLUSH_ADF_STEP: one resumable step of the ADF write-back
+;
+; Cooperative multitasking, mirroring the vdrives FLUSH_CACHE discipline
+; (M2M/rom/shell.asm): one call does at most one of
+;   * idle, dirty tracks pending, gate open (or forced): pick the LOWEST
+;     dirty track, clear its bit FIRST (write-1-to-clear; a concurrent
+;     re-write by the Amiga re-sets it, so the track is re-flushed - torn
+;     reads self-heal), f32_fseek the retained handle to track * 5632
+;   * active session: stream ADF_FLUSH_CHUNK bytes from the ADF byte window
+;     to f32_fwrite, then f32_fflush the chunk; at track end close the session
+;
+; The chunk is 512 bytes and every track start is 512-aligned, so chunks
+; never cross a 4k device window and cover exactly one FAT32 sector - and
+; each chunk is EXPLICITLY flushed before returning: the SD controller has a
+; single hardware sector buffer shared with every other SD user (the OSM
+; settings save runs from the very wait loops that also poll us!), so no
+; dirty buffered sector may ever survive across time slices. The explicit
+; flush costs nothing: the sector is written exactly once either way.
+; FAT32 errors are fatal - the C64MEGA65 FLUSH_CACHE policy; SD removal is
+; pre-guarded by the SD-change check in HANDLE_CORE_IO.
+;
+; Expects the caller to tolerate a changed RAMROM device selection.
+;
+; Input:
+;   R8: 0=respect the anti-thrashing gate (background), 1=force (flush now)
+; Output:
+;   R8: 0=clean and idle (nothing left to do), 1=dirty work remains
+FLUSH_ADF_STEP  INCRB
+                MOVE    R9, R0                  ; preserve R9..R12
+                MOVE    R10, R1
+                MOVE    R11, R2
+                MOVE    R12, R3
+                MOVE    R8, R4                  ; R4: force flag
+
+                MOVE    M2M$RAMROM_DEV, R8      ; select the WBC window
+                MOVE    AEXP_DEV_ADF, @R8
+                MOVE    M2M$RAMROM_4KWIN, R8
+                MOVE    ADF_WBC_4KWIN, @R8
+
+                MOVE    ADF_FL_STATE, R8        ; session active?
+                CMP     1, @R8
+                RBRA    _FADF_CHUNK, Z
+
+                MOVE    ADF_WBC_STAT, R8        ; idle: any dirty tracks?
+                MOVE    @R8, R8
+                AND     1, R8
+                RBRA    _FADF_RET0, Z           ; clean and idle: done
+
+                MOVE    ADF_FDH_VALID, R8       ; without a handle we can
+                CMP     1, @R8                  ; never flush: discard (only
+                RBRA    _FADF_DISCARD, !Z       ; reachable defensively)
+
+                CMP     1, R4                   ; forced?
+                RBRA    _FADF_PICK, Z
+                MOVE    ADF_WBC_STAT, R8        ; anti-thrashing gate: only
+                MOVE    @R8, R8                 ; start a track after the
+                AND     2, R8                   ; hardware countdown expired
+                RBRA    _FADF_RET1, Z           ; gated: work remains
+
+                ; pick the lowest dirty track: first non-zero bitmap word,
+                ; then its lowest set bit
+_FADF_PICK      MOVE    ADF_WBC_DIRTY0, R5      ; R5: bitmap word address
+                XOR     R6, R6                  ; R6: word index 0..10
+_FADF_FWORD     CMP     0, @R5
+                RBRA    _FADF_FBIT, !Z
+                ADD     1, R5
+                ADD     1, R6
+                CMP     11, R6
+                RBRA    _FADF_FWORD, !Z
+                RBRA    _FADF_RET0, 1           ; raced to clean: done
+
+_FADF_FBIT      MOVE    @R5, R7                 ; R7: bitmap word value
+                MOVE    1, R8                   ; R8: bit mask
+                XOR     R9, R9                  ; R9: bit index
+_FADF_FBIT1     MOVE    R7, R10
+                AND     R8, R10
+                RBRA    _FADF_FOUND, !Z
+                AND     0xFFFD, SR              ; clear X: shift in zeros
+                SHL     1, R8
+                ADD     1, R9
+                RBRA    _FADF_FBIT1, 1
+
+_FADF_FOUND     MOVE    R8, @R5                 ; W1C the bit FIRST
+                MOVE    R6, R10                 ; track = word * 16 + bit
+                AND     0xFFFD, SR
+                SHL     4, R10
+                ADD     R9, R10                 ; R10: track number
+
+                XOR     R11, R11                ; byte addr = track * 5632
+                XOR     R12, R12                ; (32 bit, iterative add -
+                CMP     0, R10                  ; QNICE has no multiplier;
+                RBRA    _FADF_SEEK, Z           ; <= 165 iterations)
+_FADF_MUL       ADD     ADF_TRACK_BYTES, R11
+                ADDC    0, R12
+                SUB     1, R10
+                RBRA    _FADF_MUL, !Z
+
+_FADF_SEEK      MOVE    ADF_FL_BADDR_LO, R8     ; open the session
+                MOVE    R11, @R8
+                MOVE    ADF_FL_BADDR_HI, R8
+                MOVE    R12, @R8
+                MOVE    ADF_FL_REMAIN, R8
+                MOVE    ADF_TRACK_BYTES, @R8
+                MOVE    ADF_FDH, R8             ; seek to the track start
+                MOVE    R11, R9                 ; (file offset = image offset)
+                MOVE    R12, R10
+                SYSCALL(f32_fseek, 1)
+                CMP     0, R9
+                RBRA    _FADF_FATAL, !Z
+                MOVE    ADF_FL_STATE, R8
+                MOVE    1, @R8
+                RBRA    _FADF_RET1, 1           ; chunks stream on later calls
+
+                ; active session: stream one chunk. window = byte addr >> 12,
+                ; offset = byte addr & 0xFFF (one file byte per window word)
+_FADF_CHUNK     MOVE    ADF_FL_BADDR_HI, R8
+                MOVE    @R8, R5
+                AND     0xFFFD, SR              ; clear X: shift in zeros
+                SHL     4, R5
+                MOVE    ADF_FL_BADDR_LO, R8
+                MOVE    @R8, R6                 ; R6: byte addr, low word
+                MOVE    R6, R7
+                AND     0xFFFB, SR              ; clear C: shift in zeros
+                SHR     12, R7
+                OR      R7, R5                  ; R5: 4k window number
+                MOVE    M2M$RAMROM_4KWIN, R8    ; (device already selected)
+                MOVE    R5, @R8
+                MOVE    R6, R7
+                AND     0x0FFF, R7
+                ADD     M2M$RAMROM_DATA, R7     ; R7: source pointer
+                MOVE    ADF_FLUSH_CHUNK, R5     ; R5: byte countdown
+_FADF_WLOOP     MOVE    ADF_FDH, R8
+                MOVE    @R7++, R9               ; one file byte per word
+                SYSCALL(f32_fwrite, 1)
+                CMP     0, R9
+                RBRA    _FADF_FATAL, !Z
+                SUB     1, R5
+                RBRA    _FADF_WLOOP, !Z
+
+                ; persist the chunk NOW: the FAT32 hardware sector buffer is
+                ; shared with every other SD user (e.g. the OSM settings
+                ; save) - a dirty buffered sector left across time slices
+                ; would be clobbered by them. This costs nothing: the chunk
+                ; is exactly one sector, which gets written exactly once
+                ; either way - just earlier.
+                MOVE    ADF_FDH, R8
+                SYSCALL(f32_fflush, 1)
+                CMP     0, R9
+                RBRA    _FADF_FATAL, !Z
+
+                MOVE    ADF_FL_BADDR_LO, R8     ; advance the byte address
+                ADD     ADF_FLUSH_CHUNK, @R8
+                MOVE    ADF_FL_BADDR_HI, R8
+                ADDC    0, @R8
+                MOVE    ADF_FL_REMAIN, R8
+                SUB     ADF_FLUSH_CHUNK, @R8
+                RBRA    _FADF_RET1, !Z          ; track not finished yet
+
+                MOVE    ADF_FL_STATE, R8        ; track done: session closed
+                MOVE    0, @R8
+                MOVE    M2M$RAMROM_4KWIN, R8    ; more dirty tracks?
+                MOVE    ADF_WBC_4KWIN, @R8
+                MOVE    ADF_WBC_STAT, R8
+                MOVE    @R8, R8
+                AND     1, R8
+                RBRA    _FADF_RET0, Z
+                RBRA    _FADF_RET1, 1
+
+_FADF_DISCARD   MOVE    ADF_WBC_DIRTY0, R5      ; drop unflushable dirty bits
+                MOVE    11, R6
+_FADF_DISC1     MOVE    0xFFFF, @R5++
+                SUB     1, R6
+                RBRA    _FADF_DISC1, !Z
+                RBRA    _FADF_RET0, 1
+
+_FADF_RET0      XOR     R8, R8
+                RBRA    _FADF_RET, 1
+_FADF_RET1      MOVE    1, R8
+_FADF_RET       MOVE    R0, R9                  ; restore R9..R12
+                MOVE    R1, R10
+                MOVE    R2, R11
+                MOVE    R3, R12
+                DECRB
+                RET
+
+_FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
+                RBRA    FATAL, 1
 
 ; ----------------------------------------------------------------------------
 ; HDMI Filter dispatch
@@ -454,12 +844,33 @@ OPTM_G_ADF      .EQU    1
 ; ADF file extension (needs to be upper case)
 ADF_FILE_EXT    .ASCII_W ".ADF"
 
+; ADF write-back CSR (WBC): device AEXP_DEV_ADF (autogenerated into
+; osm_const.asm from globals.vhd), 4k window 0xFFFE - register map defined
+; in CORE/vhdl/adf_mount_wrapper.vhd (keep in sync!)
+ADF_WBC_4KWIN   .EQU    0xFFFE              ; the write-back CSR window
+ADF_WBC_CTRL    .EQU    0x7000              ; bit 0: WR_EN (df0 writable)
+ADF_WBC_STAT    .EQU    0x7001              ; bit 0: any_dirty  bit 1: flush_start
+ADF_WBC_ATDELAY .EQU    0x7002              ; anti-thrashing delay in ms
+ADF_WBC_DIRTY0  .EQU    0x7010              ; ..0x701A: dirty bitmap, W1C
+ADF_TRACK_BYTES .EQU    5632                ; 11 sectors x 512 bytes
+ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
+
 ; Warning: file size out of the valid ADF range
 WRN_ADF_SIZE    .ASCII_P "\n\nThis is not a valid ADF disk image:\n"
                 .ASCII_P "the file size must be 901,120 bytes\n"
                 .ASCII_P "(880 KB standard ADF; 81..83-track over-\n"
                 .ASCII_P "dumps up to 934,912 bytes are accepted)."
                 .ASCII_W "\n\nPress SPACE to continue.\n"
+
+; Warning: could not write back the current disk before mounting a new one
+WRN_ADF_BUSY    .ASCII_P "\n\nUnsaved changes on the current disk\n"
+                .ASCII_P "could not be written back because the\n"
+                .ASCII_P "Amiga keeps writing to the drive.\n"
+                .ASCII_P "Stop the disk activity, then try again."
+                .ASCII_W "\n\nPress SPACE to continue.\n"
+
+; Fatal: SD card write failed during the ADF write-back
+ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
@@ -475,6 +886,22 @@ END_OF_ROM      .DW 0
 ;
 ; add your own variables here
 ;
+
+; ADF write-back state (see HANDLE_CORE_IO / FLUSH_ADF_STEP)
+ADF_FDH         .BLOCK FAT32$FDH_STRUCT_SIZE    ; our own snapshot of the
+                                                ; mounted ADF file handle:
+                                                ; HANDLE_RM_FILE1 is re-opened
+                                                ; by the Shell for the NEXT
+                                                ; load, the snapshot stays
+                                                ; valid until SD-card change
+ADF_FDH_VALID   .BLOCK 1                        ; 1: ADF_FDH is usable
+ADF_SD_SLOT     .BLOCK 1                        ; active SD slot at arm time
+ADF_MOUNT_SEEN  .BLOCK 1                        ; 1: armed or blocked; 0: a
+                                                ; fresh PARSEST=READY may arm
+ADF_FL_STATE    .BLOCK 1                        ; 0: idle  1: track session
+ADF_FL_REMAIN   .BLOCK 1                        ; bytes left in session track
+ADF_FL_BADDR_LO .BLOCK 1                        ; session byte address within
+ADF_FL_BADDR_HI .BLOCK 1                        ; image and file (32 bit)
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"

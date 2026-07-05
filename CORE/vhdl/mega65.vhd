@@ -290,6 +290,11 @@ signal main_adf_avm_readdatavalid : std_logic;
 signal main_adf_avm_waitrequest   : std_logic;
 signal main_adf_mounted           : std_logic;
 signal main_adf_tracks            : std_logic_vector(7 downto 0);
+signal main_adf_writable          : std_logic;
+signal main_adf_dirty             : std_logic;
+signal main_adf_wr_track          : std_logic_vector(7 downto 0);
+signal main_adf_wr_req            : std_logic;
+signal main_adf_wr_ack            : std_logic;
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
@@ -312,6 +317,11 @@ signal qnice_adf_data         : std_logic_vector(15 downto 0);
 signal qnice_adf_wait         : std_logic;
 signal qnice_adf_mounted      : std_logic;
 signal qnice_adf_tracks       : std_logic_vector(7 downto 0);
+signal qnice_adf_write_en     : std_logic;
+signal qnice_adf_any_dirty    : std_logic;
+signal qnice_adf_wrt_track    : std_logic_vector(7 downto 0);
+signal qnice_adf_wrt_req      : std_logic;
+signal qnice_adf_wrt_ack      : std_logic;
 
 ---------------------------------------------------------------------------------------------
 -- hr_clk (HyperRAM clock domain)
@@ -455,9 +465,12 @@ begin
    main_power_led_o     <= '1';
    main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else x"00FF00";
 
-   -- Amiga floppy LED on the MEGA65 drive LED (Paula disk-DMA activity)
-   main_drive_led_o     <= main_fdd_led;
-   main_drive_led_col_o <= x"00FF00";
+   -- Amiga floppy LED on the MEGA65 drive LED (Paula disk-DMA activity).
+   -- While unflushed ADF writes exist the LED is forced ON and turns YELLOW -
+   -- "do not power off yet" - and back to green once the background flush is
+   -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
+   main_drive_led_o     <= main_fdd_led or main_adf_dirty;
+   main_drive_led_col_o <= x"FFFF00" when main_adf_dirty = '1' else x"00FF00";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
@@ -513,9 +526,14 @@ begin
          pwr_led_o            => main_pwr_led,
          fdd_led_o            => main_fdd_led,
 
-         -- ADF floppy: mount status and HyperRAM read port
+         -- ADF floppy: mount status, write-back arming, dirty-track events
+         -- and the HyperRAM read/write port
          adf_mounted_i        => main_adf_mounted,
          adf_tracks_i         => main_adf_tracks,
+         adf_writable_i       => main_adf_writable,
+         adf_wr_track_o       => main_adf_wr_track,
+         adf_wr_req_o         => main_adf_wr_req,
+         adf_wr_ack_i         => main_adf_wr_ack,
          adf_avm_write_o      => main_adf_avm_write,
          adf_avm_read_o       => main_adf_avm_read,
          adf_avm_address_o    => main_adf_avm_address,
@@ -832,6 +850,12 @@ begin
          qnice_disk_mounted_o => qnice_adf_mounted,
          qnice_disk_tracks_o  => qnice_adf_tracks,
 
+         qnice_write_en_o     => qnice_adf_write_en,
+         qnice_any_dirty_o    => qnice_adf_any_dirty,
+         qnice_wrt_track_i    => qnice_adf_wrt_track,
+         qnice_wrt_req_i      => qnice_adf_wrt_req,
+         qnice_wrt_ack_o      => qnice_adf_wrt_ack,
+
          hr_clk_i             => hr_clk_i,
          hr_rst_i             => hr_rst_i,
          hr_write_o           => hr_adf_avm_write,
@@ -845,21 +869,57 @@ begin
          hr_waitrequest_i     => hr_adf_avm_waitrequest
       ); -- i_adf_mount_wrapper
 
-   -- mount status into the core clock domain (slowly varying flag + track count;
-   -- covered by M2M/common.xdc's cdc_stable set_max_delay constraint)
+   -- mount + write-back status into the core clock domain (slowly varying
+   -- flags + track count; covered by M2M/common.xdc's cdc_stable constraint)
    i_cdc_adf_mount : entity work.cdc_stable
       generic map (
-         G_DATA_SIZE    => 9,
+         G_DATA_SIZE    => 11,
          G_REGISTER_SRC => true
       )
       port map (
          src_clk_i               => qnice_clk_i,
          src_data_i(7 downto 0)  => qnice_adf_tracks,
          src_data_i(8)           => qnice_adf_mounted,
+         src_data_i(9)           => qnice_adf_write_en,
+         src_data_i(10)          => qnice_adf_any_dirty,
          dst_clk_i               => main_clk,
          dst_data_o(7 downto 0)  => main_adf_tracks,
-         dst_data_o(8)           => main_adf_mounted
+         dst_data_o(8)           => main_adf_mounted,
+         dst_data_o(9)           => main_adf_writable,
+         dst_data_o(10)          => main_adf_dirty
       ); -- i_cdc_adf_mount
+
+   -- dirty-track event channel main->qnice: two-phase toggle handshake. The
+   -- engine holds the track number stable, waits ~1 us, THEN flips the req
+   -- toggle (and the payload stays put until the ack round trip completes),
+   -- so cdc_stable's per-bit settling can never deliver a torn payload with
+   -- a fresh toggle. Ack returns the same way. All three instances are
+   -- covered by the common.xdc cdc_stable set_max_delay constraint.
+   i_cdc_adf_wrt_evt : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 9,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i               => main_clk,
+         src_data_i(7 downto 0)  => main_adf_wr_track,
+         src_data_i(8)           => main_adf_wr_req,
+         dst_clk_i               => qnice_clk_i,
+         dst_data_o(7 downto 0)  => qnice_adf_wrt_track,
+         dst_data_o(8)           => qnice_adf_wrt_req
+      ); -- i_cdc_adf_wrt_evt
+
+   i_cdc_adf_wrt_ack : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i               => qnice_clk_i,
+         src_data_i(0)           => qnice_adf_wrt_ack,
+         dst_clk_i               => main_clk,
+         dst_data_o(0)           => main_adf_wr_ack
+      ); -- i_cdc_adf_wrt_ack
 
    -- track engine read chain: main_clk -> hr_clk (domain resets - never the
    -- core reset: the command FIFO resets from the s side, the response FIFO

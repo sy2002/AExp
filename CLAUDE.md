@@ -43,22 +43,37 @@ the deep material lives in `doc/` (see "Key documents").
 - One core clock: **28.375 MHz** (PAL ideal 28.37516, −5.6 ppm), MMCM in
   `CORE/vhdl/clk.vhd` (100 MHz × 56.750 / 5 / 40). No 113.5 MHz clock —
   everything SDRAM/turbo/AGA that needed it is out of scope.
-- Floppy: df0 with read-only ADF mount from the OSM (image staged in
-  HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`; always reported
-  write-protected; Amiga-initiated writes are drained and discarded).
-  No write support, no df1..df3, no mouse yet, no IDE. Keyboard +
-  joysticks work.
+- Floppy: df0 with read/write ADF mount from the OSM (image staged in
+  HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`). **Write support
+  implemented 2026-07-05, NOT yet synthesized/hardware-verified**:
+  hardware MFM write decoder (bit-exact minimig_fdd.cpp
+  FindSync/GetHeader/GetData) commits verified sectors to HyperRAM;
+  per-track dirty bitmap + vdrives-style anti-thrash (2 s, config.vhd
+  word 13) in `adf_mount_wrapper` window 0xFFFE ("WBC"); firmware
+  flushes dirty tracks to the SD file in the background via the new
+  `HANDLE_CORE_IO` hook (512 B + fflush per slice, own FDH snapshot —
+  the Shell re-opens `HANDLE_RM_FILE1` before `PREP_LOAD_IMAGE`!);
+  drive LED yellow while dirty. Design + review findings:
+  `.research/INTEGRATION-SPEC-floppy-adf-write.md` (the arm-state
+  invariant in §5a is load-bearing). Announced write-protected until
+  the firmware arms WR_EN, on SD change, and while remounting.
+  No df1..df3, no IDE. Keyboard + joysticks + mouse work.
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with ONE sanctioned
-  exception: the interlace feature (new `video_fl_i` input through
-  framework → av_pipeline → digital_pipeline → ascal `i_fl`,
-  `INTER => true`), developed here as testbed for a later M2M upstream
-  merge. Every such change is tagged `M2M-UPSTREAM interlace` in-code
-  (greppable) and new inputs default to '0' (progressive cores
-  unaffected). All other framework fixes go into `CORE/CORE.xdc`
-  (constraints) or get documented for upstreaming.
+- `M2M/` — the framework. **NEVER modify**, with TWO sanctioned
+  exceptions (both testbeds for a later M2M upstream merge, tagged
+  `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
+  `video_fl_i` input through framework → av_pipeline → digital_pipeline
+  → ascal `i_fl`, `INTER => true`; new inputs default to '0'
+  (progressive cores unaffected). (2) `core-io-hook` — `HANDLE_CORE_IO`,
+  an 8th mandatory core callback called from `HANDLE_IO` (shell.asm,
+  at the `_HANDLE_IO_0` label): a per-iteration time slice in the main
+  loop AND all blocking wait loops (OSM/browser/help), for background
+  tasks like non-vdrives write-back caches; contract: preserve all regs,
+  return fast, may change RAMROM selection. All other framework fixes
+  go into `CORE/CORE.xdc` (constraints) or get documented for
+  upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):
   - `mega65.vhd` — BRAM lanes (2×256K×8 chip, 2×256K×8 slow, 2×128K×8
@@ -76,10 +91,14 @@ the deep material lives in `doc/` (see "Key documents").
   - `adf_mount_wrapper.vhd` — QNICE device 0x0103: byte-window bridge
     into HyperRAM + M2M CSR (window 0xFFFF) + ADF size validator
     (160–166 tracks × 5632 bytes; "mounted"+track count → cdc_stable)
+    + write-back CSR "WBC" (window 0xFFFE: WR_EN, 166-bit dirty bitmap
+    W1C, anti-thrash ms countdown, dirty-event receiver)
   - `adf_track_engine.vhd` — Paula floppy host service (MiSTer HandleFDD
     in hardware): 1 ms poll + drive-status re-announce, per-sector MFM
-    streaming with status-bit-8 flow control, write drain; the protocol
-    contract is documented in its header
+    streaming with status-bit-8 flow control, MFM write decoder
+    (drain-and-commit: verified sectors → HyperRAM via avm writes,
+    dirty-track events → wrapper via two-phase cdc_stable toggle
+    handshake); the protocol contract is documented in its header
   - `keyboard.vhd` — MEGA65 keys → raw Amiga scancodes (kms_level toggle)
   - `clk.vhd`, `globals.vhd`, `config.vhd` (OSM menu — bit = line number,
     must match `C_MENU_*` constants in mega65.vhd; exception: the HDMI
@@ -87,6 +106,9 @@ the deep material lives in `doc/` (see "Key documents").
     m2m-rom.asm must mirror them), not mega65.vhd; VGA radio lines
     32/36/37)
 - `CORE/m2m-rom/` — core QNICE firmware (`m2m-rom.asm`): ADF size guard
+  + ADF write-back (`HANDLE_CORE_IO` + `FLUSH_ADF_STEP`: FDH snapshot,
+  SD-change + SD-slot guards, per-chunk fflush, force-flush + disarm in
+  `PREP_LOAD_IMAGE` — the §5a arm-state invariant of the write spec)
   + HDMI Filter dispatcher `LOAD_HDMI_FILTER` (C64MEGA65-V6 port;
   `ASCAL_USAGE=1`, includes a backported `M2M$LOAD_POLYPHASE` — delete it
   when M2M is upgraded to V2.1+; coefficient blobs in `video_filters/`).
@@ -139,7 +161,8 @@ the deep material lives in `doc/` (see "Key documents").
    `qnice_scandoubler_o='1'` (15.625 kHz core!).
 7. **OPTM_PAUSE stays false** — pause_i is not implemented in the core.
 8. Commit as **sy2002 <code@sy2002.de>** (repo-local git config is set).
-   Keep the `Co-Authored-By: Claude` trailer.
+   Do NOT add a `Co-Authored-By: Claude` trailer — Claude is credited in
+   the `AUTHORS` file instead.
 9. Do not delete `/tmp/claude-501` task outputs (deny rules in
    `.claude/settings.local.json`); tell workflow subagents not to run
    cleanup commands.
@@ -215,13 +238,20 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Roadmap (doc/next_tests.md has details)
 
-1. **Floppy: DONE 2026-07-03** (read-only MVP, verified on hardware).
-   Before touching floppy code, read `.research/INTEGRATION-SPEC-floppy-adf.md`
-   — it supersedes doc/floppy_milestone_brief.md in three verified points
-   (DEVICE-type mount, bit-8 flow control not IO_WAIT, disk_present
-   re-announce per poll). Future increments: write support (protocol
-   groundwork documented in the spec), df1 (HyperRAM window
-   `C_HMAP_ADF_DF1` reserved), mount-status OSM feedback.
+1. **Floppy: read-only DONE 2026-07-03** (verified on hardware);
+   **write support IMPLEMENTED 2026-07-05** — awaiting synthesis +
+   hardware test round (plan in
+   `.research/INTEGRATION-SPEC-floppy-adf-write.md` §8: WB rename
+   persists across power cycle, format, write+verify, swap-while-dirty,
+   wprot regression). Before touching floppy code, read BOTH specs in
+   `.research/` — the read spec supersedes doc/floppy_milestone_brief.md
+   in three verified points (DEVICE-type mount, bit-8 flow control not
+   IO_WAIT, disk_present re-announce per poll); the write spec's §5a
+   arm-state invariant closed three review-confirmed critical bugs
+   (stale FDH across re-mounts, stale-READY re-arm, F1/F3 slot switch).
+   Future increments: df1 (HyperRAM window `C_HMAP_ADF_DF1` reserved),
+   mount-status OSM feedback (`<Saving>` needs an M2M options.asm
+   generalization, noted in the write spec §7).
 2. **DiagROM test round** — zero code: 256 KB DiagROM as /amiga/kick.rom
    exercises slow RAM, keyboard, audio, CIAs (diagrom.com).
 3. **RamDump loader** — run deft's demo without floppy (possibly obsolete

@@ -49,6 +49,16 @@ awk '/constant C_MENU_/ {gsub("C_MENU_", "AEXP_OSM_"); gsub(";", ""); printf("%-
 
 awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""); printf("%-31s .EQU %s\n", $2, $6)}' ../vhdl/config.vhd >> osm_const.asm
 
+{
+    echo ""
+    echo "; -----------------------------------------------------------------"
+    echo "; AExp specific QNICE device ids"
+    echo "; -----------------------------------------------------------------"
+    echo ""
+} >> osm_const.asm
+
+awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_ADF", $0)}' ../vhdl/globals.vhd >> osm_const.asm
+
 ##############################################################################
 # M2M framework: Generate globals.asm
 ##############################################################################

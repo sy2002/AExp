@@ -80,8 +80,16 @@ entity main is
       adf_mounted_i           : in  std_logic;
       adf_tracks_i            : in  std_logic_vector(7 downto 0);
 
-      -- ADF floppy image read port: Avalon-MM master in the clk_main domain
-      -- (post avm_cache; mega65.vhd crosses it to the HyperRAM clock)
+      -- ADF write-back: arming flag (CDC'd like the mount status) and the
+      -- dirty-track event channel (two-phase toggle handshake towards
+      -- adf_mount_wrapper; the cdc_stable instances live in mega65.vhd)
+      adf_writable_i          : in  std_logic;
+      adf_wr_track_o          : out std_logic_vector(7 downto 0);
+      adf_wr_req_o            : out std_logic;
+      adf_wr_ack_i            : in  std_logic;
+
+      -- ADF floppy image read/write port: Avalon-MM master in the clk_main
+      -- domain (post avm_cache; mega65.vhd crosses it to the HyperRAM clock)
       adf_avm_write_o         : out std_logic;
       adf_avm_read_o          : out std_logic;
       adf_avm_address_o       : out std_logic_vector(31 downto 0);
@@ -519,8 +527,11 @@ begin
    --
    -- The engine replaces MiSTer's ARM-side HandleFDD: it polls Paula over
    -- io_fpga frames, MFM-encodes the mounted ADF's sectors from HyperRAM and
-   -- pushes them into Paula's FIFO. Read-only; details and protocol contract
-   -- in adf_track_engine.vhd / .research/INTEGRATION-SPEC-floppy-adf.md.
+   -- pushes them into Paula's FIFO; Amiga writes are MFM-decoded and committed
+   -- back into the HyperRAM image (dirty tracks flushed to SD by the QNICE
+   -- firmware). Details and protocol contract in adf_track_engine.vhd /
+   -- .research/INTEGRATION-SPEC-floppy-adf.md (reads) and
+   -- .research/INTEGRATION-SPEC-floppy-adf-write.md (writes).
    ---------------------------------------------------------------------------
 
    -- the strobe OR is safe only because the enables are mutually exclusive
@@ -537,6 +548,11 @@ begin
          bus_grant_i         => cfg_done,
          disk_mounted_i      => adf_mounted_i,
          disk_tracks_i       => adf_tracks_i,
+
+         write_en_i          => adf_writable_i,
+         wr_track_o          => adf_wr_track_o,
+         wr_req_o            => adf_wr_req_o,
+         wr_ack_i            => adf_wr_ack_i,
 
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,
@@ -555,8 +571,10 @@ begin
          avm_waitrequest_i   => flp_avm_waitrequest
       ); -- i_adf_track_engine
 
-   -- single-line read cache: turns the engine's sequential single-word reads
-   -- into 8-word HyperRAM bursts (the proven C64 REU value)
+   -- single-line cache: turns the engine's sequential single-word reads into
+   -- 8-word HyperRAM bursts (the proven C64 REU value). The engine's sector
+   -- commits pass through as single-word writes (write-through; a write hit
+   -- updates the cache line, so read-back after write stays coherent)
    adf_cache_rst <= amiga_rst or not adf_mounted_i;
 
    i_avm_cache : entity work.avm_cache
