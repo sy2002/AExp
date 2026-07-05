@@ -1,11 +1,20 @@
 # Feature request to the mouSTer maintainer: active pot-line drive in Amiga *mouse* mode
 
-**What this file is:** a ready-to-send request that a mouSTer user can hand to
-the mouSTer author (willyvmm) via the mouSTer GitHub issues
-(<https://github.com/willyvmm/mouSTer>) or the mouSTer Discord. It asks for one
-small firmware option that would make the mouSTer's Amiga **mouse** mode work
-on the MEGA65 (and help weak-Paula real Amigas too). Everything below the line
-is written to be pasted as-is; feel free to shorten.
+**What this file is:** supporting material for a mouSTer user to add to the
+existing, already-agreed request. **This is not a new request - it is already
+filed as mouSTer GitHub issue #38** ("Amiga middle and right button pull-up",
+<https://github.com/willyvmm/mouSTer/issues/38>), opened 2024-01-28 by Paul
+Gardner-Stephen (the MEGA65's creator), with the exact root cause below. The
+maintainer (willyvmm) already **agreed it is fixable in firmware** on
+2024-01-30 ("I can add a fix for the MEGA65 in the firmware, that is what
+exactly revpotlines do, except without reversing the signal polarity") - which
+is precisely the behavior the MEGA65 needs. The issue then stalled (tied to a
+future "new amiga protocol/driver"). So the useful action today is **not to
+open a duplicate** but to **bump #38** with fresh context: the MEGA65 Amiga
+core (AExp) is now live and has real users waiting, and the core already reads
+active-drive, normal-polarity adapters, so the described fix would work out of
+the box. The text below the line can be pasted as a comment on #38; feel free
+to shorten.
 
 ---
 
