@@ -66,24 +66,36 @@ every mounted disk appears write protected to the Amiga.
 
 ### Mouse and joystick
 
-Plug the mouse into port 1 and the joystick into port 2, the same way you
-would on a real Amiga. A real Amiga mouse (the classic "tank mouse") works:
-movement and the left button behave exactly like on the original machine.
+Plug the mouse into **port 1** and the joystick into **port 2**, exactly
+like on a real Amiga. A classic Amiga "tank mouse" works out of the box:
+movement and the **left button** behave just like on the original machine.
 
-The right mouse button is the one exception: an original Amiga mouse
-signals it on a wire that the MEGA65 hardware cannot sense. This applies
-to all MEGA65 models, R3 through R6 (we checked the schematics). The core
-therefore maps the right mouse button to the <kbd>Run/Stop</kbd> key: hold
-<kbd>Run/Stop</kbd> to hold the right mouse button, for example to open
-the Workbench menus while moving the mouse.
+The **right mouse button** (in Workbench it pulls down the menu bar) is the
+tricky one. On a real Amiga the mouse signals it on a special line that the
+Amiga's Paula chip actively drives high. The MEGA65 can only *read* that
+line, not drive it, so it cannot sense the right button of an original tank
+mouse. This is a hardware property, identical on every MEGA65 model from R3
+to R6. The built-in answer is always available: **hold the <kbd>Run/Stop</kbd>
+key** as a right mouse button (hold it while moving the mouse to open the
+Workbench menus).
 
-Modern USB mouse adapters (mouSTer and similar) drive that wire actively,
-and with them the right mouse button, and even a middle button, simply
-work, on all MEGA65 models. One quirk is worth knowing: if you unplug such
-an adapter while the Amiga is running, the core can see a held right mouse
-button for up to half a minute (Workbench then shows its menu bar and
-pauses drawing) before everything returns to normal by itself. So swap
-your devices as you like, just give the core that moment.
+So what works depends on what you plug in:
+
+| What you use                                       | Move + left button | Right (and middle) button |
+|----------------------------------------------------|--------------------|---------------------------|
+| Original Amiga "tank" mouse                        | Yes                | <kbd>Run/Stop</kbd> key   |
+| Adapter that *actively drives* the line (Micro Tom)| Yes                | Works natively            |
+| mouSTer in Amiga-mouse mode                         | Yes                | <kbd>Run/Stop</kbd> key (see note) |
+
+Note on the mouSTer: it emulates a real tank mouse so faithfully that it
+inherits the exact same limitation. A future mouSTer firmware option, or a
+tiny adapter with a built-in pull-up resistor, could make its right button
+work natively. Background and details are in [doc/mouse.md](doc/mouse.md).
+
+One heads-up for actively-driving adapters: if you unplug one while the Amiga
+is running, the right button can stay "stuck" for up to half a minute
+(Workbench shows its menu bar and stops redrawing) before it clears on its
+own. Just give it a moment after swapping devices.
 
 ### Keyboard
 
