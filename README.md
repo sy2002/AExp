@@ -90,11 +90,12 @@ So what works depends on what you plug in:
 | What you use                                                | Move + left button | Right (and middle) button          |
 |-------------------------------------------------------------|--------------------|------------------------------------|
 | Original Amiga "tank" mouse                                 | Yes                | <kbd>Run/Stop</kbd> key            |
-| Adapter that *actively drives* the line (e.g. Micro Tom)    | Yes                | Works natively                     |
-| Faithful Tank Mouse replica that *actively drives* the line | Yes                | Works natively                     |
+| Original Amiga "tank" mouse with DIY adapter (see below)    | Yes                | Yes                                |
+| Adapter that *actively drives* the line (e.g. Micro Tom)    | Yes                | Yes                                |
+| Faithful Tank Mouse replica that *actively drives* the line | Yes                | Yes                                |
 | mouSTer in Amiga-mouse mode                                 | Yes                | <kbd>Run/Stop</kbd> key (see note) |
-| Commodore 1351 (proportional mouse)                         | No                 | No (maybe supported later)         |
-| Commodore 1350 ("joystick mouse")                           | No                 | No (maybe supported later)         |
+| Commodore 1350 (C64 "joystick mouse")                       | No                 | No (maybe supported later)         |
+| Commodore 1351 (C64 "proportional mouse")                   | No                 | No (maybe supported later)         |
 
 Note on the mouSTer: it emulates a real tank mouse so faithfully that it
 inherits the exact same limitation. A future mouSTer firmware option, or a
