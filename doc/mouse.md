@@ -251,16 +251,29 @@ The options, from least to most work on our side:
 1. **RUN/STOP (ships today).** Universal fallback, works with every device
    including passive-mouse-mode mouSTer. The honest answer for Sidde now.
 
-2. **mouSTer firmware feature request (cleanest real fix, zero core change).**
-   Ask the mouSTer author (willyvmm) to expose `activepotlines` in the
-   `[mouse]` section, as it already is in `[gamepad]`. Then
-   `activepotlines=true` + `revpotlines=false` drives pin 9/5 push-pull with
-   pressed=low = exactly MicroTom = works with A3 unchanged. Bonus: it would
-   also fix mouSTer RMB on real Amigas with a weak/damaged Paula. Caveat: the
-   INI's own danger note - active drive can contend with a healthy Paula's pot
-   drive on a real Amiga (harmless on MEGA65, which never drives the pin), so
-   the user must remember to disable it when moving the adapter to a real
-   Amiga.
+2. **mouSTer firmware fix (cleanest real fix, zero core change) - ALREADY
+   FILED AND AGREED.** This is mouSTer GitHub issue **#38** ("Amiga middle and
+   right button pull-up"), opened 2024-01-28 by **gardners** (Paul
+   Gardner-Stephen, the MEGA65 hardware creator) - two years before we hit it,
+   with our exact root cause: "the Amiga right and middle buttons map to the
+   POT lines ... on those machines there is no pull-up line on the POT lines,
+   which means these buttons cannot be read ... it would be great if the
+   MouSTer had the option to emulate this for Amiga mouse mode, where it would
+   drive the line high unless the mouse button is being pressed." The
+   maintainer (willyvmm) **agreed it is fixable in firmware** (comment
+   2024-01-30): "lack of pull up/down resistor on the external port is just a
+   design flaw ... I can add a fix for the MEGA65 in the firmware (that is what
+   exactly revpotlines do, except without reversing the signal polarity)."
+   That description - active drive, normal polarity (pressed=low, released=high)
+   - is **exactly** what our A3 firmware reads (= MicroTom), so if he ships it,
+   mouSTer mouse mode works with our core unchanged. BUT the issue is still
+   **open and stalled** (he tied it to a future "new amiga protocol/driver" and
+   "new config system" that have not shipped as of firmware 3.23.5308). Action:
+   do NOT open a duplicate; **bump #38** with the news that the MEGA65 Amiga
+   core (AExp) is now live and has waiting users, and that our core already
+   reads active-drive-normal-polarity adapters, so his described fix would work
+   out of the box. `doc/mouster-feature-request.md` is written as supporting
+   material to paste there.
 
 3. **Auto-polarity ("idle-tracking") firmware on our side (broadest, most
    work).** Replace the fixed "idle=high" assumption of the section 8 latch
@@ -278,9 +291,14 @@ The options, from least to most work on our side:
    care around power-on-with-button-held and the convergence time constant.
    PREREQUISITE / cheap diagnostic: have Sidde set `revpotlines=true` on A3
    and report. If the button becomes responsive-but-inverted (hold-to-load),
-   the open-source drive IS reaching our sampler and option 3 would work for
-   him; if it stays completely dead, even open-source is unreadable on his
-   setup (drive too weak / not tied to pin 7 +5V) and only options 1-2 remain.
+   the drive IS reaching our sampler and option 3 would work for him; if it
+   stays completely dead, even that is unreadable on his setup (drive too weak
+   / not tied to pin 7 +5V) and only options 1-2 remain. Issue #38 raises the
+   odds this diagnostic comes back positive: willyvmm describes `revpotlines`
+   as already *driving* the line (his fix = "what revpotlines do, except
+   without reversing polarity"), so `revpotlines=true` likely produces a
+   readable, inverted signal - i.e. option 3 would let mouSTer users work TODAY
+   without waiting on the 2-years-stalled #38.
 
 Recommendation: tell Sidde option 1 now and the honest root cause (his mouSTer
 is a faithful passive Amiga mouse, which no MEGA65 can read - see its own
