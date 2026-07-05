@@ -102,6 +102,16 @@ tiny adapter with a built-in pull-up resistor, could make its right button
 work natively. I opened an issue in the mouSTer GitHub repo, you might want
 to "like" it to motivate the maintainer to implement the feature: https://github.com/willyvmm/mouSTer/issues/53
 
+**A simple DIY adapter makes the right button work**, even with an original
+tank mouse or a mouSTer. The only missing piece is the pull-up that a real
+Amiga's Paula chip provides, and you can add it externally: build a
+straight-through DB9 male-to-female passthrough (all nine pins wired 1:1) and
+solder two resistors inside the shell, roughly 2 kΩ from pin 7 (+5V) to
+pin 9 (right button) and another 2 kΩ from pin 7 to pin 5 (middle button).
+With that adapter in line, the right (and middle) button of any faithful
+passive mouse works natively. A more detailed build tutorial is coming soon
+to the [doc](doc/) folder.
+
 One heads-up for actively-driving adapters: if you unplug one while the Amiga
 is running, the right button can stay "stuck" for up to half a minute
 (Workbench shows its menu bar and stops redrawing) before it clears on its
