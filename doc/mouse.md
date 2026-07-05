@@ -149,13 +149,56 @@ One board-independent change in `CORE/vhdl/main.vhd`, no M2M changes, no XDC cha
 Validation plan: bench-test with a real mouSTer (or any active adapter). Multimeter on its pin 9 against GND with the adapter powered: released should read high (3.3 V or 5 V), pressed low. If instead it floats when released (open-drain firmware), the adapter behaves like a tank mouse on MEGA65 hardware and only RUN/STOP can serve it; that is a firmware property of the adapter, not something the core can compensate.
 
 
-## 9. mouSTer notes and the "works on R3" rumor
+## 9. Adapter case studies: MicroTom (works) vs mouSTer (does not)
 
-**[proven]** mouSTer (retrohax.net) is an active, port-powered USB-to-DE-9 adapter that emulates Amiga, Atari ST and C64 (1351) mice. Its configuration offers reversing the "2nd and 3rd button line polarity", which implies the button pins are MCU-driven rather than passive contacts.
+Two active USB-to-DE-9 adapters were field-tested on R6 with the A3 fix,
+with opposite results. The difference is entirely how each drives DE-9 pin 9,
+and it is now fully understood.
 
-**[assumption]** Whether its Amiga mode drives pin 9 push-pull (readable on MEGA65) or open-drain (invisible on MEGA65, see matrix) is not documented publicly and must be bench-verified; the polarity-reverse option and the 1351 mode (which *requires* actively driving the POT lines) make push-pull plausible. **[proven for at least one adapter]** The 2026-07-04 field report (section 6) shows a "MicroTom" USB adapter driving pin 9 to both levels through the sampler on an R6 board, so at least this adapter class is fully served by the section 8 fix. Adapters with a configurable button polarity (mouSTer has such an option) can even cancel the A2 inversion as a user-side workaround, at the price of having to flip the option back once the fixed core ships.
+### MicroTom (NeonKnight, R6): works [proven]
 
-**Rumor assessment:** "with mouSTer, the right button already works on R3 today" is most plausibly an observation from the **C64 core** with mouSTer in **1351 mode**: the 1351 protocol signals the right button on the *digital UP line* (pin 1), which works through the plain joystick input path on every board revision and has nothing to do with pin 9. No MEGA65 Amiga-mode data point is known to us; the A2 build would actually show a push-pull mouSTer's RMB as *inverted* (section 6). After the section 8 fix, a push-pull mouSTer RMB is expected to work on all revisions, R3 included, which would make the rumor true for AExp going forward.
+The A2 inversion symptom (section 6: folder loading only while RMB held) and
+the A3 success prove this adapter drives pin 9 **push-pull** to BOTH levels:
+high when released, low when pressed - i.e. it behaves like a real Amiga
+mouse PLUS the pull-up Paula would provide, all in the adapter. This is the
+device class the section 8 latch serves; its RMB works natively on A3.
+
+### mouSTer in Amiga mouse mode (Sidde, R6): does NOT work [proven]
+
+Reported 2026-07-05: on A3, movement and left button are perfect, right and
+middle buttons register nothing - "just like A2" (and, tellingly, WITHOUT the
+A2 inversion symptom). The mouSTer INI (firmware 3.23.5308) explains it
+completely:
+
+- The `[mouse]` section has a `revpotlines` key but **no `activepotlines`
+  key**. `activepotlines` ("actively pulled up/down") exists ONLY in the
+  `[gamepad]` section (added for the Atari 8-bit Joy2B+ mod). So mouSTer's
+  Amiga MOUSE mode drives the 2nd/3rd button lines **passively**:
+  `revpotlines=false` (default) = "connected to ground when active", i.e.
+  open-drain - pulled to GND when pressed, floating when released.
+- Open-drain is exactly the passive-mouse case of section 3.1/4: floating and
+  grounded both read 0x00 on our sampler. Invisible. The line is never driven
+  high, which is also why Sidde never saw the A2 inversion (nothing to falsely
+  read as "pressed"). Consistent end to end.
+- The mouSTer's OWN FAQ nails it: *"Right Mouse Button is not working on My
+  Amiga: this issue is caused by damaged PCB around the PAULA chip, or by a
+  broken PAULA chip itself ... mouSTer is not able to force the badly broken
+  PAULA to work."* mouSTer mouse mode RELIES on the host's Paula to drive the
+  pot lines high; it only grounds them. On the MEGA65 our Paula is emulated
+  inside the FPGA (`userio.v`) and never reaches the physical DE-9 pin, so
+  from the mouSTer's viewpoint the MEGA65 looks exactly like an Amiga whose
+  Paula cannot drive the pot lines - the precise failure its FAQ predicts.
+
+**Consequence:** there is no mouSTer INI setting that makes Amiga MOUSE mode
+work with our (or any) MEGA65 pot-button reading, because mouse mode cannot
+actively drive pin 9. `revpotlines=true` would make it open-SOURCE (pull to
+VCC when pressed, float when released), which IS readable as pressed=high -
+but that is the opposite polarity to the push-pull-faithful MicroTom, so the
+A3 firmware (pressed=low) reads it inverted. See section 12 for the options.
+
+**"Works on R3 today" rumor:** most plausibly the **C64 core** with mouSTer
+in **1351 mode**, where the right button rides the digital UP line (pin 1),
+not pin 9 - a different path entirely, unrelated to the Amiga pot buttons.
 
 
 ## 10. Open items
@@ -173,7 +216,14 @@ Validation plan: bench-test with a real mouSTer (or any active adapter). Multime
       reset recovers) and even the routine mouse-to-joystick swap for
       two-player games breaks; with it, the worst legitimate cost is one
       interrupted 30-second-plus button hold.
-- [ ] Bench-verify a mouSTer in Amiga mode (drive style, then RMB in Workbench on the fixed build); ask the R6 field tester to re-test with the fixed build.
+- [x] Adapter-side verification: done 2026-07-05. The R6 field tester
+      (NeonKnight, "Micro Tom" adapter) re-tested the WIP-V1-A3 build and
+      confirms the mouse bug fixed: the right button works and Workbench
+      folder loading behaves normally. With that, both device classes are
+      hardware-verified end to end (passive tank mouse on R3, active
+      adapter on R6). A mouSTer-specific bench check is no longer needed
+      (same device class); the middle button remains expected-working but
+      unverified until someone tests a 3-button adapter.
 - [ ] Consider upstreaming a note to mega65-core: its `mouse_input.vhdl` Amiga-mouse right-button mapping (`pota_x_internal(7)`, pressed = line high) cannot trigger with passive Amiga mice for the same board-level reason (no pull-up on the POT pins); it likely only ever worked with active adapters, if at all.
 
 
@@ -183,3 +233,117 @@ Validation plan: bench-test with a real mouSTer (or any active adapter). Multime
 - Amiga Hardware Reference Manual, "Interface Hardware / Controller Port": <https://www.theflatnet.de/pub/cbm/amiga/AmigaDevDocs/hard_8.html>
 - mouSTer product page: <https://retrohax.net/shop/modulesandparts/mouster/> and Hackaday coverage: <https://hackaday.com/2023/02/16/the-mouster-adapter-now-has-amiga-scroll-support/>
 - Code: `CORE/Minimig_MiSTerMEGA65/rtl/userio.v` (POTINP emulation, docking quadrature counters), `M2M/vhdl/controllers/M65/mouse_input.vhdl` (paddle sampler), `M2M/vhdl/qnice_wrapper.vhd` (inversion), `M2M/MEGA65-R{3,4,5,6}.xdc` and `M2M/vhdl/top_mega65-r{3,4,5,6}.vhd` (pin capabilities per revision), `CORE/vhdl/main.vhd` (mouse_btn wiring), `CORE/vhdl/keyboard.vhd` (RUN/STOP substitute).
+
+## 12. Options for the pot-button polarity problem (mouSTer and beyond)
+
+The A3 firmware reads one polarity family: **push-pull, pressed = line low,
+idle = line high** (the Amiga-faithful active drive, what MicroTom does). Two
+adapter families exist that A3 does NOT serve:
+
+- **Passive open-drain** (mouSTer mouse mode, `revpotlines=false`):
+  electrically invisible on all MEGA65 revisions. No firmware can read it.
+- **Pressed = line high** (mouSTer mouse mode `revpotlines=true` open-source;
+  or any push-pull-reversed adapter): readable, but A3 reads it inverted
+  because it is the opposite polarity to MicroTom.
+
+The options, from least to most work on our side:
+
+1. **RUN/STOP (ships today).** Universal fallback, works with every device
+   including passive-mouse-mode mouSTer. The honest answer for Sidde now.
+
+2. **mouSTer firmware feature request (cleanest real fix, zero core change).**
+   Ask the mouSTer author (willyvmm) to expose `activepotlines` in the
+   `[mouse]` section, as it already is in `[gamepad]`. Then
+   `activepotlines=true` + `revpotlines=false` drives pin 9/5 push-pull with
+   pressed=low = exactly MicroTom = works with A3 unchanged. Bonus: it would
+   also fix mouSTer RMB on real Amigas with a weak/damaged Paula. Caveat: the
+   INI's own danger note - active drive can contend with a healthy Paula's pot
+   drive on a real Amiga (harmless on MEGA65, which never drives the pin), so
+   the user must remember to disable it when moving the adapter to a real
+   Amiga.
+
+3. **Auto-polarity ("idle-tracking") firmware on our side (broadest, most
+   work).** Replace the fixed "idle=high" assumption of the section 8 latch
+   with a slow tracker of the line's resting level: define pressed = "line
+   differs from its established idle level." This single mechanism handles
+   every readable case at once and regresses none:
+   - MicroTom (idle high) -> pressed=low. Works, unchanged.
+   - mouSTer `revpotlines=true` open-source (idle low/float, press high) ->
+     pressed=high. Newly works, no mouSTer firmware change.
+   - Passive open-drain, tank mouse, empty port (idle low, never differs) ->
+     never pressed, RUN/STOP fallback, no phantom.
+   - Unplug: the tracker re-converges to the new idle over its time constant,
+     which plays the role the 30 s watchdog plays today.
+   Costs: a DC-average integrator with hysteresis (~30-50 lines VHDL), plus
+   care around power-on-with-button-held and the convergence time constant.
+   PREREQUISITE / cheap diagnostic: have Sidde set `revpotlines=true` on A3
+   and report. If the button becomes responsive-but-inverted (hold-to-load),
+   the open-source drive IS reaching our sampler and option 3 would work for
+   him; if it stays completely dead, even open-source is unreadable on his
+   setup (drive too weak / not tied to pin 7 +5V) and only options 1-2 remain.
+
+Recommendation: tell Sidde option 1 now and the honest root cause (his mouSTer
+is a faithful passive Amiga mouse, which no MEGA65 can read - see its own
+FAQ); pursue option 2 with the mouSTer author as the clean fix; hold option 3
+unless several users show up with pressed=high adapters AND the revpotlines
+diagnostic confirms readability.
+
+## 13. Future: supporting Commodore C64 mice (1350 and 1351)
+
+Two Commodore mice exist for the DE-9 port: the **1350** ("joystick mouse",
+digital) and the **1351** (proportional). Neither works on the Amiga core
+today, and both could be supported later. This section records the reasoning
+so it is not re-derived from scratch.
+
+### Why neither works today [proven]
+
+The Amiga reads a mouse as **quadrature** (Gray-code pulse pairs on the four
+digital lines, decoded by the docking counters in `userio.v` into JOYxDAT).
+Neither Commodore mouse speaks that protocol:
+
+- **1350** emulates a *joystick*: discrete up/down/left/right direction
+  pulses, rate proportional to speed. Our quadrature decoder turns that into
+  erratic jitter, not usable pointer movement.
+- **1351** (proportional mode) reports position as a SID-style analog value on
+  the **POT lines**, which the Amiga never reads for movement -> dead pointer.
+  Additionally, with the A3 right-button logic (section 8) a 1351's shifting
+  POT value can trip phantom right-clicks, so it is actively disruptive, not
+  merely inert.
+
+### Why a future feature is tractable, especially for the 1351 [proven building blocks]
+
+Two pieces of infrastructure already exist:
+
+1. **We already read proportional POT values.** The framework's
+   `mouse_input.vhdl` (Paul Gardner-Stephen's 1351/paddle sampler, the same one
+   the MEGA65 C64 core uses to read 1351 mice) already delivers `pot1_x` /
+   `pot1_y` to `main.vhd`. Here the electronics work in our favour: the 1351
+   *actively drives* the POT lines and we *read* them - the "active device we
+   can sense" case, the exact opposite of the passive tank-mouse button.
+2. **Minimig has an unused mouse-delta injection path.** `userio.v` carries a
+   MiSTer-style `xcount`/`ycount` pair (`mouse0dat = {ycount, xcount}`,
+   `userio.v:416`), incremented by `kbd_mouse_data` when `kbd_mouse_type = 0`
+   (X) or `1` (Y/wheel), and summed into JOYxDAT alongside the quadrature
+   counters at the register read (`userio.v:346/348`). Today only the keyboard
+   uses that channel (`kbd_mouse_type = 2`, from `keyboard.vhd`); the two mouse
+   delta types are free.
+
+Feature sketch for the **1351**: sample its POT position each frame, compute
+the change (absolute position -> relative delta), and inject it as X/Y mouse
+deltas on `kbd_mouse_type 0/1`. The Amiga then sees a moving pointer with no
+change to the quadrature path. Bonus: the 1351 reports its **right button on
+the digital up line** (pin 1, per the mouSTer INI cbutton doc), which the
+MEGA65 reads fine - so a 1351 could have a fully working right button, unlike a
+tank mouse. Left button is the fire line as usual.
+
+The **1350** is also possible but more niche and more work: count its
+joystick-style direction pulses and convert pulse-rate to deltas, feeding the
+same injection path.
+
+### Effort and dependencies
+
+Moderate, post-milestone (not urgent). The main integration cost is arbitrating
+the single shared `kbd_mouse` channel between the keyboard (type 2) and the new
+mouse deltas (type 0/1), plus the position-to-delta tracking. It is reusable
+infrastructure: the same injection path is how a USB mouse would ever be wired
+through QNICE, exactly as MiSTer does it. Discussed 2026-07-05.
