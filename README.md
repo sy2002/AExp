@@ -87,18 +87,20 @@ Workbench menus).
 
 So what works depends on what you plug in:
 
-| What you use                                       | Move + left button | Right (and middle) button |
-|----------------------------------------------------|--------------------|---------------------------|
-| Original Amiga "tank" mouse                        | Yes                | <kbd>Run/Stop</kbd> key   |
-| Adapter that *actively drives* the line (Micro Tom)| Yes                | Works natively            |
-| mouSTer in Amiga-mouse mode                         | Yes                | <kbd>Run/Stop</kbd> key (see note) |
-| Commodore 1351 (proportional mouse)                | No                 | No (maybe supported later) |
-| Commodore 1350 ("joystick mouse")                  | No                 | No (maybe supported later) |
+| What you use                                                | Move + left button | Right (and middle) button          |
+|-------------------------------------------------------------|--------------------|------------------------------------|
+| Original Amiga "tank" mouse                                 | Yes                | <kbd>Run/Stop</kbd> key            |
+| Adapter that *actively drives* the line (e.g. Micro Tom)    | Yes                | Works natively                     |
+| Faithful Tank Mouse replica that *actively drives* the line | Yes                | Works natively                     |
+| mouSTer in Amiga-mouse mode                                 | Yes                | <kbd>Run/Stop</kbd> key (see note) |
+| Commodore 1351 (proportional mouse)                         | No                 | No (maybe supported later)         |
+| Commodore 1350 ("joystick mouse")                           | No                 | No (maybe supported later)         |
 
 Note on the mouSTer: it emulates a real tank mouse so faithfully that it
 inherits the exact same limitation. A future mouSTer firmware option, or a
 tiny adapter with a built-in pull-up resistor, could make its right button
-work natively. Background and details are in [doc/mouse.md](doc/mouse.md).
+work natively. I opened an issue in the mouSTer GitHub repo, you might want
+to "like" it to motivate the maintainer to implement the feature: https://github.com/willyvmm/mouSTer/issues/53
 
 One heads-up for actively-driving adapters: if you unplug one while the Amiga
 is running, the right button can stay "stuck" for up to half a minute
