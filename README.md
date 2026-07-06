@@ -318,20 +318,21 @@ Operating-system hints for the `bash` tool chain:
    to prepare. The bitstream ends up in
    `CORE/CORE-R3.runs/impl_1/mega65_r3.bit` (substitute your board).
 
-4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `bit2core` (built in
-   step 2 as `M2M/QNICE/tools/bit2core`, or downloaded from the
-   [MEGA65 tools](https://github.com/MEGA65/mega65-tools)):
+4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `coretool`, part of
+   the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
 
    ```bash
    cd CORE/CORE-R3.runs/impl_1
-   bit2core mega65r3 mega65_r3.bit "Amiga 500 for MEGA65" "WIP-V1-A3" AExp-WIP-V1-A3-R3.cor
+   coretool -B AExp-WIP-V1-A3-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V1-A3"
    ```
 
-   Use the machine string that matches your board — `mega65r3`, `mega65r4`,
+   Use the target string that matches your board — `mega65r3`, `mega65r4`,
    `mega65r5` or `mega65r6` — and the version string from the `CORE_VERSION`
    constant in `CORE/vhdl/config.vhd`. Unlike the C64 core, the Amiga core
    registers no MEGA65 file type (ADFs are mounted from inside its own
-   menu), so **no trailing flag argument** is passed to `bit2core`.
+   menu), so no `--flags` or `--caps` arguments are needed. The
+   `make_release.py` packaging script runs this step for you and prefers
+   `coretool` when both it and `bit2core` are installed.
 
 5. **Deploy and run.** Copy the `*.cor` to the MEGA65 (or, with a JTAG
    adaptor, flash the `*.bit` directly with `m65 -q mega65_r3.bit`) and
