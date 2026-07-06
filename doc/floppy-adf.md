@@ -172,12 +172,13 @@ Amiga's odd/even XOR scheme. When we *write*, verifying these checksums is how
 we know a decoded sector is trustworthy before committing it.
 
 **Where the bit-exact reference comes from.** MiSTer already reverse-engineered
-this codec into C, in `minimig_fdd.cpp` (functions `SendSector` for encode and
+this codec into C, in `minimig_fdd.cpp` (upstream
+`Main_MiSTer/support/minimig/`; functions `SendSector` for encode and
 `FindSync` / `GetHeader` / `GetData` for decode). We transcribed those functions
-into VHDL, and verified byte-identical output through the whole chain. A cached
-copy lives at `.research/minimig_fdd.cpp`; it is the ground truth for both the
-encoder and the decoder. Every "magic" mask (`0x55`, `0xAA`, `0x5555`) in
-`adf_track_engine.vhd` traces directly to a line in that file.
+into VHDL, and verified byte-identical output through the whole chain; it is the
+ground truth for both the encoder and the decoder. Every "magic" mask (`0x55`,
+`0xAA`, `0x5555`) in `adf_track_engine.vhd` traces directly to a line in that
+file.
 
 ---
 
@@ -734,7 +735,7 @@ stress case.
 | `CORE/vhdl/mega65.vhd` | Instantiates the mount wrapper, the HyperRAM CDC/arbiter chain, the `cdc_stable` bundles, the drive-LED policy. |
 | `CORE/m2m-rom/m2m-rom.asm` | Firmware: `HANDLE_CORE_IO`, `FLUSH_ADF_STEP`, the `PREP_LOAD_IMAGE` guard, the arm-state logic, `.ADF` filter + size guard. |
 | `M2M/rom/shell.asm` | The one framework change: the `HANDLE_CORE_IO` hook in `HANDLE_IO` (`M2M-UPSTREAM core-io-hook`). |
-| `.research/minimig_fdd.cpp` | The bit-exact MiSTer reference for the encoder and decoder. |
+| `Main_MiSTer/support/minimig/minimig_fdd.cpp` | Upstream MiSTer reference (not in this repo) — bit-exact source for the encoder and decoder. |
 
 ### Device `0x0103` window map
 
