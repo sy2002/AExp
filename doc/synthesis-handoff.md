@@ -76,8 +76,8 @@ Whether it succeeds or fails, please bring:
 ## 5. Running the core
 
 - JTAG: `m65 -q CORE-R3.runs/impl_1/mega65_r3.bit` (mega65-tools)
-- or convert: `bit2core mega65r3 <bit> "Amiga 500 AExp" V0.1 aexp.cor` and
-  flash via the No Scroll boot menu.
+- or convert: `coretool -B aexp.cor --bit <bit> --target mega65r3 --bit-name "Amiga 500 AExp" --bit-version V0.1`
+  and flash via the No Scroll boot menu.
 - R3/R3A HDMI back-powering gotcha: power on the MEGA65 *before* the display.
 
 ## 6. Expected behavior on success
