@@ -292,8 +292,8 @@ Operating-system hints for the `bash` tool chain:
    git submodule update --init --recursive
    ```
 
-2. **Build the QNICE tool chain.** This compiles the assembler and the
-   `bit2core` tool natively for your operating system:
+2. **Build the QNICE tool chain.** This compiles the assembler, the
+   QNICE C compiler, etc. natively for your operating system:
 
    ```bash
    cd M2M/QNICE/tools
