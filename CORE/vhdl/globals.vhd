@@ -116,7 +116,7 @@ constant C_DEV_AMIGA_ADF      : std_logic_vector(15 downto 0) := x"0103";
 -- sd_*/img_mounted protocol that vdrives implements - ADF images are mounted
 -- via the manual CRT/ROM loader below (C_DEV_AMIGA_ADF) and served to Paula
 -- by adf_track_engine.vhd over the IO_FPGA host channel instead.
--- See .research/INTEGRATION-SPEC-floppy-adf.md.
+-- See doc/floppy-adf.md.
 type vd_buf_array is array(natural range <>) of std_logic_vector;
 constant C_VDNUM              : natural := 0;                                 -- amount of virtual drives; maximum is 15
 constant C_VD_DEVICE          : std_logic_vector(15 downto 0) := x"EEEE";     -- device number of vdrives.vhd device

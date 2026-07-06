@@ -11,12 +11,12 @@
 -- decoder (bit-exact FindSync/GetHeader/GetData): verified sectors are committed back into the
 -- HyperRAM image and the track is queued as dirty towards the QNICE firmware, which flushes it
 -- to the SD card in the background (see adf_mount_wrapper.vhd and
--- .research/INTEGRATION-SPEC-floppy-adf-write.md). When write-back is not armed (write_en_i='0'),
+-- doc/floppy-adf.md). When write-back is not armed (write_en_i='0'),
 -- the disk is announced write-protected and writes are drained and DISCARDED, so that
 -- wprot-ignoring software cannot hang the machine.
 --
 -- The full protocol contract (verified against rtl/paula_floppy.v) and the design rationale live
--- in .research/INTEGRATION-SPEC-floppy-adf.md. The essentials this implementation relies on:
+-- in doc/floppy-adf.md. The essentials this implementation relies on:
 --
 --   * A frame = io_fpga high; words = 1-clk io_strobe pulses; Paula's word counter saturates at 3
 --     and async-clears when io_fpga drops. Word/response pairs: w0 -> status

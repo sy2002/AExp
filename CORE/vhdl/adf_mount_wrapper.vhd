@@ -14,7 +14,7 @@
 --     STATUS=ST_LDNG before streaming, then file size + STATUS=ST_OK, then polls PARSEST until
 --     the core answers READY or ERROR (M2M/rom/crts-and-roms.asm, HANDLE_CRTROM_M).
 --   * 4k window 0xFFFE   : the write-back CSR (WBC) - the ADF write support's core<->firmware
---     interface (see .research/INTEGRATION-SPEC-floppy-adf-write.md). The track engine commits
+--     interface (see doc/floppy-adf.md). The track engine commits
 --     Amiga-written sectors into HyperRAM and queues the track number over a two-phase toggle
 --     handshake (CDC in mega65.vhd); this wrapper collects them in a 166-bit dirty bitmap and
 --     runs the vdrives-style anti-thrashing ms-countdown. The firmware (HANDLE_CORE_IO in

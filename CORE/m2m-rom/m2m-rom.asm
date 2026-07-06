@@ -340,7 +340,7 @@ CUSTOM_MSG      XOR     R8, R8
 ; the proven C64MEGA65 vdrives discipline (background flushing driven from
 ; HANDLE_IO, chunked to stay responsive, still-open FAT32 handle, errors are
 ; fatal) against our non-vdrives device. Full design:
-; .research/INTEGRATION-SPEC-floppy-adf-write.md
+; doc/floppy-adf.md
 ; ----------------------------------------------------------------------------
 
 ; ADF_WB_INIT: called once from START_FIRMWARE, before the Shell starts.
