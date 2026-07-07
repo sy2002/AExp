@@ -70,7 +70,7 @@ What the opening minutes contain:
 - **64–75 s, the explosion**: full-screen strobe — intentional.
 - An official "60 Hz" video exists in which the city-lights alternation is blended away — made for 60 Hz displays precisely because the temporal effects need true 50 Hz.
 
-So Batman Rises shows **both flicker classes**: the temporal effects stay (authentic), the laced screens are what the weave deinterlacer fixes. Running the core in HDMI 720p **50 Hz** mode is required viewing — at 60 Hz output the temporal effects would break up irregularly.
+So Batman Rises shows **both flicker classes**: the temporal effects stay (authentic), the laced screens are what the weave deinterlacer fixes. It is a good illustration of why AExp offers only 50 Hz HDMI modes — at 60 Hz output the temporal effects would break up irregularly, so 60 Hz was never a faithful choice.
 
 ## 3. How AExp handles interlace: field-aware weave in ascal
 

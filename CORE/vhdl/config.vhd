@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-A4";
+constant CORE_VERSION : string := "WIP-V1-A5";
 
 constant SCR_WELCOME : string :=
 
@@ -295,7 +295,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 44;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 40;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -304,15 +304,15 @@ constant OPTM_SIZE         : natural := 44;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 11 lines, HDMI Settings submenu view = 11 lines,
+-- Main menu view = 11 lines, HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines.
 constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 12;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
---   line  7: 720p 50 Hz  /  8: 720p 60 Hz  /  9: 576p 50 4:3  / 10: 576p 50 5:4
---   line 11: 640x480 60  / 12: 720x480 59.94 / 13: 800x600 60
---   line 32: VGA Standard / 36: VGA 15 kHz with HS/VS / 37: VGA 15 kHz with CSYNC
+--   line  7: 720p 50 Hz 16:9  /  8: 576p 50 4:3  /  9: 576p 50 5:4
+--   line 28: VGA Standard / 32: VGA 15 kHz with HS/VS / 33: VGA 15 kHz with CSYNC
+-- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 19..26 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
 -- M2M$GET_SETTING and programs ascal directly (ASCAL_USAGE=1).
@@ -330,45 +330,41 @@ constant OPTM_ITEMS        : string :=
    " HDMI Settings\n"       &    --  5: headline
    "\n"                     &    --  6: line
    " 720p 50 Hz 16:9\n"     &    --  7
-   " 720p 60 Hz 16:9\n"     &    --  8
-   " 576p 50 Hz 4:3\n"      &    --  9
-   " 576p 50 Hz 5:4\n"      &    -- 10
-   " 640x480 60 Hz\n"       &    -- 11
-   " 720x480 59.94 Hz\n"    &    -- 12
-   " 800x600 60 Hz\n"       &    -- 13
+   " 576p 50 Hz 4:3\n"      &    --  8
+   " 576p 50 Hz 5:4\n"      &    --  9
+   "\n"                     &    -- 10: line
+   " Back to main menu\n"   &    -- 11: close submenu
+
+   " HDMI: %s\n"            &    -- 12: HDMI Filter submenu, directly under HDMI Settings
+   " HDMI Filter\n"         &    -- 13: headline
    "\n"                     &    -- 14: line
-   " Back to main menu\n"   &    -- 15: close submenu
+   " No Filter\n"           &    -- 15: ascal native NEAREST
+   " Sharp Bilinear\n"      &    -- 16: ascal native SBILINEAR
+   " Bicubic\n"             &    -- 17: ascal native BICUBIC
+   " Smooth\n"              &    -- 18: polyphase
+   " Lanczos\n"             &    -- 19: polyphase; default
+   " Scanlines\n"           &    -- 20: polyphase; the former "CRT emulation" look
+   " CRT (S-Video)\n"       &    -- 21: polyphase
+   " CRT (Composite)\n"     &    -- 22: polyphase
+   "\n"                     &    -- 23: line
+   " Back to main menu\n"   &    -- 24: close submenu
 
-   " HDMI: %s\n"            &    -- 16: HDMI Filter submenu, directly under HDMI Settings
-   " HDMI Filter\n"         &    -- 17: headline
-   "\n"                     &    -- 18: line
-   " No Filter\n"           &    -- 19: ascal native NEAREST
-   " Sharp Bilinear\n"      &    -- 20: ascal native SBILINEAR
-   " Bicubic\n"             &    -- 21: ascal native BICUBIC
-   " Smooth\n"              &    -- 22: polyphase
-   " Lanczos\n"             &    -- 23: polyphase; default
-   " Scanlines\n"           &    -- 24: polyphase; the former "CRT emulation" look
-   " CRT (S-Video)\n"       &    -- 25: polyphase
-   " CRT (Composite)\n"     &    -- 26: polyphase
+   " VGA: %s\n"             &    -- 25: VGA (analog output) submenu
+   " VGA Display Mode\n"    &    -- 26: headline
    "\n"                     &    -- 27: line
-   " Back to main menu\n"   &    -- 28: close submenu
-
-   " VGA: %s\n"             &    -- 29: VGA (analog output) submenu
-   " VGA Display Mode\n"    &    -- 30: headline
+   " Standard\n"            &    -- 28: scandoubled 31.25 kHz; default
+   "\n"                     &    -- 29: line
+   " Retro 15 kHz mode\n"   &    -- 30: text (sub-headline for the two 15 kHz options)
    "\n"                     &    -- 31: line
-   " Standard\n"            &    -- 32: scandoubled 31.25 kHz; default
-   "\n"                     &    -- 33: line
-   " Retro 15 kHz mode\n"   &    -- 34: text (sub-headline for the two 15 kHz options)
-   "\n"                     &    -- 35: line
-   " 15 kHz with HS/VS\n"   &    -- 36: raw 15.625 kHz RGB, separate syncs
-   " 15 kHz with CSYNC\n"   &    -- 37: raw 15.625 kHz RGB, composite sync (SCART)
-   "\n"                     &    -- 38: line
-   " Back to main menu\n"   &    -- 39: close submenu
+   " 15 kHz with HS/VS\n"   &    -- 32: raw 15.625 kHz RGB, separate syncs
+   " 15 kHz with CSYNC\n"   &    -- 33: raw 15.625 kHz RGB, composite sync (SCART)
+   "\n"                     &    -- 34: line
+   " Back to main menu\n"   &    -- 35: close submenu
 
-   "\n"                     &    -- 40: line
-   " About & Help\n"        &    -- 41: help
-   "\n"                     &    -- 42: line
-   " Close Menu\n";              -- 43: close
+   "\n"                     &    -- 36: line
+   " About & Help\n"        &    -- 37: help
+   "\n"                     &    -- 38: line
+   " Close Menu\n";              -- 39: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -398,45 +394,41 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  5: Headline "HDMI Settings"
                                              OPTM_G_LINE,                              --  6: Line
                                              OPTM_G_HDMI + OPTM_G_STDSEL,              --  7: 720p 50 Hz 16:9, default
-                                             OPTM_G_HDMI,                              --  8: 720p 60 Hz 16:9
-                                             OPTM_G_HDMI,                              --  9: 576p 50 Hz 4:3
-                                             OPTM_G_HDMI,                              -- 10: 576p 50 Hz 5:4
-                                             OPTM_G_HDMI,                              -- 11: 640x480 60 Hz
-                                             OPTM_G_HDMI,                              -- 12: 720x480 59.94 Hz
-                                             OPTM_G_HDMI,                              -- 13: 800x600 60 Hz
+                                             OPTM_G_HDMI,                              --  8: 576p 50 Hz 4:3
+                                             OPTM_G_HDMI,                              --  9: 576p 50 Hz 5:4
+                                             OPTM_G_LINE,                              -- 10: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 11: Close submenu / back to main menu
+
+                                             OPTM_G_SUBMENU,                           -- 12: HDMI Filter submenu block: "HDMI: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 13: Headline "HDMI Filter"
                                              OPTM_G_LINE,                              -- 14: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 15: Close submenu / back to main menu
+                                             OPTM_G_FILTER,                            -- 15: No Filter
+                                             OPTM_G_FILTER,                            -- 16: Sharp Bilinear
+                                             OPTM_G_FILTER,                            -- 17: Bicubic
+                                             OPTM_G_FILTER,                            -- 18: Smooth
+                                             OPTM_G_FILTER + OPTM_G_STDSEL,            -- 19: Lanczos (default)
+                                             OPTM_G_FILTER,                            -- 20: Scanlines
+                                             OPTM_G_FILTER,                            -- 21: CRT (S-Video)
+                                             OPTM_G_FILTER,                            -- 22: CRT (Composite)
+                                             OPTM_G_LINE,                              -- 23: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 24: Close submenu / back to main menu
 
-                                             OPTM_G_SUBMENU,                           -- 16: HDMI Filter submenu block: "HDMI: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 17: Headline "HDMI Filter"
-                                             OPTM_G_LINE,                              -- 18: Line
-                                             OPTM_G_FILTER,                            -- 19: No Filter
-                                             OPTM_G_FILTER,                            -- 20: Sharp Bilinear
-                                             OPTM_G_FILTER,                            -- 21: Bicubic
-                                             OPTM_G_FILTER,                            -- 22: Smooth
-                                             OPTM_G_FILTER + OPTM_G_STDSEL,            -- 23: Lanczos (default)
-                                             OPTM_G_FILTER,                            -- 24: Scanlines
-                                             OPTM_G_FILTER,                            -- 25: CRT (S-Video)
-                                             OPTM_G_FILTER,                            -- 26: CRT (Composite)
+                                             OPTM_G_SUBMENU,                           -- 25: VGA submenu block: "VGA: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 26: Headline "VGA Display Mode"
                                              OPTM_G_LINE,                              -- 27: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 28: Close submenu / back to main menu
-
-                                             OPTM_G_SUBMENU,                           -- 29: VGA submenu block: "VGA: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 30: Headline "VGA Display Mode"
+                                             OPTM_G_VGA + OPTM_G_STDSEL,               -- 28: Standard (default)
+                                             OPTM_G_LINE,                              -- 29: Line
+                                             OPTM_G_TEXT,                              -- 30: Text "Retro 15 kHz mode"
                                              OPTM_G_LINE,                              -- 31: Line
-                                             OPTM_G_VGA + OPTM_G_STDSEL,               -- 32: Standard (default)
-                                             OPTM_G_LINE,                              -- 33: Line
-                                             OPTM_G_TEXT,                              -- 34: Text "Retro 15 kHz mode"
-                                             OPTM_G_LINE,                              -- 35: Line
-                                             OPTM_G_VGA,                               -- 36: 15 kHz with HS/VS
-                                             OPTM_G_VGA,                               -- 37: 15 kHz with CSYNC
-                                             OPTM_G_LINE,                              -- 38: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 39: Close submenu / back to main menu
+                                             OPTM_G_VGA,                               -- 32: 15 kHz with HS/VS
+                                             OPTM_G_VGA,                               -- 33: 15 kHz with CSYNC
+                                             OPTM_G_LINE,                              -- 34: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 35: Close submenu / back to main menu
 
-                                             OPTM_G_LINE,                              -- 40: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 41: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 42: Line
-                                             OPTM_G_CLOSE                              -- 43: Close Menu
+                                             OPTM_G_LINE,                              -- 36: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 37: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 38: Line
+                                             OPTM_G_CLOSE                              -- 39: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

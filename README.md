@@ -1,3 +1,4 @@
+l
 Amiga 500 for MEGA65
 ====================
 
@@ -149,13 +150,10 @@ and most of the numeric keypad) cannot be typed at the moment.
 ### Video: HDMI
 
 HDMI outputs 720p at 50 Hz (16:9) by default. The first `HDMI:` menu
-entry offers more modes: 720p at 50 or 60 Hz, 576p at 50 Hz (4:3 or 5:4),
-640x480 at 60 Hz, 720x480 at 59.94 Hz and 800x600 at 60 Hz.
+entry offers the other 50 Hz modes: 576p at 50 Hz in 4:3 or 5:4.
 
-**The Amiga is a 50 Hz machine, so prefer a 50 Hz mode.** The 60 Hz modes
-exist for displays that refuse 50 Hz: scrolling will judder there, and
-demos that rely on exact 50 Hz timing (many do) will not look as
-intended.
+**An OCS PAL Amiga is a 50 Hz machine**, so only faithful 50 Hz modes are
+offered. 
 
 The second `HDMI:` menu entry, directly below the display mode, selects
 the scaling filter:
