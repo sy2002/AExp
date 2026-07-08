@@ -329,6 +329,8 @@ signal qnice_osm_cfg_xy       : std_logic_vector(15 downto 0);
 signal qnice_osm_cfg_dxdy     : std_logic_vector(15 downto 0);
 signal qnice_hdmax            : std_logic_vector(11 downto 0);
 signal qnice_vdmax            : std_logic_vector(11 downto 0);
+-- M2M-UPSTREAM screen-center (AExp 2026-07-08): ascal interlace-detected flag
+signal qnice_interlaced       : std_logic;
 signal qnice_clk_sel          : std_logic_vector( 2 downto 0);
 
 signal qnice_h_pixels         : std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
@@ -611,6 +613,7 @@ begin
       qnice_osm_cfg_dxdy_o      => qnice_osm_cfg_dxdy,
       qnice_hdmax_i             => qnice_hdmax,
       qnice_vdmax_i             => qnice_vdmax,
+      qnice_interlaced_i        => qnice_interlaced,   -- M2M-UPSTREAM screen-center
       qnice_h_pixels_i          => qnice_h_pixels,
       qnice_v_pixels_i          => qnice_v_pixels,
       qnice_h_pulse_i           => qnice_h_pulse,
@@ -920,6 +923,7 @@ begin
          qnice_vimax_off_i       => qnice_gp_reg_o(123 downto 112),
          qnice_hdmax_o           => qnice_hdmax,
          qnice_vdmax_o           => qnice_vdmax,
+         qnice_interlaced_o      => qnice_interlaced,   -- M2M-UPSTREAM screen-center
          qnice_h_pixels_o        => qnice_h_pixels,
          qnice_v_pixels_o        => qnice_v_pixels,
          qnice_h_pulse_o         => qnice_h_pulse,

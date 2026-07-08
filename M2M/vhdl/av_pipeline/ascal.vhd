@@ -199,6 +199,13 @@ ENTITY ascal IS
     -- Detected input image size
     i_hdmax : OUT natural RANGE 0 TO 4095;
     i_vdmax : OUT natural RANGE 0 TO 4095;
+
+    -- M2M-UPSTREAM screen-center (AExp 2026-07-08): expose the internal
+    -- interlace-detected state so a core-agnostic consumer (framework -> QNICE)
+    -- can tell whether ascal is currently weaving interlaced input. Driven from
+    -- i_inter (armed on an i_fl edge, disarmed 3 vsyncs after toggling stops);
+    -- same i_clk input domain as i_hdmax/i_vdmax.
+    i_interlaced : OUT std_logic;
     
     -- Output video parameters
     run    : IN std_logic :='1'; -- 1=Enable output image. 0=No image
@@ -1107,6 +1114,10 @@ BEGIN
   
   -----------------------------------------------------------------------------
   i_reset_na<='0'   WHEN reset_na='0' ELSE '1' WHEN rising_edge(i_clk);
+
+  -- M2M-UPSTREAM screen-center (AExp 2026-07-08): mirror the interlace-detected
+  -- state onto the output port (combinational; the consumer synchronises it).
+  i_interlaced <= i_inter;
   o_reset_na<='0'   WHEN reset_na='0' ELSE '1' WHEN rising_edge(o_clk);
   avl_reset_na<='0' WHEN reset_na='0' ELSE '1' WHEN rising_edge(avl_clk);
   

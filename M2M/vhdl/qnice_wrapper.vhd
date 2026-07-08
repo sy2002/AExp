@@ -51,6 +51,8 @@ port (
    qnice_osm_cfg_dxdy_o      : out std_logic_vector(15 downto 0);
    qnice_hdmax_i             : in  std_logic_vector(11 downto 0);
    qnice_vdmax_i             : in  std_logic_vector(11 downto 0);
+   -- M2M-UPSTREAM screen-center (AExp 2026-07-08): ascal interlace-detected flag
+   qnice_interlaced_i        : in  std_logic;
    qnice_h_pixels_i          : in  std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
    qnice_v_pixels_i          : in  std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
    qnice_h_pulse_i           : in  std_logic_vector(11 downto 0); -- horizontal sync pulse width in pixels
@@ -436,6 +438,10 @@ begin
 
                         -- CORE_H_FREQ:
                         when X"00A" => qnice_ramrom_data_in <= qnice_h_freq_i;
+
+                        -- M2M-UPSTREAM screen-center (AExp 2026-07-08): CORE_FLAGS
+                        -- bit 0 = ascal detected interlaced input (else 0)
+                        when X"00B" => qnice_ramrom_data_in <= x"000" & "000" & qnice_interlaced_i;
 
                         when others => null;
                      end case;

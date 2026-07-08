@@ -69,6 +69,9 @@ entity digital_pipeline is
       sys_info_hdmi_o          : out std_logic_vector(47 downto 0);
       video_hdmax_o            : out natural range 0 to 4095;
       video_vdmax_o            : out natural range 0 to 4095;
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): ascal's interlace-detected
+      -- flag (core-agnostic; from ascal i_inter), exposed to QNICE via SYS_CORE
+      video_interlaced_o       : out std_logic;
 
       -- QNICE connection to ascal's mode register
       qnice_ascal_mode_i       : in  unsigned(4 downto 0);
@@ -151,6 +154,8 @@ architecture synthesis of digital_pipeline is
    -- domain), tapped so "0 offset" maps to the full window
    signal sig_ihdmax             : natural range 0 to 4095;
    signal sig_ivdmax             : natural range 0 to 4095;
+   -- M2M-UPSTREAM screen-center: ascal's interlace-detected flag (video domain)
+   signal sig_iinter             : std_logic;
 
    -- M2M-UPSTREAM screen-center: the input crop rectangle driven into ascal
    -- (iauto=0), registered on video_clk_i. 0 offsets => [0, measured size] =
@@ -272,6 +277,8 @@ begin
    -- consumed below to build the crop) on the QNICE geometry outputs
    video_hdmax_o <= sig_ihdmax;
    video_vdmax_o <= sig_ivdmax;
+   -- M2M-UPSTREAM screen-center: forward ascal's interlace-detected flag to QNICE
+   video_interlaced_o <= sig_iinter;
 
    -- M2M-UPSTREAM screen-center: build the input crop rectangle from the
    -- measured input size + the four signed edge offsets, clamped so ascal
@@ -454,6 +461,7 @@ begin
          -- Detected input image size (tapped internally to build the crop)
          i_hdmax           => sig_ihdmax,                   -- output
          i_vdmax           => sig_ivdmax,                   -- output
+         i_interlaced      => sig_iinter,                   -- output -- M2M-UPSTREAM screen-center
 
          -- Output video parameters
          run               => '1',                          -- input

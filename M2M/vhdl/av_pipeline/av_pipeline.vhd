@@ -81,6 +81,8 @@ entity av_pipeline is
       -- To QNICE
       qnice_hdmax_o           : out std_logic_vector(11 downto 0);
       qnice_vdmax_o           : out std_logic_vector(11 downto 0);
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): interlace-detected flag to QNICE
+      qnice_interlaced_o      : out std_logic;
       qnice_h_pixels_o        : out std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
       qnice_v_pixels_o        : out std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
       qnice_h_pulse_o         : out std_logic_vector(11 downto 0); -- horizontal sync pulse width in pixels
@@ -186,6 +188,8 @@ signal video_osm_vram_addr    : std_logic_vector(15 downto 0);
 signal video_osm_vram_data    : std_logic_vector(15 downto 0);
 signal video_hdmax            : natural range 0 to 4095;
 signal video_vdmax            : natural range 0 to 4095;
+-- M2M-UPSTREAM screen-center: ascal interlace-detected flag (video domain)
+signal video_interlaced       : std_logic;
 
 signal video_pps              : std_logic;
 signal video_h_pixels         : std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
@@ -469,7 +473,7 @@ begin
    -- Clock domain crossing: VIDEO to QNICE
    i_video2qnice: xpm_cdc_array_single
       generic map (
-         WIDTH => 136
+         WIDTH => 137   -- M2M-UPSTREAM screen-center: +1 for the interlace flag
       )
       port map (
          src_clk                  => video_clk_i,
@@ -484,6 +488,7 @@ begin
          src_in(111 downto  96)   => video_h_freq,
          src_in(123 downto 112)   => std_logic_vector(to_unsigned(video_hdmax+1, 12)),
          src_in(135 downto 124)   => std_logic_vector(to_unsigned(video_vdmax+1, 12)),
+         src_in(136)              => video_interlaced,   -- M2M-UPSTREAM screen-center
          dest_clk                 => qnice_clk_i,
          dest_out( 11 downto   0) => qnice_h_pixels_o,
          dest_out( 23 downto  12) => qnice_v_pixels_o,
@@ -495,7 +500,8 @@ begin
          dest_out( 95 downto  84) => qnice_v_fp_o,
          dest_out(111 downto  96) => qnice_h_freq_o,
          dest_out(123 downto 112) => qnice_hdmax_o,
-         dest_out(135 downto 124) => qnice_vdmax_o
+         dest_out(135 downto 124) => qnice_vdmax_o,
+         dest_out(136)            => qnice_interlaced_o   -- M2M-UPSTREAM screen-center
       ); -- i_video2qnice
 
 
@@ -577,6 +583,7 @@ begin
          video_fl_i               => video_fl_i,
          video_hdmax_o            => video_hdmax,
          video_vdmax_o            => video_vdmax,
+         video_interlaced_o       => video_interlaced,   -- M2M-UPSTREAM screen-center
          audio_clk_i              => audio_clk_i,
          audio_rst_i              => audio_rst_i,
          audio_left_i             => signed(audio_left),

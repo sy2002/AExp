@@ -32,11 +32,11 @@ synthesized/hardware-tested.** ascal input-crop (`iauto=0`;
 `digital_pipeline.vhd` `p_crop` picks `himin/himax` from ascal's measured
 input size + 4 signed per-edge offsets = MiSTer-style source-rectangle
 selection; re-centers content, HDMI-only; 0 offsets = the old auto window).
-Offsets flow SD file `/amiga/screen_hdmi.bin` → firmware
+Offsets flow SD file `/amiga/aexp_screen.bin` → firmware
 `LOAD_SCREEN_OFFSETS` → CFD gp_reg words 4-7 → `i_qnice2video` CDC; OSM
 "Reload screen cfg" item (OPTM_SIZE 40→41). VGA (increment 2, gp_reg words
 0-3, couples HDMI via the shared blanking) + interactive OSD adjust still
-pending; end-user tool `aexp_screen_hdmi.py`. **Fresh-session
+pending; end-user tool `aexp_screen_cfg.py`. **Fresh-session
 handover: `doc/temp_issue5_handover.md`.** Everything below is the distilled
 project knowledge —
 the deep material lives in `doc/` (see "Key documents").

@@ -45,6 +45,7 @@
                 ; reached during boot (HANDLE_IO is polled from boot-time wait
                 ; loops), and RAM variables are undefined at power-on.
 START_FIRMWARE  RSUB    ADF_WB_INIT, 1
+                RSUB    SCR_INIT, 1
                 RBRA    START_SHELL, 1
 
 ; ----------------------------------------------------------------------------
@@ -259,8 +260,8 @@ PREP_START      INCRB
                 RSUB    LOAD_HDMI_FILTER, 1
 
                 ; Apply the screen-centering offsets (HDMI ascal window) from
-                ; /amiga/screen_hdmi.bin, or the hardcoded default, before the
-                ; core un-resets so the first frame is already positioned.
+                ; /amiga/aexp_screen.bin (zeros if absent) before the core
+                ; un-resets so the first frame is already positioned.
                 RSUB    LOAD_SCREEN_OFFSETS, 1
 
                 XOR     R8, R8
@@ -307,7 +308,24 @@ OSM_SEL_POST    INCRB
                 ; item's checkmark just toggles cosmetically).
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 RBRA    _OSM_SEL_POST_R, !Z
-                RSUB    LOAD_SCREEN_OFFSETS, 1
+                ; The user may have pulled the SD card to write a new file with
+                ; the python tool; the shared SD controller is then de-negotiated
+                ; until a re-mount runs SD$RESET (and a same-slot tray swap does
+                ; NOT reliably raise SD_CHANGED on R3, so we cannot gate on it).
+                ; Re-mount CONFIG_DEVH here, mirroring the file browser's remount,
+                ; so the reload reads the CURRENT card and not the stale boot
+                ; mount. Safe for config-save: write-back is gated on CONFIG_FILE
+                ; (untouched), and re-mounting keeps CONFIG_DEVH's own bookkeeping
+                ; consistent with the freshly reset controller.
+                MOVE    CONFIG_DEVH, R8
+                CMP     0, @R8                  ; any SD device mounted at all?
+                RBRA    _OSP_SCR_LOAD, Z        ; none -> let LOAD zero the table
+                RSUB    WAIT1SEC, 1             ; debounce a just-reinserted card
+                MOVE    CONFIG_DEVH, R8
+                MOVE    1, R9                   ; partition #1 (framework-wide)
+                SYSCALL(f32_mnt_sd, 1)          ; SD$RESET + re-read geometry;
+                                                ; LOAD's f32_fopen re-checks status
+_OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
@@ -387,6 +405,29 @@ ADF_WB_INIT     INCRB
                 DECRB
                 RET
 
+; SCR_INIT: called once from START_FIRMWARE, before the Shell starts. Puts the
+; screen-centering runtime state (issue #5) into a safe boot state, so a
+; DETECT_SCREEN_MODE poll from a boot-time wait loop (HANDLE_IO is polled before
+; PREP_START runs LOAD_SCREEN_OFFSETS, and RAM is undefined at power-on) can never
+; act on undefined state: the debounce latch says "nothing applied", and the table
+; is inert (0,0,0,0 = no centering) until LOAD_SCREEN_OFFSETS reads the SD file.
+SCR_INIT        INCRB
+                MOVE    SCR_APPLIED_MODE, R0
+                MOVE    SCR_MODE_NONE, @R0
+                MOVE    SCR_CAND_MODE, R0
+                MOVE    SCR_MODE_NONE, @R0
+                MOVE    SCR_CAND_CNT, R0
+                MOVE    0, @R0
+                MOVE    SCR_TICK, R0
+                MOVE    0, @R0
+                MOVE    SCR_HDMI_TABLE, R0
+                MOVE    SCR_HDMI_WORDS, R1
+_SCR_INIT_L     MOVE    0, @R0++
+                SUB     1, R1
+                RBRA    _SCR_INIT_L, !Z
+                DECRB
+                RET
+
 ; HANDLE_CORE_IO callback function:
 ;
 ; Called from HANDLE_IO in every iteration of the main loop and of all
@@ -406,8 +447,23 @@ ADF_WB_INIT     INCRB
 ; Input/Output: none; all registers are preserved
 HANDLE_CORE_IO  SYSCALL(enter, 1)
 
+                ; screen centering (issue #5): throttle the mode detector. A mode
+                ; change only needs to be reacted to within a few ms, so run
+                ; DETECT_SCREEN_MODE once every SCR_TICK_MASK+1 poll-loop
+                ; iterations instead of every one -- the detector is ~80 instr
+                ; and this callback is polled in the tightest loops (incl. the
+                ; ADF write-back below). Skipped iterations pay only this
+                ; ~4-instruction counter. On a change the detector re-centers
+                ; within (SCR_DEBOUNCE+2) detects, i.e. a few tens of ms.
+                MOVE    SCR_TICK, R4
+                ADD     1, @R4
+                MOVE    @R4, R5
+                AND     SCR_TICK_MASK, R5
+                RBRA    _HCIO_NODET, !Z
+                RSUB    DETECT_SCREEN_MODE, 1     ; detect + apply on a mode change
+
                 ; be transparent about the active RAMROM device selection
-                MOVE    M2M$RAMROM_DEV, R0
+_HCIO_NODET     MOVE    M2M$RAMROM_DEV, R0
                 MOVE    @R0, R1
                 MOVE    M2M$RAMROM_4KWIN, R2
                 MOVE    @R2, R3
@@ -783,20 +839,24 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
                 .DW AEXP_OSM_FLT_CRT_COMPOSITE, M2M$ASCAL_POLYPHASE, CRT_SIM_COMPOSITE_H, SCAN_BR_110_80
 
 ; ----------------------------------------------------------------------------
-; LOAD_SCREEN_OFFSETS: screen centering (issue #5). Reads the four signed HDMI
-; ascal input-crop edge offsets from /amiga/screen_hdmi.bin and pushes them into
-; the CFD gp_reg words 4..7, which the M2M framework digital_pipeline applies to
-; ascal's input crop himin/himax/vimin/vimax (M2M-UPSTREAM). On a missing/invalid
-; file it pushes SCR_HDMI_DEFAULTS instead, so the release still centers with no
-; file present. Called from PREP_START (boot, before the core un-resets) and
-; from OSM_SEL_POST on the "Reload screen cfg" item (live, no core reset / no
-; re-synth -- the point of the SD-file tuning loop).
+; LOAD_SCREEN_OFFSETS: screen centering (issue #5). Reads the per-Amiga-mode
+; table of signed HDMI ascal input-crop edge offsets from /amiga/aexp_screen.bin
+; into RAM (SCR_HDMI_TABLE). It does NOT push anything itself; DETECT_SCREEN_MODE
+; (called from HANDLE_CORE_IO) watches the ascal-measured geometry + interlace
+; flag, picks the matching row, and pushes that row's four offsets into CFD
+; gp_reg words 4..7, which the M2M framework digital_pipeline applies to ascal's
+; input crop himin/himax/vimin/vimax (M2M-UPSTREAM). On a missing/invalid file
+; the table is zeroed (0,0,0,0 = no centering). Loading (re)arms the detector so
+; the current mode's row is re-pushed. Called from PREP_START (boot, before the
+; core un-resets) and from OSM_SEL_POST on the "Reload screen cfg" item (live,
+; no core reset / no re-synth -- the point of the SD-file tuning loop).
 ;
-; File /amiga/screen_hdmi.bin (big-endian 16-bit words): "A","X", ver=1,
-; count=1, then himin_off, himax_off, vimin_off, vimax_off (signed Amiga-source
-; pixel offsets; himin_off>0 trims the left, himax_off<0 trims the right; only
-; the low 12 bits reach the core). The VGA file /amiga/screen_vga.bin is added in
-; increment 2 together with the main.vhd soft-blank consumer.
+; File /amiga/aexp_screen.bin (big-endian 16-bit words): "A","X", ver=2,
+; count=4, then 4 rows x (himin_off, himax_off, vimin_off, vimax_off) in the
+; fixed order lores-progressive, hires-progressive, lores-interlaced,
+; hires-interlaced (signed Amiga-source pixel offsets; himin_off>0 trims the
+; left, himax_off<0 trims the right; only the low 12 bits reach the core). A
+; VGA counterpart follows in increment 2 (the main.vhd soft-blank consumer).
 ;
 ; Input:  None      Output: R8 = 0, R9 = 0
 ; ----------------------------------------------------------------------------
@@ -804,53 +864,56 @@ LOAD_SCREEN_OFFSETS INCRB
 
                 MOVE    CONFIG_DEVH, R8         ; reuse the config device handle
                 CMP     0, @R8                  ; valid? (set by HELP_MENU_INIT)
-                RBRA    _LSO_DEFAULTS, Z        ; no SD device -> defaults
+                RBRA    _LSO_ZERO, Z            ; no SD device -> zero table
 
                 MOVE    SCR_HDMI_FDH, R9        ; empty file handle struct
-                MOVE    SCR_HDMI_NAME, R10      ; "/amiga/screen_hdmi.bin"
+                MOVE    SCR_HDMI_NAME, R10      ; "/amiga/aexp_screen.bin"
                 XOR     R11, R11                ; "/" path separator
                 SYSCALL(f32_fopen, 1)
                 CMP     0, R10                  ; open OK?
-                RBRA    _LSO_DEFAULTS, !Z       ; no -> defaults
+                RBRA    _LSO_ZERO, !Z           ; no -> zero table
 
                 RSUB    _LSO_RDBYTE, 1          ; header byte 0: 'A'
                 CMP     0, R10
-                RBRA    _LSO_DEFAULTS, !Z
+                RBRA    _LSO_ZERO, !Z
                 CMP     0x0041, R8
-                RBRA    _LSO_DEFAULTS, !Z
+                RBRA    _LSO_ZERO, !Z
                 RSUB    _LSO_RDBYTE, 1          ; header byte 1: 'X'
                 CMP     0x0058, R8
-                RBRA    _LSO_DEFAULTS, !Z
-                RSUB    _LSO_RDBYTE, 1          ; header byte 2: version = 1
-                CMP     0x0001, R8
-                RBRA    _LSO_DEFAULTS, !Z
-                RSUB    _LSO_RDBYTE, 1          ; header byte 3: count = 1
-                CMP     0x0001, R8
-                RBRA    _LSO_DEFAULTS, !Z
+                RBRA    _LSO_ZERO, !Z
+                RSUB    _LSO_RDBYTE, 1          ; header byte 2: version = 2
+                CMP     0x0002, R8
+                RBRA    _LSO_ZERO, !Z
+                RSUB    _LSO_RDBYTE, 1          ; header byte 3: count = 4 modes
+                CMP     SCR_HDMI_MODES, R8
+                RBRA    _LSO_ZERO, !Z
 
-                MOVE    4, R0                   ; R0: CFD word index (4..7)
-                MOVE    4, R1                   ; R1: values remaining
+                MOVE    SCR_HDMI_TABLE, R0      ; R0: table destination
+                MOVE    SCR_HDMI_WORDS, R1      ; R1: 16 words (4 modes x 4)
 _LSO_RDLOOP     RSUB    _LSO_RDWORD, 1          ; R8 = 16-bit value, R10 status
                 CMP     0, R10                  ; full word read?
-                RBRA    _LSO_DEFAULTS, !Z       ; truncated -> defaults
-                MOVE    R0, R9
-                RSUB    _LSO_CFDW, 1            ; CFD[R9] <- R8
-                ADD     1, R0
+                RBRA    _LSO_ZERO, !Z           ; truncated -> zero table
+                MOVE    R8, @R0++               ; store into the RAM table
                 SUB     1, R1
                 RBRA    _LSO_RDLOOP, !Z
-                RBRA    _LSO_RET, 1
+                RBRA    _LSO_ARM, 1
 
-_LSO_DEFAULTS   MOVE    SCR_HDMI_DEFAULTS, R2   ; -> 4 default words
-                MOVE    4, R0
-                MOVE    4, R1
-_LSO_DEFLOOP    MOVE    @R2++, R8
-                MOVE    R0, R9
-                RSUB    _LSO_CFDW, 1
-                ADD     1, R0
+_LSO_ZERO       MOVE    SCR_HDMI_TABLE, R0      ; no/invalid file -> all zeros
+                MOVE    SCR_HDMI_WORDS, R1      ; (0,0,0,0 = no centering)
+_LSO_ZLOOP      MOVE    0, @R0++
                 SUB     1, R1
-                RBRA    _LSO_DEFLOOP, !Z
+                RBRA    _LSO_ZLOOP, !Z
 
-_LSO_RET        XOR     R8, R8
+                ; force the mode detector to (re-)push the current mode's row by
+                ; invalidating the applied-mode latch and restarting the debounce
+_LSO_ARM        MOVE    SCR_APPLIED_MODE, R0
+                MOVE    SCR_MODE_NONE, @R0
+                MOVE    SCR_CAND_MODE, R0
+                MOVE    SCR_MODE_NONE, @R0
+                MOVE    SCR_CAND_CNT, R0
+                MOVE    0, @R0
+
+                XOR     R8, R8
                 XOR     R9, R9
                 DECRB
                 RET
@@ -888,6 +951,190 @@ _LSO_CFDW       INCRB
                 MOVE    M2M$CFD_DATA, R0
                 MOVE    R8, @R0                 ; write value into the window
                 DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; DETECT_SCREEN_MODE: screen centering (issue #5), the runtime half. Called from
+; HANDLE_CORE_IO every main-loop / wait-loop iteration. Reads the ascal-measured
+; input geometry (SYS_CORE_X/Y) and the interlace flag (SYS_CORE_FLAGS bit 0,
+; M2M-UPSTREAM screen-center), classifies the Amiga graphics mode, debounces it,
+; and on a stable CHANGE pushes the matching SCR_HDMI_TABLE row into CFD gp_reg
+; words 4..7 and logs a MiSTer-style trace to the serial UART. A mode outside the
+; table (unexpected geometry) applies 0,0,0,0 and logs "unsupported". Fully
+; self-contained: own enter/leave and RAMROM device/window save/restore.
+;
+; Input/Output: none; all registers preserved
+; ----------------------------------------------------------------------------
+DETECT_SCREEN_MODE SYSCALL(enter, 1)
+
+                ; --- read SYS_CORE geometry + interlace flag, transparently
+                ;     restoring the caller's RAMROM device/window selection ---
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R1
+                MOVE    M2M$RAMROM_4KWIN, R2
+                MOVE    @R2, R3
+                MOVE    M2M$SYS_INFO, @R0
+                MOVE    M2M$SYS_CORE, @R2
+                MOVE    M2M$SYS_CORE_X, R4
+                MOVE    @R4, R4                 ; R4 = hdmax (measured + 1)
+                MOVE    M2M$SYS_CORE_Y, R5
+                MOVE    @R5, R5                 ; R5 = vdmax
+                MOVE    M2M$SYS_CORE_FLAGS, R6
+                MOVE    @R6, R6                 ; R6 = flags (bit 0 = interlaced)
+                MOVE    R1, @R0                 ; restore RAMROM selection
+                MOVE    R3, @R2
+
+                ; --- classify hdmax (OCS PAL is bimodal; the in_range_u syscall
+                ;     tests the half-open window R9 <= R8 < R10) ---
+                CMP     SCR_HDMAX_NOSIG, R4     ; hdmax < 200 -> no video yet
+                RBRA    _DSM_RET, N             ;   (boot / mode change) -> skip
+                MOVE    R4, R8                  ; R8 = hdmax for the range checks
+                MOVE    SCR_LORES_LO, R9        ; lores window [367, 388)
+                MOVE    SCR_LORES_HI, R10
+                SYSCALL(in_range_u, 1)
+                RBRA    _DSM_LORES, C
+                MOVE    SCR_HIRES_LO, R9        ; hires window [744, 765)
+                MOVE    SCR_HIRES_HI, R10       ; (R8 still = hdmax)
+                SYSCALL(in_range_u, 1)
+                RBRA    _DSM_HIRES, C
+                RBRA    _DSM_UNK, 1             ; present but unrecognised
+
+_DSM_LORES      XOR     R7, R7                  ; horizontal bit 0 = lores
+                RBRA    _DSM_SCAN, 1
+_DSM_HIRES      MOVE    SCR_HIRES_BIT, R7       ; horizontal bit 1 = hires
+_DSM_SCAN       MOVE    R6, R0                  ; interlaced -> rows 2/3
+                AND     M2M$SYS_CORE_FL_INT, R0
+                RBRA    _DSM_DEB, Z
+                ADD     SCR_LACE_ADD, R7
+                RBRA    _DSM_DEB, 1
+_DSM_UNK        MOVE    SCR_MODE_UNKNOWN, R7    ; = 4
+
+                ; --- debounce: SCR_DEBOUNCE stable reads before acting ---
+_DSM_DEB        MOVE    SCR_CAND_MODE, R0
+                CMP     @R0, R7                 ; same as the candidate?
+                RBRA    _DSM_SAME, Z
+                MOVE    R7, @R0                 ; no: restart the candidate
+                MOVE    SCR_CAND_CNT, R0
+                MOVE    0, @R0
+                RBRA    _DSM_RET, 1
+_DSM_SAME       MOVE    SCR_CAND_CNT, R0
+                CMP     SCR_DEBOUNCE, @R0       ; count < DEBOUNCE -> settling
+                RBRA    _DSM_SETTLE, N
+                MOVE    SCR_APPLIED_MODE, R0
+                CMP     @R0, R7                 ; already the applied mode?
+                RBRA    _DSM_RET, Z
+                MOVE    R7, @R0                 ; latch the newly applied mode
+                RBRA    _DSM_APPLY, 1
+_DSM_SETTLE     MOVE    SCR_CAND_CNT, R0
+                ADD     1, @R0
+                RBRA    _DSM_RET, 1
+
+                ; --- apply mode R7: push offsets to CFD 4..7, then log ---
+_DSM_APPLY      CMP     SCR_MODE_UNKNOWN, R7
+                RBRA    _DSM_KNOWN, !Z
+                MOVE    SCR_ROW_WORDS, R2       ; unknown: push 0,0,0,0
+                MOVE    SCR_CFD_WORD, R9
+_DSM_ZLOOP      XOR     R8, R8
+                RSUB    _LSO_CFDW, 1
+                ADD     1, R9
+                SUB     1, R2
+                RBRA    _DSM_ZLOOP, !Z
+                MOVE    MSG_SCR_UNSUP, R8
+                SYSCALL(puts, 1)
+                RBRA    _DSM_LOGGEO, 1
+
+_DSM_KNOWN      MOVE    R7, R0                  ; row offset = mode * SCR_ROW_WORDS
+                ADD     R0, R0                  ; (= *4, via two doublings)
+                ADD     R0, R0
+                ADD     SCR_HDMI_TABLE, R0      ; R0 -> table row
+                MOVE    R0, R3                  ; keep the row ptr for the log
+                MOVE    SCR_ROW_WORDS, R2
+                MOVE    SCR_CFD_WORD, R9
+_DSM_PLOOP      MOVE    @R0++, R8
+                RSUB    _LSO_CFDW, 1
+                ADD     1, R9
+                SUB     1, R2
+                RBRA    _DSM_PLOOP, !Z
+                MOVE    MSG_SCR_PFX, R8         ; "screen: Amiga mode "
+                SYSCALL(puts, 1)
+                MOVE    R7, R0                  ; LORES / HIRES
+                AND     SCR_HIRES_BIT, R0
+                RBRA    _DSM_LHIR, !Z
+                MOVE    MSG_SCR_LORES, R8
+                RBRA    _DSM_LHPUT, 1
+_DSM_LHIR       MOVE    MSG_SCR_HIRES, R8
+_DSM_LHPUT      SYSCALL(puts, 1)
+                MOVE    R6, R0                  ; PROGRESSIVE / INTERLACED
+                AND     M2M$SYS_CORE_FL_INT, R0
+                RBRA    _DSM_LLAC, !Z
+                MOVE    MSG_SCR_PROG, R8
+                RBRA    _DSM_LSPUT, 1
+_DSM_LLAC       MOVE    MSG_SCR_LACE, R8
+_DSM_LSPUT      SYSCALL(puts, 1)
+
+_DSM_LOGGEO     MOVE    MSG_SCR_GEO1, R8        ; "  (hdmax="
+                SYSCALL(puts, 1)
+                MOVE    R4, R8
+                RSUB    _SCR_LOGDEC, 1
+                MOVE    MSG_SCR_GEO2, R8        ; " vdmax="
+                SYSCALL(puts, 1)
+                MOVE    R5, R8
+                RSUB    _SCR_LOGDEC, 1
+                MOVE    MSG_SCR_GEO3, R8        ; ")"
+                SYSCALL(puts, 1)
+                SYSCALL(crlf, 1)
+                CMP     SCR_MODE_UNKNOWN, R7    ; unknown: no offset line
+                RBRA    _DSM_RET, Z
+                MOVE    R3, R0                  ; row ptr: himin,himax,vimin,vimax
+                MOVE    MSG_SCR_OFF1, R8
+                SYSCALL(puts, 1)
+                MOVE    @R0++, R8
+                RSUB    _SCR_LOGSDEC, 1
+                MOVE    MSG_SCR_OFF2, R8
+                SYSCALL(puts, 1)
+                MOVE    @R0++, R8
+                RSUB    _SCR_LOGSDEC, 1
+                MOVE    MSG_SCR_OFF3, R8
+                SYSCALL(puts, 1)
+                MOVE    @R0++, R8
+                RSUB    _SCR_LOGSDEC, 1
+                MOVE    MSG_SCR_OFF4, R8
+                SYSCALL(puts, 1)
+                MOVE    @R0++, R8
+                RSUB    _SCR_LOGSDEC, 1
+                SYSCALL(crlf, 1)
+
+_DSM_RET        SYSCALL(leave, 1)
+                RET
+
+; log the unsigned value in R8 as decimal on the serial UART
+_SCR_LOGDEC     SYSCALL(enter, 1)
+                XOR     R9, R9                  ; high word = 0
+                SUB     11, SP                  ; scratch decimal-string buffer
+                MOVE    SP, R10
+                SYSCALL(h2dstr, 1)              ; R11 -> decimal string
+                MOVE    R11, R8
+                SYSCALL(puts, 1)
+                ADD     11, SP
+                SYSCALL(leave, 1)
+                RET
+
+; log the signed value in R8 as decimal with an explicit +/- sign
+_SCR_LOGSDEC    SYSCALL(enter, 1)
+                MOVE    R8, R0                  ; keep the value
+                AND     0x8000, R8              ; negative?
+                RBRA    _SLS_NEG, !Z
+                MOVE    0x002B, R8              ; '+'
+                SYSCALL(putc, 1)
+                MOVE    R0, R8
+                RBRA    _SLS_MAG, 1
+_SLS_NEG        MOVE    0x002D, R8              ; '-'
+                SYSCALL(putc, 1)
+                MOVE    R0, R8
+                XOR     0xFFFF, R8              ; magnitude = -value
+                ADD     1, R8
+_SLS_MAG        RSUB    _SCR_LOGDEC, 1
+                SYSCALL(leave, 1)
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -994,14 +1241,53 @@ WRN_ADF_BUSY    .ASCII_P "\n\nUnsaved changes on the current disk\n"
 ; Fatal: SD card write failed during the ADF write-back
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
-; Screen centering (issue #5): file name + hardcoded default HDMI input crop.
-; The default trims the LEFT of the source (himin_off = +48) so the picture
-; moves LEFT (the observed 576p issue is "too far right / clipped right") -- a
-; first, deliberately visible guess that /amiga/screen_hdmi.bin overrides.
-; Units: Amiga source pixels, signed. Order: himin_off, himax_off, vimin_off,
-; vimax_off.
-SCR_HDMI_NAME     .ASCII_W "/amiga/screen_hdmi.bin"
-SCR_HDMI_DEFAULTS .DW 0x0030, 0x0000, 0x0000, 0x0000  ; himin_off=+48; rest 0
+; Screen centering (issue #5): per-Amiga-mode HDMI input-crop table.
+; File name, table geometry, mode indices and the serial-log strings. The four
+; rows (lores-prog, hires-prog, lores-lace, hires-lace) default to all zeros
+; (no centering) until /amiga/aexp_screen.bin provides tuned values.
+SCR_HDMI_NAME     .ASCII_W "/amiga/aexp_screen.bin"
+
+SCR_HDMI_MODES    .EQU 4                  ; table rows (file "count" byte)
+SCR_HDMI_WORDS    .EQU 16                 ; 4 rows x 4 signed offsets
+SCR_MODE_UNKNOWN  .EQU 4                  ; detected mode outside the table
+SCR_MODE_NONE     .EQU 0xFFFF             ; "nothing applied yet" latch value
+SCR_DEBOUNCE      .EQU 3                  ; stable detects before a mode change
+                                          ; (detect is throttled, so these span
+                                          ; frames -- keep it small)
+SCR_TICK_MASK     .EQU 0x00FF             ; run DETECT_SCREEN_MODE every 256th poll
+
+SCR_CFD_WORD      .EQU 4                  ; first HDMI-offset CFD gp_reg word (4..7)
+SCR_ROW_WORDS     .EQU 4                  ; offsets per row (himin,himax,vimin,vimax)
+SCR_HIRES_BIT     .EQU 1                  ; mode bit 0: 1 = hires horizontal
+SCR_LACE_ADD      .EQU 2                  ; mode += 2 when interlaced (rows 2/3)
+
+; hdmax (ascal-measured, +1) classification. OCS PAL geometry is deterministic
+; (fixed Agnus beam constants: lores ~377/378, hires ~754/755, only +/-1..2
+; ce-phase rounding), so the windows are tight (+/-~10 px). An unexpected geometry
+; (a genuinely new/unknown mode) is thus flagged "unsupported" rather than forced
+; into lores/hires. The raw hdmax is always logged, so if a board ever measures
+; outside a window it is a one-line retune (the logged value +/-10). Windows are
+; half-open [lo, hi) to match MTH$IN_RANGE_U.
+SCR_HDMAX_NOSIG   .EQU 200                ; hdmax < 200: no video yet -> skip
+SCR_LORES_LO      .EQU 367                ; lores hdmax window [367, 388) (~377/378)
+SCR_LORES_HI      .EQU 388
+SCR_HIRES_LO      .EQU 744                ; hires hdmax window [744, 765) (~754/755)
+SCR_HIRES_HI      .EQU 765
+
+; serial-terminal (UART) log strings, MiSTer-style "new mode detected" trace
+MSG_SCR_PFX       .ASCII_W "screen: Amiga mode "
+MSG_SCR_LORES     .ASCII_W "LORES"
+MSG_SCR_HIRES     .ASCII_W "HIRES"
+MSG_SCR_PROG      .ASCII_W " PROGRESSIVE"
+MSG_SCR_LACE      .ASCII_W " INTERLACED"
+MSG_SCR_GEO1      .ASCII_W "  (hdmax="
+MSG_SCR_GEO2      .ASCII_W " vdmax="
+MSG_SCR_GEO3      .ASCII_W ")"
+MSG_SCR_OFF1      .ASCII_W "  offsets  himin="
+MSG_SCR_OFF2      .ASCII_W " himax="
+MSG_SCR_OFF3      .ASCII_W " vimin="
+MSG_SCR_OFF4      .ASCII_W " vimax="
+MSG_SCR_UNSUP     .ASCII_W "screen: unsupported mode, centering disabled"
 
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
@@ -1034,8 +1320,15 @@ ADF_FL_REMAIN   .BLOCK 1                        ; bytes left in session track
 ADF_FL_BADDR_LO .BLOCK 1                        ; session byte address within
 ADF_FL_BADDR_HI .BLOCK 1                        ; image and file (32 bit)
 
-; Screen centering (issue #5): file handle for /amiga/screen_hdmi.bin
+; Screen centering (issue #5): file handle for /amiga/aexp_screen.bin
 SCR_HDMI_FDH    .BLOCK FAT32$FDH_STRUCT_SIZE
+; per-Amiga-mode HDMI input-crop table (loaded by LOAD_SCREEN_OFFSETS, applied
+; by DETECT_SCREEN_MODE): 4 rows x (himin,himax,vimin,vimax), signed
+SCR_HDMI_TABLE   .BLOCK 16
+SCR_APPLIED_MODE .BLOCK 1                        ; 0..3 row / 4 unknown / NONE
+SCR_CAND_MODE    .BLOCK 1                        ; debounce candidate mode
+SCR_CAND_CNT     .BLOCK 1                        ; debounce counter
+SCR_TICK         .BLOCK 1                        ; detector throttle counter
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"

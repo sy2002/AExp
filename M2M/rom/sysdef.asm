@@ -244,6 +244,10 @@ M2M$SYS_CORE_V_BP   .EQU 0x7008     ; vertical back porch
 M2M$SYS_CORE_V_FP   .EQU 0x7009     ; vertical front porch
 M2M$SYS_CORE_H_FREQ .EQU 0x700A     ; horizontal frequency in Hz
 
+; M2M-UPSTREAM screen-center (AExp 2026-07-08): core video flags register
+M2M$SYS_CORE_FLAGS  .EQU 0x700B     ; core video flags (read-only)
+M2M$SYS_CORE_FL_INT .EQU 0x0001     ; SYS_CORE_FLAGS bit 0: input is interlaced
+
 ; ----------------------------------------------------------------------------
 ; Static Shell configuration data (config.vhd): Selectors and addresses
 ; ----------------------------------------------------------------------------
