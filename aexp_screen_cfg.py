@@ -32,10 +32,10 @@ HDMI (ascal input crop) -- trims one edge of the Amiga source rectangle
 inward; the core then scales the selected rectangle to fill the screen.
 Values are Amiga source pixels (a line is ~754 px hi-res, ~377 lo-res):
 
-  himin_off  LEFT edge.    0 = full.  +N trims the left   -> picture LEFT
-  himax_off  RIGHT edge.   0 = full.  -N trims the right  -> picture RIGHT
-  vimin_off  TOP edge.     0 = full.  +N trims the top    -> picture UP
-  vimax_off  BOTTOM edge.  0 = full.  -N trims the bottom -> picture DOWN
+  himin  LEFT edge.    0 = full.  +N trims the left   -> picture LEFT
+  himax  RIGHT edge.   0 = full.  -N trims the right  -> picture RIGHT
+  vimin  TOP edge.     0 = full.  +N trims the top    -> picture UP
+  vimax  BOTTOM edge.  0 = full.  -N trims the bottom -> picture DOWN
 
 VGA (analog soft-blank) -- nudges the four edges of the active window that
 the scandoubler reproduces. Values are ~quarter-lo-res-pixel steps; the
@@ -72,7 +72,7 @@ MAGIC        = b"AX"                       # bytes 0..1
 VERSION      = 3                           # byte 2  (v3 = HDMI + VGA per mode)
 COUNT        = 4                           # byte 3  (four mode rows)
 HEADER       = MAGIC + bytes([VERSION, COUNT])
-HDMI_FIELDS  = ["himin_off", "himax_off", "vimin_off", "vimax_off"]
+HDMI_FIELDS  = ["himin", "himax", "vimin", "vimax"]
 VGA_FIELDS   = ["hbl_l", "hbl_r", "vbl_t", "vbl_b"]
 FIELDS       = HDMI_FIELDS + VGA_FIELDS    # 8 words per row, in file order
 ROW_WORDS    = len(FIELDS)                 # 8
