@@ -921,6 +921,12 @@ begin
          qnice_himax_off_i       => qnice_gp_reg_o( 91 downto  80),
          qnice_vimin_off_i       => qnice_gp_reg_o(107 downto  96),
          qnice_vimax_off_i       => qnice_gp_reg_o(123 downto 112),
+         -- M2M-UPSTREAM screen-center: VGA soft-blank per-edge offsets from the
+         -- CFD gp_reg (words 0-3, low 12 bits each); QNICE clock domain
+         qnice_vga_hbl_l_i       => qnice_gp_reg_o( 11 downto   0),
+         qnice_vga_hbl_r_i       => qnice_gp_reg_o( 27 downto  16),
+         qnice_vga_vbl_t_i       => qnice_gp_reg_o( 43 downto  32),
+         qnice_vga_vbl_b_i       => qnice_gp_reg_o( 59 downto  48),
          qnice_hdmax_o           => qnice_hdmax,
          qnice_vdmax_o           => qnice_vdmax,
          qnice_interlaced_o      => qnice_interlaced,   -- M2M-UPSTREAM screen-center

@@ -78,6 +78,15 @@ entity av_pipeline is
       qnice_vimin_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vimax_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
 
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed VGA soft-blank
+      -- active-window edge offsets (MiSTer-style, core-agnostic) from the CFD
+      -- gp_reg words 0-3; qnice_clk domain, CDC'd to the video domain below.
+      -- They reposition ONLY the analog (scandoubler) picture; 0 = inert.
+      qnice_vga_hbl_l_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vga_hbl_r_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vga_vbl_t_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vga_vbl_b_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+
       -- To QNICE
       qnice_hdmax_o           : out std_logic_vector(11 downto 0);
       qnice_vdmax_o           : out std_logic_vector(11 downto 0);
@@ -223,6 +232,45 @@ signal vid_himax_off          : std_logic_vector(11 downto 0);
 signal vid_vimin_off          : std_logic_vector(11 downto 0);
 signal vid_vimax_off          : std_logic_vector(11 downto 0);
 
+-- M2M-UPSTREAM screen-center (VGA soft-blank, core-agnostic): a MiSTer-style
+-- (Minimig.sv:755-840) soft-blank that repositions ONLY the analog picture by
+-- reconstructing the active window from the raw hblank/hsync/vblank/vsync edges
+-- and moving it by four signed edge offsets. Runs in the video (= core) clock
+-- domain. Feeds only i_analog_pipeline; ascal (via i_crop) and i_video_counters
+-- keep the raw blanking, so HDMI and the SYS_CORE geometry stay decoupled.
+signal vid_vga_hbl_l          : std_logic_vector(11 downto 0);   -- video-domain offsets
+signal vid_vga_hbl_r          : std_logic_vector(11 downto 0);
+signal vid_vga_vbl_t          : std_logic_vector(11 downto 0);
+signal vid_vga_vbl_b          : std_logic_vector(11 downto 0);
+signal sb_off_hl              : unsigned(11 downto 0) := (others => '0');  -- per-frame latched
+signal sb_off_hr              : unsigned(11 downto 0) := (others => '0');
+signal sb_off_vt              : unsigned(11 downto 0) := (others => '0');
+signal sb_off_vb              : unsigned(11 downto 0) := (others => '0');
+signal sb_hcnt                : unsigned(11 downto 0) := (others => '0');  -- reconstructed timing
+signal sb_hend                : unsigned(11 downto 0) := (others => '0');
+signal sb_hsta                : unsigned(11 downto 0) := (others => '0');
+signal sb_hmax                : unsigned(11 downto 0) := (others => '0');
+signal sb_vcnt                : unsigned(11 downto 0) := (others => '0');
+signal sb_vend                : unsigned(11 downto 0) := (others => '0');
+signal sb_vmax                : unsigned(11 downto 0) := (others => '0');
+signal sb_vsend               : unsigned(11 downto 0) := (others => '0');
+signal sb_shbl                : std_logic := '0';    -- soft / forced blank flags
+signal sb_fhbl                : std_logic := '0';
+signal sb_svbl                : std_logic := '0';
+signal sb_fvbl                : std_logic := '0';
+signal sb_old_hs              : std_logic := '0';
+signal sb_old_hbk             : std_logic := '0';
+signal sb_old_vs              : std_logic := '0';
+signal sb_old_vbk             : std_logic := '0';
+signal sb_old_hbl             : std_logic := '0';
+signal sb_hblank              : std_logic;            -- generated soft blanks
+signal sb_vblank              : std_logic;
+signal vga_vblank_r           : std_logic;           -- vblank incl. vsync (MiSTer vbl|~vs)
+signal vga_h_active           : std_logic;
+signal vga_v_active           : std_logic;
+signal analog_hblank          : std_logic;           -- to i_analog_pipeline (raw or trimmed)
+signal analog_vblank          : std_logic;
+
 -- QNICE On Screen Menu selections
 signal hdmi_osm_control_m     : std_logic_vector(255 downto 0);
 
@@ -291,35 +339,43 @@ begin
    -- Clock domain crossing: QNICE to VIDEO
    i_qnice2video: xpm_cdc_array_single
       generic map (
-         WIDTH => 94
+         WIDTH => 142   -- M2M-UPSTREAM screen-center: +48 for the four VGA soft-blank offsets
       )
       port map (
-         src_clk                => qnice_clk_i,
-         src_in(15 downto 0)    => qnice_osm_cfg_xy_i,
-         src_in(31 downto 16)   => qnice_osm_cfg_dxdy_i,
-         src_in(32)             => qnice_osm_cfg_enable_i,
-         src_in(33)             => qnice_retro15kHz_i,
-         src_in(34)             => qnice_scandoubler_i,
-         src_in(35)             => qnice_csync_i,
-         src_in(36)             => qnice_zoom_crop_i,
-         src_in(45 downto 37)   => qnice_osm_cfg_scaling_i,
-         src_in(57 downto 46)   => qnice_himin_off_i,
-         src_in(69 downto 58)   => qnice_himax_off_i,
-         src_in(81 downto 70)   => qnice_vimin_off_i,
-         src_in(93 downto 82)   => qnice_vimax_off_i,
-         dest_clk               => video_clk_i,
-         dest_out(15 downto 0)  => video_osm_cfg_xy,
-         dest_out(31 downto 16) => video_osm_cfg_dxdy,
-         dest_out(32)           => video_osm_cfg_enable,
-         dest_out(33)           => video_retro15kHz,
-         dest_out(34)           => video_scandoubler,
-         dest_out(35)           => video_csync,
-         dest_out(36)           => video_zoom_crop,
-         dest_out(45 downto 37) => video_osm_cfg_scaling,
-         dest_out(57 downto 46) => vid_himin_off,
-         dest_out(69 downto 58) => vid_himax_off,
-         dest_out(81 downto 70) => vid_vimin_off,
-         dest_out(93 downto 82) => vid_vimax_off
+         src_clk                 => qnice_clk_i,
+         src_in(15 downto 0)     => qnice_osm_cfg_xy_i,
+         src_in(31 downto 16)    => qnice_osm_cfg_dxdy_i,
+         src_in(32)              => qnice_osm_cfg_enable_i,
+         src_in(33)              => qnice_retro15kHz_i,
+         src_in(34)              => qnice_scandoubler_i,
+         src_in(35)              => qnice_csync_i,
+         src_in(36)              => qnice_zoom_crop_i,
+         src_in(45 downto 37)    => qnice_osm_cfg_scaling_i,
+         src_in(57 downto 46)    => qnice_himin_off_i,
+         src_in(69 downto 58)    => qnice_himax_off_i,
+         src_in(81 downto 70)    => qnice_vimin_off_i,
+         src_in(93 downto 82)    => qnice_vimax_off_i,
+         src_in(105 downto 94)   => qnice_vga_hbl_l_i,   -- M2M-UPSTREAM screen-center
+         src_in(117 downto 106)  => qnice_vga_hbl_r_i,
+         src_in(129 downto 118)  => qnice_vga_vbl_t_i,
+         src_in(141 downto 130)  => qnice_vga_vbl_b_i,
+         dest_clk                => video_clk_i,
+         dest_out(15 downto 0)   => video_osm_cfg_xy,
+         dest_out(31 downto 16)  => video_osm_cfg_dxdy,
+         dest_out(32)            => video_osm_cfg_enable,
+         dest_out(33)            => video_retro15kHz,
+         dest_out(34)            => video_scandoubler,
+         dest_out(35)            => video_csync,
+         dest_out(36)            => video_zoom_crop,
+         dest_out(45 downto 37)  => video_osm_cfg_scaling,
+         dest_out(57 downto 46)  => vid_himin_off,
+         dest_out(69 downto 58)  => vid_himax_off,
+         dest_out(81 downto 70)  => vid_vimin_off,
+         dest_out(93 downto 82)  => vid_vimax_off,
+         dest_out(105 downto 94) => vid_vga_hbl_l,       -- M2M-UPSTREAM screen-center
+         dest_out(117 downto 106)=> vid_vga_hbl_r,
+         dest_out(129 downto 118)=> vid_vga_vbl_t,
+         dest_out(141 downto 130)=> vid_vga_vbl_b
       ); -- i_qnice2video
 
    -- Clock domain crossing: QNICE to AUDIO
@@ -416,6 +472,79 @@ begin
          h_freq_o   => video_h_freq
       ); -- i_video_counters
 
+   ---------------------------------------------------------------------------------------------
+   -- M2M-UPSTREAM screen-center: VGA soft-blank (core-agnostic)
+   --
+   -- Port of MiSTer's Minimig.sv soft-blank (:755-840): reconstruct the active
+   -- window from the raw edges and shift it by four signed offsets, then feed
+   -- ONLY the analog pipeline. hcnt runs every video clock (like MiSTer's
+   -- clk_sys); framework syncs are ACTIVE-HIGH so MiSTer's ~hs == video_hs_i.
+   -- Interlace uses video_fl_i only: on a progressive core it is constant '0',
+   -- and ~lace|~field1 reduces to ~field1, so every frame is captured.
+   ---------------------------------------------------------------------------------------------
+
+   sb_hblank    <= sb_fhbl or sb_shbl or video_hs_i;      -- MiSTer hbl = fhbl|shbl|~hs
+   sb_vblank    <= sb_fvbl or sb_svbl;                    -- MiSTer ~vde = fvbl|svbl
+   vga_vblank_r <= video_vblank_i or video_vs_i;          -- MiSTer vblank = vbl|~vs
+   vga_h_active <= '1' when (sb_off_hl /= 0 or sb_off_hr /= 0) else '0';
+   vga_v_active <= '1' when (sb_off_vt /= 0 or sb_off_vb /= 0) else '0';
+
+   -- Per axis, all-zero offsets pass the RAW core blanking straight through, so
+   -- a core that never pushes VGA offsets is bit-identical to no soft-blank and
+   -- other cores are unaffected (the mirror of the HDMI "0 = full window").
+   analog_hblank <= sb_hblank when vga_h_active = '1' else video_hblank_i;
+   analog_vblank <= sb_vblank when vga_v_active = '1' else video_vblank_i;
+
+   p_vga_softblank : process (video_clk_i)
+      variable v_bot : unsigned(11 downto 0);
+   begin
+      if rising_edge(video_clk_i) then
+         sb_old_hs  <= video_hs_i;
+         sb_old_hbk <= video_hblank_i;
+         sb_old_vs  <= video_vs_i;
+         sb_old_vbk <= vga_vblank_r;
+         sb_old_hbl <= sb_hblank;
+
+         -- horizontal: hcnt resets during hsync; capture active start/end + line length
+         sb_hcnt <= sb_hcnt + 1;
+         if video_hs_i = '1' then
+            sb_hcnt <= (others => '0');
+         end if;
+         if sb_old_hbk = '1' and video_hblank_i = '0' then sb_hend <= sb_hcnt; end if;  -- active start
+         if sb_old_hbk = '0' and video_hblank_i = '1' then sb_hsta <= sb_hcnt; end if;  -- active end
+         if sb_old_hs  = '0' and video_hs_i     = '1' then sb_hmax <= sb_hcnt; end if;  -- next sync
+         if sb_hcnt = sb_hend + sb_off_hl - 2 then sb_shbl <= '0'; end if;
+         if sb_hcnt = sb_hsta + sb_off_hr - 2 then sb_shbl <= '1'; end if;
+         if sb_hcnt = 8           then sb_fhbl <= '0'; end if;   -- force-blank sync guard
+         if sb_hcnt = sb_hmax - 8 then sb_fhbl <= '1'; end if;
+
+         -- vertical: vcnt counts lines, resets at vblank; capture on the even field
+         if sb_old_hs  = '0' and video_hs_i   = '1' then sb_vcnt <= sb_vcnt + 1; end if;
+         if sb_old_vbk = '0' and vga_vblank_r = '1' then sb_vcnt <= (others => '0'); end if;
+         if video_fl_i = '0' then
+            if sb_old_vbk = '1' and vga_vblank_r = '0' then sb_vend  <= sb_vcnt; end if;  -- active start
+            if sb_old_vs  = '1' and video_vs_i   = '0' then sb_vsend <= sb_vcnt; end if;  -- vsync end
+            if sb_old_vbk = '0' and vga_vblank_r = '1' then sb_vmax  <= sb_vcnt; end if;  -- total lines
+         end if;
+         if (sb_old_hbl = '1' and sb_hblank = '0') or sb_vcnt = 0 then
+            if sb_vcnt = sb_vend + sb_off_vt then sb_svbl <= '0'; end if;
+            if sb_off_vb(11) = '1' then v_bot := sb_vmax + sb_off_vb;  -- negative = relative to bottom
+            else                        v_bot := sb_off_vb; end if;
+            if sb_vcnt = v_bot        then sb_svbl <= '1'; end if;
+            if sb_vcnt = sb_vmax - 1  then sb_fvbl <= '1'; end if;   -- force-blank sync guard
+            if sb_vcnt = sb_vsend + 2 then sb_fvbl <= '0'; end if;
+         end if;
+
+         -- latch the offsets once per frame to de-tear the incoherent gp_reg CDC
+         if sb_old_vbk = '0' and vga_vblank_r = '1' then
+            sb_off_hl <= unsigned(vid_vga_hbl_l);
+            sb_off_hr <= unsigned(vid_vga_hbl_r);
+            sb_off_vt <= unsigned(vid_vga_vbl_t);
+            sb_off_vb <= unsigned(vid_vga_vbl_b);
+         end if;
+      end if;
+   end process p_vga_softblank;
+
    i_analog_pipeline : entity work.analog_pipeline
       generic map (
          G_VGA_DX                => G_VGA_DX,
@@ -435,8 +564,9 @@ begin
          video_blue_i            => video_blue_i,
          video_hs_i              => video_hs_i,
          video_vs_i              => video_vs_i,
-         video_hblank_i          => video_hblank_i,
-         video_vblank_i          => video_vblank_i,
+         -- M2M-UPSTREAM screen-center: VGA soft-blanked window (raw when offsets=0)
+         video_hblank_i          => analog_hblank,
+         video_vblank_i          => analog_vblank,
          audio_clk_i             => audio_clk_i,
          audio_rst_i             => audio_rst_i,
          audio_left_i            => signed(audio_left),
