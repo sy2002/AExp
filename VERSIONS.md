@@ -19,6 +19,10 @@ offers convenient features.
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a
   real Amiga
 * MEGA65 keyboard mapped to the Amiga keyboard
+* Interlace ("laced") modes with a built-in flicker fixer on HDMI
+* Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
+  15 kHz RGB for CRTs (SCART), selectable in the menu
+* Battery-backed real-time clock
 
 As this is a "Version 1" there are many large and small features missing. Here
 are some of the larger features that are not there yet:
