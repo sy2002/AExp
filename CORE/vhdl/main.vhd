@@ -120,7 +120,13 @@ entity main is
       pot1_x_i                : in  std_logic_vector(7 downto 0);
       pot1_y_i                : in  std_logic_vector(7 downto 0);
       pot2_x_i                : in  std_logic_vector(7 downto 0);
-      pot2_y_i                : in  std_logic_vector(7 downto 0)
+      pot2_y_i                : in  std_logic_vector(7 downto 0);
+
+      -- Current date/time from the MEGA65 battery-backed RTC (issue #13).
+      -- MiSTer 65-bit format (see minimig.v / rtc_controller.vhd): bits 63-0 =
+      -- MSM6242B BCD nibbles, bit 64 = "new value" toggle. Already CDC'd to
+      -- clk_main_i by the framework, so it needs no further synchronisation.
+      rtc_i                   : in  std_logic_vector(64 downto 0)
    );
 end entity main;
 
@@ -188,6 +194,8 @@ architecture synthesis of main is
          pwr_led        : out std_logic;
          fdd_led        : out std_logic;
          hdd_led        : out std_logic;
+
+         rtc            : in  std_logic_vector(64 downto 0);
 
          io_uio         : in  std_logic;
          io_fpga        : in  std_logic;
@@ -760,6 +768,7 @@ begin
          pwr_led        => pwr_led_o,
          fdd_led        => fdd_led_o,
          hdd_led        => open,
+         rtc            => rtc_i,
 
          io_uio         => io_uio,
          io_fpga        => io_fpga,

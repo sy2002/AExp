@@ -561,7 +561,8 @@ begin
          pot1_x_i             => main_pot1_x_i,
          pot1_y_i             => main_pot1_y_i,
          pot2_x_i             => main_pot2_x_i,
-         pot2_y_i             => main_pot2_y_i
+         pot2_y_i             => main_pot2_y_i,
+         rtc_i                => main_rtc_i
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
