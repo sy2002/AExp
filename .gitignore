@@ -23,3 +23,4 @@ M2M/rom/*.out
 M2M/rom/*.rom
 M2M/video_filters/*.out
 __pycache__
+aexp_screen.bin

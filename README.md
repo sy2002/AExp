@@ -46,6 +46,7 @@ Features
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
+* Battery-backed real-time clock
 
 ### Kickstart ROM
 

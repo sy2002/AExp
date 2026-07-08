@@ -1,12 +1,11 @@
 ; ****************************************************************************
-; YOUR-PROJECT-NAME (GITHUB-REPO-SHORTNAME) QNICE ROM
+; Amiga for Mega65 (AExp) QNICE ROM
 ;
 ; Main program that is used to build m2m-rom.rom by make-rom.sh.
-; The ROM is loaded by TODO-ADD-NAME-OF-VHDL-FILE-HERE.
 ;
 ; The execution starts at the label START_FIRMWARE.
 ;
-; done by YOURNAME in YEAR and licensed under GPL v3
+; done by sy2002 in 2026 and licensed under GPL v3
 ; ****************************************************************************
 
 ; If the define RELEASE is defined, then the ROM will be a self-contained and
@@ -38,12 +37,13 @@
 ; Firmware: Main Code
 ; ----------------------------------------------------------------------------
 
-                ; Run the Shell: This is where you could put your own system
-                ; instead of the shell.
-                ; Before that: deterministic init of the ADF write-back state.
-                ; It cannot live in PREP_START - HANDLE_CORE_IO can already be
-                ; reached during boot (HANDLE_IO is polled from boot-time wait
-                ; loops), and RAM variables are undefined at power-on.
+                ; Run the Shell and before that, initialize:
+                ; a) ADF write-back state. It cannot live in PREP_START, as
+                ;    HANDLE_CORE_IO can already be reached during boot
+                ;    (HANDLE_IO is polled from boot-time wait loops), and RAM
+                ;    variables are undefined at power-on.
+                ; b) Screen-centering feature
+                ; c) Real-Time-Clock connector
 START_FIRMWARE  RSUB    ADF_WB_INIT, 1
                 RSUB    SCR_INIT, 1
                 RSUB    RTC_INIT, 1
@@ -429,7 +429,6 @@ _SCR_INIT_L     MOVE    0, @R0++
                 DECRB
                 RET
 
-=======
 ; RTC_INIT: called once from START_FIRMWARE, before the Shell starts (like
 ; ADF_WB_INIT - RAM variables are undefined at power-on). Primes the minute-edge
 ; detector with a sentinel so the first minute change reseeds the Amiga clock.
@@ -449,8 +448,7 @@ RTC_INIT        INCRB
 ; re-issues the read once per real minute - aligned to the :00 boundary by
 ; edge-detecting the free-running internal-minute register - which reseeds
 ; minimig with fresh time and restarts its in-FPGA seconds counter from 0. This
-; is the MiSTer "HPS resend once per minute" cadence; see the reseed rationale in
-; .research/INTEGRATION-SPEC-rtc.md.
+; is the MiSTer "HPS resend once per minute" cadence.
 ;
 ; The minute register is read WITHOUT flipping the toggle (only a command-byte
 ; write does), so the common path is just a couple of cheap device reads. The
