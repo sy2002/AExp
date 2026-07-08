@@ -258,6 +258,11 @@ PREP_START      INCRB
                 ; framework before it ever reaches the screen.
                 RSUB    LOAD_HDMI_FILTER, 1
 
+                ; Apply the screen-centering offsets (HDMI ascal window) from
+                ; /amiga/screen_hdmi.bin, or the hardcoded default, before the
+                ; core un-resets so the first frame is already positioned.
+                RSUB    LOAD_SCREEN_OFFSETS, 1
+
                 XOR     R8, R8
                 XOR     R9, R9
                 DECRB
@@ -292,8 +297,17 @@ OSM_SEL_POST    INCRB
                 ; Amiga keeps running. The user sees the new filter from the
                 ; next frame.
                 CMP     AEXP_OPTM_G_FILTER, R8
-                RBRA    _OSM_SEL_POST_R, !Z
+                RBRA    _OSM_SP_SCR, !Z
                 RSUB    LOAD_HDMI_FILTER, 1
+                RBRA    _OSM_SEL_POST_R, 1
+
+                ; "Reload screen cfg" pressed: re-read the SD file and re-push
+                ; the offsets. No core reset -- the picture repositions from
+                ; the next frame. Reloads on every press (the single-select
+                ; item's checkmark just toggles cosmetically).
+_OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
+                RBRA    _OSM_SEL_POST_R, !Z
+                RSUB    LOAD_SCREEN_OFFSETS, 1
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
@@ -769,6 +783,114 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
                 .DW AEXP_OSM_FLT_CRT_COMPOSITE, M2M$ASCAL_POLYPHASE, CRT_SIM_COMPOSITE_H, SCAN_BR_110_80
 
 ; ----------------------------------------------------------------------------
+; LOAD_SCREEN_OFFSETS: screen centering (issue #5). Reads the four signed HDMI
+; ascal input-crop edge offsets from /amiga/screen_hdmi.bin and pushes them into
+; the CFD gp_reg words 4..7, which the M2M framework digital_pipeline applies to
+; ascal's input crop himin/himax/vimin/vimax (M2M-UPSTREAM). On a missing/invalid
+; file it pushes SCR_HDMI_DEFAULTS instead, so the release still centers with no
+; file present. Called from PREP_START (boot, before the core un-resets) and
+; from OSM_SEL_POST on the "Reload screen cfg" item (live, no core reset / no
+; re-synth -- the point of the SD-file tuning loop).
+;
+; File /amiga/screen_hdmi.bin (big-endian 16-bit words): "A","X", ver=1,
+; count=1, then himin_off, himax_off, vimin_off, vimax_off (signed Amiga-source
+; pixel offsets; himin_off>0 trims the left, himax_off<0 trims the right; only
+; the low 12 bits reach the core). The VGA file /amiga/screen_vga.bin is added in
+; increment 2 together with the main.vhd soft-blank consumer.
+;
+; Input:  None      Output: R8 = 0, R9 = 0
+; ----------------------------------------------------------------------------
+LOAD_SCREEN_OFFSETS INCRB
+
+                MOVE    CONFIG_DEVH, R8         ; reuse the config device handle
+                CMP     0, @R8                  ; valid? (set by HELP_MENU_INIT)
+                RBRA    _LSO_DEFAULTS, Z        ; no SD device -> defaults
+
+                MOVE    SCR_HDMI_FDH, R9        ; empty file handle struct
+                MOVE    SCR_HDMI_NAME, R10      ; "/amiga/screen_hdmi.bin"
+                XOR     R11, R11                ; "/" path separator
+                SYSCALL(f32_fopen, 1)
+                CMP     0, R10                  ; open OK?
+                RBRA    _LSO_DEFAULTS, !Z       ; no -> defaults
+
+                RSUB    _LSO_RDBYTE, 1          ; header byte 0: 'A'
+                CMP     0, R10
+                RBRA    _LSO_DEFAULTS, !Z
+                CMP     0x0041, R8
+                RBRA    _LSO_DEFAULTS, !Z
+                RSUB    _LSO_RDBYTE, 1          ; header byte 1: 'X'
+                CMP     0x0058, R8
+                RBRA    _LSO_DEFAULTS, !Z
+                RSUB    _LSO_RDBYTE, 1          ; header byte 2: version = 1
+                CMP     0x0001, R8
+                RBRA    _LSO_DEFAULTS, !Z
+                RSUB    _LSO_RDBYTE, 1          ; header byte 3: count = 1
+                CMP     0x0001, R8
+                RBRA    _LSO_DEFAULTS, !Z
+
+                MOVE    4, R0                   ; R0: CFD word index (4..7)
+                MOVE    4, R1                   ; R1: values remaining
+_LSO_RDLOOP     RSUB    _LSO_RDWORD, 1          ; R8 = 16-bit value, R10 status
+                CMP     0, R10                  ; full word read?
+                RBRA    _LSO_DEFAULTS, !Z       ; truncated -> defaults
+                MOVE    R0, R9
+                RSUB    _LSO_CFDW, 1            ; CFD[R9] <- R8
+                ADD     1, R0
+                SUB     1, R1
+                RBRA    _LSO_RDLOOP, !Z
+                RBRA    _LSO_RET, 1
+
+_LSO_DEFAULTS   MOVE    SCR_HDMI_DEFAULTS, R2   ; -> 4 default words
+                MOVE    4, R0
+                MOVE    4, R1
+_LSO_DEFLOOP    MOVE    @R2++, R8
+                MOVE    R0, R9
+                RSUB    _LSO_CFDW, 1
+                ADD     1, R0
+                SUB     1, R1
+                RBRA    _LSO_DEFLOOP, !Z
+
+_LSO_RET        XOR     R8, R8
+                XOR     R9, R9
+                DECRB
+                RET
+
+; read one byte from SCR_HDMI_FDH -> R8 = byte, R10 = status (0 = OK). Shares
+; the caller's register bank (touches only R8/R9/R10).
+_LSO_RDBYTE     MOVE    SCR_HDMI_FDH, R8
+                SYSCALL(f32_fread, 1)           ; R9 = byte, R10 = status
+                MOVE    R9, R8
+                RET
+
+; read a big-endian 16-bit word -> R8 = value, R10 = status (0 = OK only if
+; both bytes were read). Combines (hi << 8) | lo via SWAP.
+_LSO_RDWORD     INCRB
+                RSUB    _LSO_RDBYTE, 1          ; R8 = hi byte
+                CMP     0, R10
+                RBRA    _LSO_RDW_ERR, !Z
+                MOVE    R8, R0
+                SWAP    R0, R0                  ; R0 = hi << 8
+                RSUB    _LSO_RDBYTE, 1          ; R8 = lo byte
+                CMP     0, R10
+                RBRA    _LSO_RDW_ERR, !Z
+                OR      R8, R0
+                MOVE    R0, R8                  ; R8 = (hi << 8) | lo
+                XOR     R10, R10                ; status = OK
+_LSO_RDW_RET    DECRB
+                RET
+_LSO_RDW_ERR    MOVE    1, R10                  ; status = error
+                RBRA    _LSO_RDW_RET, 1
+
+; push value R8 into CFD gp_reg word R9 (0..15). Fresh bank for the scratch.
+_LSO_CFDW       INCRB
+                MOVE    M2M$CFD_ADDR, R0
+                MOVE    R9, @R0                 ; select 16-bit window
+                MOVE    M2M$CFD_DATA, R0
+                MOVE    R8, @R0                 ; write value into the window
+                DECRB
+                RET
+
+; ----------------------------------------------------------------------------
 ; M2M$LOAD_POLYPHASE  Load a (horizontal, vertical) filter pair into the
 ;                    ascal polyphase coefficient RAM. ASCAL_FILTER_LEN
 ;                    (= 0x100, defined in M2M/rom/filters.asm) words are
@@ -872,6 +994,15 @@ WRN_ADF_BUSY    .ASCII_P "\n\nUnsaved changes on the current disk\n"
 ; Fatal: SD card write failed during the ADF write-back
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
+; Screen centering (issue #5): file name + hardcoded default HDMI input crop.
+; The default trims the LEFT of the source (himin_off = +48) so the picture
+; moves LEFT (the observed 576p issue is "too far right / clipped right") -- a
+; first, deliberately visible guess that /amiga/screen_hdmi.bin overrides.
+; Units: Amiga source pixels, signed. Order: himin_off, himax_off, vimin_off,
+; vimax_off.
+SCR_HDMI_NAME     .ASCII_W "/amiga/screen_hdmi.bin"
+SCR_HDMI_DEFAULTS .DW 0x0030, 0x0000, 0x0000, 0x0000  ; himin_off=+48; rest 0
+
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
 
@@ -902,6 +1033,9 @@ ADF_FL_STATE    .BLOCK 1                        ; 0: idle  1: track session
 ADF_FL_REMAIN   .BLOCK 1                        ; bytes left in session track
 ADF_FL_BADDR_LO .BLOCK 1                        ; session byte address within
 ADF_FL_BADDR_HI .BLOCK 1                        ; image and file (32 bit)
+
+; Screen centering (issue #5): file handle for /amiga/screen_hdmi.bin
+SCR_HDMI_FDH    .BLOCK FAT32$FDH_STRUCT_SIZE
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"

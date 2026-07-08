@@ -295,7 +295,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 40;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 41;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -304,7 +304,7 @@ constant OPTM_SIZE         : natural := 40;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 11 lines, HDMI Settings submenu view = 7 lines,
+-- Main menu view = 12 lines, HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines.
 constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 12;
@@ -361,10 +361,11 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 34: line
    " Back to main menu\n"   &    -- 35: close submenu
 
-   "\n"                     &    -- 36: line
-   " About & Help\n"        &    -- 37: help
-   "\n"                     &    -- 38: line
-   " Close Menu\n";              -- 39: close
+   " Reload screen cfg\n"   &    -- 36: re-read /amiga/screen_*.bin (no re-synth)
+   "\n"                     &    -- 37: line
+   " About & Help\n"        &    -- 38: help
+   "\n"                     &    -- 39: line
+   " Close Menu\n";              -- 40: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -376,6 +377,7 @@ constant OPTM_G_HDMI       : integer := 2;
 constant OPTM_G_FILTER     : integer := 3;   -- HDMI Filter radio; mirrored as OPTM_G_FLT in CORE/m2m-rom/m2m-rom.asm
 constant OPTM_G_VGA        : integer := 4;   -- VGA/analog output mode radio (Standard / 15 kHz HS+VS / 15 kHz CSYNC)
 constant OPTM_G_About      : integer := 5;
+constant OPTM_G_SCRRELOAD  : integer := 6;   -- momentary: re-read /amiga/screen_*.bin
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -425,10 +427,11 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              -- 34: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 35: Close submenu / back to main menu
 
-                                             OPTM_G_LINE,                              -- 36: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 37: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 38: Line
-                                             OPTM_G_CLOSE                              -- 39: Close Menu
+                                             OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,      -- 36: Reload screen cfg (momentary action)
+                                             OPTM_G_LINE,                              -- 37: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 38: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 39: Line
+                                             OPTM_G_CLOSE                              -- 40: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

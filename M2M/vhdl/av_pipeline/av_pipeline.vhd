@@ -70,6 +70,14 @@ entity av_pipeline is
       qnice_poly_wr_i         : in  std_logic;
       qnice_ascal_mode_i      : in  std_logic_vector( 4 downto 0);
 
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed input-crop edge
+      -- offsets for the HDMI ascal input window; qnice_clk domain, CDC'd to the
+      -- video (ascal input) domain below
+      qnice_himin_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_himax_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vimin_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vimax_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+
       -- To QNICE
       qnice_hdmax_o           : out std_logic_vector(11 downto 0);
       qnice_vdmax_o           : out std_logic_vector(11 downto 0);
@@ -205,6 +213,12 @@ signal hdmi_osm_vram_data     : std_logic_vector(15 downto 0);
 signal hdmi_video_mode        : std_logic_vector(3 downto 0);
 signal hdmi_zoom_crop         : std_logic;
 
+-- M2M-UPSTREAM screen-center: video-domain per-edge ascal INPUT-crop offsets
+signal vid_himin_off          : std_logic_vector(11 downto 0);
+signal vid_himax_off          : std_logic_vector(11 downto 0);
+signal vid_vimin_off          : std_logic_vector(11 downto 0);
+signal vid_vimax_off          : std_logic_vector(11 downto 0);
+
 -- QNICE On Screen Menu selections
 signal hdmi_osm_control_m     : std_logic_vector(255 downto 0);
 
@@ -273,7 +287,7 @@ begin
    -- Clock domain crossing: QNICE to VIDEO
    i_qnice2video: xpm_cdc_array_single
       generic map (
-         WIDTH => 46
+         WIDTH => 94
       )
       port map (
          src_clk                => qnice_clk_i,
@@ -285,6 +299,10 @@ begin
          src_in(35)             => qnice_csync_i,
          src_in(36)             => qnice_zoom_crop_i,
          src_in(45 downto 37)   => qnice_osm_cfg_scaling_i,
+         src_in(57 downto 46)   => qnice_himin_off_i,
+         src_in(69 downto 58)   => qnice_himax_off_i,
+         src_in(81 downto 70)   => qnice_vimin_off_i,
+         src_in(93 downto 82)   => qnice_vimax_off_i,
          dest_clk               => video_clk_i,
          dest_out(15 downto 0)  => video_osm_cfg_xy,
          dest_out(31 downto 16) => video_osm_cfg_dxdy,
@@ -293,7 +311,11 @@ begin
          dest_out(34)           => video_scandoubler,
          dest_out(35)           => video_csync,
          dest_out(36)           => video_zoom_crop,
-         dest_out(45 downto 37) => video_osm_cfg_scaling
+         dest_out(45 downto 37) => video_osm_cfg_scaling,
+         dest_out(57 downto 46) => vid_himin_off,
+         dest_out(69 downto 58) => vid_himax_off,
+         dest_out(81 downto 70) => vid_vimin_off,
+         dest_out(93 downto 82) => vid_vimax_off
       ); -- i_qnice2video
 
    -- Clock domain crossing: QNICE to AUDIO
@@ -582,6 +604,12 @@ begin
 
          -- QNICE connection to ascal's mode register
          qnice_ascal_mode_i       => unsigned(qnice_ascal_mode_i),
+
+         -- M2M-UPSTREAM screen-center: per-edge ascal INPUT-crop offsets (video domain)
+         himin_off_i              => signed(vid_himin_off),
+         himax_off_i              => signed(vid_himax_off),
+         vimin_off_i              => signed(vid_vimin_off),
+         vimax_off_i              => signed(vid_vimax_off),
 
          -- QNICE device for interacting with the Polyphase filter coefficients
          qnice_poly_clk_i         => qnice_clk_i,

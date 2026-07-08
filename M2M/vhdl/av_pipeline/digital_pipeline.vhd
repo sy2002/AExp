@@ -73,6 +73,15 @@ entity digital_pipeline is
       -- QNICE connection to ascal's mode register
       qnice_ascal_mode_i       : in  unsigned(4 downto 0);
 
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed input-crop edge
+      -- offsets (MiSTer-style "choose the source rectangle") from the CFD
+      -- gp_reg channel. video_clk domain; 0 = full auto-detected window, so the
+      -- default is inert (progressive/other cores unaffected).
+      himin_off_i              : in  signed(11 downto 0) := (others => '0');
+      himax_off_i              : in  signed(11 downto 0) := (others => '0');
+      vimin_off_i              : in  signed(11 downto 0) := (others => '0');
+      vimax_off_i              : in  signed(11 downto 0) := (others => '0');
+
       -- QNICE device for interacting with the Polyphase filter coefficients
       qnice_poly_clk_i         : in  std_logic;
       qnice_poly_dw_i          : in  unsigned(9 downto 0);
@@ -132,11 +141,25 @@ architecture synthesis of digital_pipeline is
    signal hdmi_vdisp             : integer;
    signal hdmi_shift             : integer;
 
-   -- Auto-calculate display dimensions based on an 4:3 aspect ratio
-   signal hdmi_hmin              : integer;
-   signal hdmi_hmax              : integer;
-   signal hdmi_vmin              : integer;
-   signal hdmi_vmax              : integer;
+   -- Auto-calculate display dimensions based on an 4:3 aspect ratio (base window)
+   signal hdmi_hmin_base         : integer;
+   signal hdmi_hmax_base         : integer;
+   signal hdmi_vmin_base         : integer;
+   signal hdmi_vmax_base         : integer;
+
+   -- M2M-UPSTREAM screen-center: ascal's auto-detected input size (video
+   -- domain), tapped so "0 offset" maps to the full window
+   signal sig_ihdmax             : natural range 0 to 4095;
+   signal sig_ivdmax             : natural range 0 to 4095;
+
+   -- M2M-UPSTREAM screen-center: the input crop rectangle driven into ascal
+   -- (iauto=0), registered on video_clk_i. 0 offsets => [0, measured size] =
+   -- the full auto-detected window (identical to the previous iauto=1 path).
+   constant C_HDMI_MIN_BOX       : natural := 16;   -- min ascal input window (px)
+   signal himin_r                : natural range 0 to 4095 := 0;
+   signal himax_r                : natural range 0 to 4095 := 0;
+   signal vimin_r                : natural range 0 to 4095 := 0;
+   signal vimax_r                : natural range 0 to 4095 := 0;
 
    -- After video_rescaler
    signal hdmi_red               : unsigned(7 downto 0);
@@ -205,7 +228,7 @@ begin
 
    -- In HDMI 4:3 mode, ignore crop (zoom-in).
    -- We are using constants here to avoid that large networks are synthesized.
-   hdmi_hmin <= 0                                                                         when hdmi_crop_mode_i = '1' else
+   hdmi_hmin_base <= 0                                                                     when hdmi_crop_mode_i = '1' else
                 (G_VIDEO_MODE_VECTOR(0).H_PIXELS-G_VIDEO_MODE_VECTOR(0).V_PIXELS*4/3)/2   when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_50  else
                 (G_VIDEO_MODE_VECTOR(1).H_PIXELS-G_VIDEO_MODE_VECTOR(1).V_PIXELS*4/3)/2   when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_60  else
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_HDMI_4_3_50   else
@@ -215,7 +238,7 @@ begin
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
                 0; -- Not used
 
-   hdmi_hmax <= hdmi_video_mode.H_PIXELS-1                                                when hdmi_crop_mode_i = '1' else
+   hdmi_hmax_base <= hdmi_video_mode.H_PIXELS-1                                               when hdmi_crop_mode_i = '1' else
                 (G_VIDEO_MODE_VECTOR(0).H_PIXELS+G_VIDEO_MODE_VECTOR(0).V_PIXELS*4/3)/2-1 when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_50  else
                 (G_VIDEO_MODE_VECTOR(1).H_PIXELS+G_VIDEO_MODE_VECTOR(1).V_PIXELS*4/3)/2-1 when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_60  else
                 hdmi_video_mode.H_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_HDMI_4_3_50   else
@@ -225,7 +248,7 @@ begin
                 hdmi_video_mode.H_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
                 hdmi_video_mode.H_PIXELS-1; -- Not used
 
-   hdmi_vmin <= 0                                                                         when hdmi_crop_mode_i = '1' else
+   hdmi_vmin_base <= 0                                                                        when hdmi_crop_mode_i = '1' else
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_50  else
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_60  else
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_HDMI_4_3_50   else
@@ -235,7 +258,7 @@ begin
                 0                                                                         when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
                 0; -- Not used
 
-   hdmi_vmax <= hdmi_video_mode.V_PIXELS-1                                                when hdmi_crop_mode_i = '1' else
+   hdmi_vmax_base <= hdmi_video_mode.V_PIXELS-1                                               when hdmi_crop_mode_i = '1' else
                 hdmi_video_mode.V_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_50  else
                 hdmi_video_mode.V_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_60  else
                 hdmi_video_mode.V_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_HDMI_4_3_50   else
@@ -244,6 +267,51 @@ begin
                 hdmi_video_mode.V_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_HDMI_720_5994 else
                 hdmi_video_mode.V_PIXELS-1                                                when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
                 hdmi_video_mode.V_PIXELS-1; -- Not used
+
+   -- M2M-UPSTREAM screen-center: expose the ascal-measured input size (also
+   -- consumed below to build the crop) on the QNICE geometry outputs
+   video_hdmax_o <= sig_ihdmax;
+   video_vdmax_o <= sig_ivdmax;
+
+   -- M2M-UPSTREAM screen-center: build the input crop rectangle from the
+   -- measured input size + the four signed edge offsets, clamped so ascal
+   -- always sees 0 <= himin < himax <= measured size (its "MIN<MAX, MAX<DISP"
+   -- contract), registered into the video domain. Zero offsets => [0, measured]
+   -- = the full auto-detected window (the previous iauto=1 behaviour). himin
+   -- larger trims the left border; himax smaller trims the right; an asymmetric
+   -- trim re-centers content within the frame (MiSTer-style).
+   p_crop : process (video_clk_i)
+      variable w, lo, hi : integer;
+   begin
+      if rising_edge(video_clk_i) then
+         -- horizontal
+         w  := sig_ihdmax;
+         lo := to_integer(himin_off_i);              -- left  edge = 0 + offset
+         hi := w + to_integer(himax_off_i);          -- right edge = size + offset
+         if lo < 0 then lo := 0; elsif lo > w then lo := w; end if;
+         if hi < 0 then hi := 0; elsif hi > w then hi := w; end if;
+         if hi <= lo then                            -- keep a non-empty window
+            if    lo + C_HDMI_MIN_BOX <= w then hi := lo + C_HDMI_MIN_BOX;
+            elsif w > 0                    then lo := w - 1; hi := w;
+            else                                lo := 0;     hi := 0; end if;
+         end if;
+         himin_r <= lo;
+         himax_r <= hi;
+         -- vertical
+         w  := sig_ivdmax;
+         lo := to_integer(vimin_off_i);
+         hi := w + to_integer(vimax_off_i);
+         if lo < 0 then lo := 0; elsif lo > w then lo := w; end if;
+         if hi < 0 then hi := 0; elsif hi > w then hi := w; end if;
+         if hi <= lo then
+            if    lo + C_HDMI_MIN_BOX <= w then hi := lo + C_HDMI_MIN_BOX;
+            elsif w > 0                    then lo := w - 1; hi := w;
+            else                                lo := 0;     hi := 0; end if;
+         end if;
+         vimin_r <= lo;
+         vimax_r <= hi;
+      end if;
+   end process p_crop;
 
    -- Deprecated. Will be removed in future release
    -- The purpose is to right-shift the position of the OSM
@@ -374,15 +442,18 @@ begin
          o_lltune          => open,                         -- output
 
          -- Input video parameters
-         iauto             => '1',                          -- input
-         himin             => 0,                            -- input
-         himax             => 0,                            -- input
-         vimin             => 0,                            -- input
-         vimax             => 0,                            -- input
+         -- M2M-UPSTREAM screen-center: input crop = the source rectangle we
+         -- select (iauto=0). Zero offsets reproduce the full auto-detected
+         -- window; asymmetric edges re-center content (MiSTer-style).
+         iauto             => '0',                          -- input
+         himin             => himin_r,                      -- input
+         himax             => himax_r,                      -- input
+         vimin             => vimin_r,                      -- input
+         vimax             => vimax_r,                      -- input
 
-         -- Detected input image size
-         i_hdmax           => video_hdmax_o,                -- output
-         i_vdmax           => video_vdmax_o,                -- output
+         -- Detected input image size (tapped internally to build the crop)
+         i_hdmax           => sig_ihdmax,                   -- output
+         i_vdmax           => sig_ivdmax,                   -- output
 
          -- Output video parameters
          run               => '1',                          -- input
@@ -401,10 +472,10 @@ begin
          vsstart           => hdmi_vsstart,                 -- input
          vsend             => hdmi_vsend,                   -- input
          vdisp             => hdmi_vdisp,                   -- input
-         hmin              => hdmi_hmin,                    -- input
-         hmax              => hdmi_hmax,                    -- input
-         vmin              => hdmi_vmin,                    -- input
-         vmax              => hdmi_vmax,                    -- input
+         hmin              => hdmi_hmin_base,               -- input
+         hmax              => hdmi_hmax_base,               -- input
+         vmin              => hdmi_vmin_base,               -- input
+         vmax              => hdmi_vmax_base,               -- input
 
          -- Scaler format. 00=16bpp 565, 01=24bpp 10=32bpp
          format            => "01",                         -- input: 24bpp

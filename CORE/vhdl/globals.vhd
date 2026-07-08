@@ -58,9 +58,19 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 ----------------------------------------------------------------------------------------------------------
 
 -- Rendering constants (in pixels)
---    VGA_*   size of the core's target output post scandoubler
--- Amiga PAL: 15.625 kHz, 312/313 lines, scandoubled to ~31.25 kHz / 576 visible
--- lines: PAL 4:3 720x576@50 is the natural match.
+--    VGA_*   the On-Screen-Menu (OSM) canvas => character grid
+--            CHARS_DX x CHARS_DY = VGA_DX/FONT_DX x VGA_DY/FONT_DY = 45 x 36
+--            (with the 16x16 font) that the firmware lays all OSM content
+--            (menu, file browser, help) into. This is the overlay canvas,
+--            NOT the measured video active.
+-- 720x576 equals the HDMI PAL 576p frame (C_HDMI_576p_50, H_PIXELS=720) so the
+-- overlay maps 1:1 on HDMI with hdmi_shift = H_PIXELS - VGA_DX = 0. VGA_DX is
+-- therefore pinned to 720: a larger value makes hdmi_shift negative into the
+-- 'natural' vga_cfg_shift_i port (video_overlay) and breaks the HDMI OSM. This
+-- single global feeds BOTH the analog and the digital pipeline (framework.vhd),
+-- so do not retarget it to the analog width. The analog post-scandoubler active
+-- is actually ~754x574 (ASCAL-measured); analog OSM/frame placement is handled
+-- on the analog path, not by changing this constant.
 constant VGA_DX               : natural := 720;
 constant VGA_DY               : natural := 576;
 
