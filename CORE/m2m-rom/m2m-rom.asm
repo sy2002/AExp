@@ -46,6 +46,7 @@
                 ; loops), and RAM variables are undefined at power-on.
 START_FIRMWARE  RSUB    ADF_WB_INIT, 1
                 RSUB    SCR_INIT, 1
+                RSUB    RTC_INIT, 1
                 RBRA    START_SHELL, 1
 
 ; ----------------------------------------------------------------------------
@@ -428,6 +429,63 @@ _SCR_INIT_L     MOVE    0, @R0++
                 DECRB
                 RET
 
+=======
+; RTC_INIT: called once from START_FIRMWARE, before the Shell starts (like
+; ADF_WB_INIT - RAM variables are undefined at power-on). Primes the minute-edge
+; detector with a sentinel so the first minute change reseeds the Amiga clock.
+RTC_INIT        INCRB
+                MOVE    RTC_LAST_MIN, R0
+                MOVE    0xFFFF, @R0
+                DECRB
+                RET
+
+; RTC_STEP: one non-blocking step of the battery-RTC reseed (issue #13).
+;
+; The Minimig $DC0000 clock (minimig.v) advances minutes/hours/date only when the
+; framework flips the RTC "new value" toggle, which it does when an external I2C
+; RTC read completes (M2M/vhdl/i2c/rtc_controller.vhd). The framework issues that
+; read only at reset, so the Amiga clock would freeze ~1 minute after the boot
+; seed (minimig free-runs its seconds field but never carries into minutes). This
+; re-issues the read once per real minute - aligned to the :00 boundary by
+; edge-detecting the free-running internal-minute register - which reseeds
+; minimig with fresh time and restarts its in-FPGA seconds counter from 0. This
+; is the MiSTer "HPS resend once per minute" cadence; see the reseed rationale in
+; .research/INTEGRATION-SPEC-rtc.md.
+;
+; The minute register is read WITHOUT flipping the toggle (only a command-byte
+; write does), so the common path is just a couple of cheap device reads. The
+; command byte is accepted only while I2C is idle, so a still-running read (e.g.
+; the boot read) simply defers to the next call.
+;
+; Expects the caller to tolerate a changed RAMROM device selection (HANDLE_CORE_IO
+; saves and restores it around this call). Input/Output: none.
+RTC_STEP        INCRB
+                MOVE    M2M$RAMROM_DEV, R0      ; select the framework RTC device
+                MOVE    AEXP_DEV_RTC, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    RTC_4KWIN, @R0
+
+                MOVE    RTC_COMMAND, R0         ; defer while an I2C read runs
+                MOVE    @R0, R1
+                AND     1, R1
+                RBRA    _RTC_RET, !Z
+
+                MOVE    RTC_MINUTES, R0         ; free-running internal minute
+                MOVE    @R0, R0                 ; (BCD, high byte already 0)
+                MOVE    RTC_LAST_MIN, R1
+                CMP     @R1, R0
+                RBRA    _RTC_RET, Z             ; same minute: nothing to do
+
+                MOVE    R0, @R1                 ; remember this minute
+                MOVE    RTC_COMMAND, R0         ; reseed: stop, then read+restart
+                MOVE    RTC_CMD_STOP, @R0       ; b3=0: stop the internal timer
+                MOVE    RTC_CMD_RESYNC, @R0     ; b1=read + b3=run: the external
+                                                ; read flips the toggle and
+                                                ; minimig reseeds $DC0000
+
+_RTC_RET        DECRB
+                RET
+
 ; HANDLE_CORE_IO callback function:
 ;
 ; Called from HANDLE_IO in every iteration of the main loop and of all
@@ -546,6 +604,11 @@ _HCIO_NOMNT     MOVE    ADF_MOUNT_SEEN, R4      ; re-arm the edge detection
                 ; --- 3. one background flush step ---
 _HCIO_FLUSH     XOR     R8, R8                  ; 0 = respect anti-thrashing
                 RSUB    FLUSH_ADF_STEP, 1
+
+                ; keep the Amiga battery clock live (issue #13): re-issue the
+                ; framework RTC read once per minute so the Minimig $DC0000 clock
+                ; advances instead of freezing after the boot seed
+                RSUB    RTC_STEP, 1
 
 _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
                 MOVE    R3, @R2
@@ -1255,6 +1318,17 @@ ADF_WBC_DIRTY0  .EQU    0x7010              ; ..0x701A: dirty bitmap, W1C
 ADF_TRACK_BYTES .EQU    5632                ; 11 sectors x 512 bytes
 ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
 
+; MEGA65 battery RTC (issue #13): framework device C_DEV_RTC (qnice_wrapper.vhd)
+; exposing the QNICE date/time interface of M2M/vhdl/i2c/rtc_controller.vhd. The
+; core reads the same time at $DC0000 (Minimig MSM6242B). The window offset
+; equals the register address (keep in sync with rtc_controller.vhd).
+AEXP_DEV_RTC    .EQU    0x0006              ; framework RTC device (C_DEV_RTC)
+RTC_4KWIN       .EQU    0x0000              ; RTC decodes addr[7:0] only
+RTC_MINUTES     .EQU    0x7002              ; internal timer: minutes (BCD, RO)
+RTC_COMMAND     .EQU    0x7008              ; b0 busy(RO) b1 read b2 write b3 running
+RTC_CMD_STOP    .EQU    0x0000              ; stop the internal timer
+RTC_CMD_RESYNC  .EQU    0x000A              ; b1 read RTC->internal + b3 keep running
+
 ; Warning: file size out of the valid ADF range
 WRN_ADF_SIZE    .ASCII_P "\n\nThis is not a valid ADF disk image:\n"
                 .ASCII_P "the file size must be 901,120 bytes\n"
@@ -1367,6 +1441,10 @@ SCR_APPLIED_MODE .BLOCK 1                        ; 0..3 row / 4 unknown / NONE
 SCR_CAND_MODE    .BLOCK 1                        ; debounce candidate mode
 SCR_CAND_CNT     .BLOCK 1                        ; debounce counter
 SCR_TICK         .BLOCK 1                        ; detector throttle counter
+
+; Battery-RTC reseed state (see HANDLE_CORE_IO / RTC_STEP, issue #13)
+RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
+                                                ; RTC_STEP; 0xFFFF = none yet
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"
