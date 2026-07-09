@@ -246,6 +246,15 @@ an HDMI display and switch back there; both outputs share the same menu.
 Audio is available on HDMI and on the 3.5 mm jack, carrying Paula's
 output as-is.
 
+### Real-time clock
+
+AExp can feed the Amiga the MEGA65's own battery-backed clock, so Workbench
+shows the real date and time and your files get proper timestamps. It takes a
+minute to set up, and Kickstart 1.3 has two quirks worth knowing about (the
+year can come out as 1978, and the time can be an hour off — both with simple
+fixes, neither a fault of AExp). The full walkthrough is in
+[doc/RTC.md](doc/RTC.md).
+
 Constraints and roadmap
 -----------------------
 
