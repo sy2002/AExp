@@ -37,8 +37,31 @@ Offsets flow SD file `/amiga/aexp_screen.cfg` → firmware
 "Reload screen cfg" item (OPTM_SIZE 40→41). VGA (increment 2, gp_reg words
 0-3, couples HDMI via the shared blanking) + interactive OSD adjust still
 pending; end-user tool `aexp_screen_cfg.py`. **Fresh-session
-handover: `doc/temp_issue5_handover.md`.** Everything below is the distilled
-project knowledge —
+handover: `doc/temp_issue5_handover.md`.** **HDMI flicker-free (issue #12)
+— Increment 1 implemented 2026-07-09, statically verified (nvc analyze +
+elaborate against the real `clk`/`cdc_stable`; adversarial swarm) but NOT
+yet synthesized/hardware-tested.** CORE-only (clk.vhd + mega65.vhd +
+config.vhd + CORE.xdc; zero M2M/.xpr/firmware edits). A second MMCM
+`i_clk_fast` = 28.437500 MHz (313-line = 50.030 Hz, above 50) + a
+glitch-free `BUFGMUX_CTRL` are dithered native↔fast by a 2-state FSM in
+the `hr_clk` domain driven by the already-plumbed ascal over/underflow
+loop (`hr_high_i`/`hr_low_i`, mega65.vhd:97-98) → the core's time-average
+frame rate is exactly 50.000 Hz; interlace already averages 50.000 and
+settles on native (zero dither). **Direction inverted vs C64MEGA65:
+native 49.92 is BELOW 50 → the twin is FASTER.** HDL-read OSM toggle
+"HDMI: Flicker-free" (top-level between the HDMI Filter and VGA submenus,
+single-select default ON; `C_MENU_HDMI_FF`=25, OPTM_SIZE 41→42, OPTM_DY
+12→13, VGA `C_MENU_*`/lines +1; ships in the unreleased `WIP-V1-A6`, no
+version bump). CORE.xdc times
+the fast leg (`set_case_analysis 1` on `hr_core_speed_reg[0]/Q`,
+`create_generated_clock` on `i_clk_fast/CLKOUT0`) — the leaf names
+`i_clk_fast`/`hr_core_speed` are load-bearing (a "no pins matched" warning
+silently no-ops STA). Recommend FF OFF for VGA/15 kHz (H-sync frequency
+step). Real synthesis risk = the R6 global HyperRAM-PHY WNS (+0.058 ns
+baseline), NOT core timing (~+7 ns). Increment 2 (3-clock, adds
+`i_clk_slow`=28.3125 for the rare >50 content) deferred. Spec:
+`.research/INTEGRATION-SPEC-hdmi-flicker-free.md`. Everything below is the
+distilled project knowledge —
 the deep material lives in `doc/` (see "Key documents").
 
 ## The emulated machine

@@ -7,6 +7,8 @@ AExp is licensed under the terms of GNU/GPL v3, for more information
 please read the file LICENSE. Parts of AExp are licensed under other
 Free-software licenses as described in the source code.
 
+Special thanks to deft for delivering a perfectly calibrated aexp_screen.cfg
+
 AExp:
 -----
 
@@ -79,7 +81,7 @@ Other than that and my own work, AExp uses:
 The following resources were invaluable for developing AExp:
 ------------------------------------------------------------
 
-  * Anthropic Fable 5
+  * Anthropic Fable 5 and Opus 4.8
 
   * The ARM-side Minimig support code of the MiSTer project (Main_MiSTer):
     the floppy disk protocol of this core follows its implementation

@@ -12,11 +12,28 @@
 ## have been named/defined here before
 ## otherwise Vivado does not find the pins)
 ##
-## main_clk is the Amiga's 28.375 MHz master clock (PAL 28.37516 MHz, -5.6 ppm).
-## Everything in the core runs on it; the 7.09 MHz bus timing is made of clock
-## enables (amiga_clk.v), and cpu_wrapper.v contains a (pruned with cpucfg=00)
-## negedge-clk FSM - both edges of main_clk are therefore timed automatically.
-create_generated_clock -name main_clk      [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+## main_clk is the Amiga's core clock (PAL 28.37516 MHz, -5.6 ppm). Everything in the core
+## runs on it; the 7.09 MHz bus timing is made of clock enables (amiga_clk.v), and
+## cpu_wrapper.v contains a (pruned with cpucfg=00) negedge-clk FSM - both edges of main_clk
+## are therefore timed automatically.
+##
+## HDMI flicker-free (issue #12): clk.vhd generates two core clocks - "native" 28.375000 MHz
+## (i_clk_main) and the flicker-free "fast" twin 28.437500 MHz (i_clk_fast) - and a
+## BUFGMUX_CTRL selects between them from hr_core_speed(0) (the FSM in mega65.vhd). We time
+## the SHORTEST-period leg for worst-case setup: set_case_analysis 1 freezes the select on
+## the fast leg, and main_clk is defined on i_clk_fast/CLKOUT0. That single generated clock
+## constant-propagates the native leg off the net, so no set_clock_groups is needed (the
+## C64MEGA65 pattern, with the twin direction mirrored: our twin is faster, not slower).
+##
+## PIN-NAME DISCIPLINE (load-bearing): if either get_pins matches nothing (instance renamed,
+## or the select FF merged/retimed away), Vivado only WARNS ("no pins matched") and the
+## constraint silently no-ops - an empty set_case_analysis re-introduces phantom
+## native<->fast inter-clock paths, and main_clk becomes undefined. Keep the leaf names
+## i_clk_fast (clk.vhd) and hr_core_speed (mega65.vhd). Post-synth sign-off gate: BOTH
+## get_pins must return non-empty, and the routed report must show main_clk at ~35.165 ns
+## (the fast period), not 35.242 ns.
+set_case_analysis 1 [get_pins CORE/hr_core_speed_reg[0]/Q]
+create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_fast/CLKOUT0]
 # Add more clocks here, if needed
 
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here

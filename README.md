@@ -180,6 +180,18 @@ flickering: that is the intended look, and only a CRT softens it. If you
 want the full story about Amiga video modes and flicker, read
 [doc/video_modes.md](doc/video_modes.md).
 
+The third `HDMI:` menu entry, **Flicker-free** (on by default), keeps the
+HDMI picture perfectly smooth. An Amiga runs a hair below 50 Hz while HDMI
+is locked to exactly 50 Hz, so without correction the picture drops or
+repeats one frame roughly every twelve seconds — a small judder or tear,
+most visible on horizontal scrollers. Flicker-free nudges the Amiga clock
+by a fraction of a percent so its frame rate averages exactly 50 Hz and
+the seam disappears. **Turn it off for the analog VGA / 15 kHz outputs**:
+there it would make the sync frequency step, which analog monitors
+dislike. (With it on, the machine also runs about 0.16 % fast, so software
+clocks gain a few seconds per hour — turn it off if you need authentic
+timing.)
+
 ### Video: VGA port (analog RGB)
 
 The VGA connector always carries the picture in parallel to HDMI. The

@@ -327,6 +327,12 @@ signal qnice_adf_wrt_ack      : std_logic;
 -- hr_clk (HyperRAM clock domain)
 ---------------------------------------------------------------------------------------------
 
+-- HDMI flicker-free (issue #12): the core-speed select for clk.vhd, driven by the ascal
+-- over/underflow feedback (hr_high_i/hr_low_i, already in the hr_clk domain -> no CDC), and
+-- the flicker-free ON/OFF menu bit synchronized from the core clock domain. Power-up = native.
+signal hr_core_speed              : unsigned(1 downto 0) := "00";
+signal hr_hdmi_ff                 : std_logic;
+
 -- ADF track engine read chain after the main->hr CDC (avm_fifo below)
 signal hr_flp_avm_write           : std_logic;
 signal hr_flp_avm_read            : std_logic;
@@ -376,9 +382,13 @@ constant C_MENU_FLT_SCANLINES     : natural := 20;
 constant C_MENU_FLT_CRT_SVIDEO    : natural := 21;
 constant C_MENU_FLT_CRT_COMPOSITE : natural := 22;
 
-constant C_MENU_VGA_STD       : natural := 28;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 32;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 33;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+-- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
+-- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
+constant C_MENU_HDMI_FF       : natural := 25;
+
+constant C_MENU_VGA_STD       : natural := 29;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 33;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 34;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
 begin
 
@@ -440,10 +450,12 @@ begin
    main_joy_2_fire_n_o  <= '1';
 
 
-   -- MMCME2_ADV clock generator: 28.375 MHz Amiga PAL master clock
+   -- MMCME2_ADV clock generator: 28.375 MHz Amiga PAL master clock, plus the
+   -- 28.4375 MHz HDMI flicker-free "fast" twin selected by hr_core_speed (issue #12)
    clk_gen : entity work.clk
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
+         core_speed_i      => hr_core_speed,   -- "00"=native (28.375), "01"=fast (28.4375)
          main_clk_o        => main_clk,        -- CORE's 28.375 MHz clock
          main_rst_o        => main_rst         -- CORE's reset, synchronized
       ); -- clk_gen
@@ -863,6 +875,45 @@ begin
          hr_readdatavalid_i   => hr_adf_avm_readdatavalid,
          hr_waitrequest_i     => hr_adf_avm_waitrequest
       ); -- i_adf_mount_wrapper
+
+   ---------------------------------------------------------------------------------------------
+   -- HDMI flicker-free core-speed FSM (issue #12), hr_clk domain
+   ---------------------------------------------------------------------------------------------
+
+   -- Bang-bang loop: nudge the core clock so its frame rate embraces the exact 50.000 Hz HDMI
+   -- output. hr_low_i/hr_high_i are the ascal write-lead over/underflow flags, registered in
+   -- the same hr_clk net (hdmi_flicker_free.vhd) -> sampled here without any CDC. Direction is
+   -- inverted vs C64MEGA65: the Amiga's native rate is BELOW 50, so "too slow" picks the FAST
+   -- twin and "too fast" falls back to native. The OFF override forces authentic native and is
+   -- last so it always wins. The two flags are mutually exclusive, so their order is immaterial.
+   p_flicker_fsm : process (hr_clk_i)
+   begin
+      if rising_edge(hr_clk_i) then
+         if hr_low_i = '1' then      -- core too slow (write pointer lagging) ...
+            hr_core_speed <= "01";   -- ... speed up: FAST twin (28.4375 MHz, above 50)
+         end if;
+         if hr_high_i = '1' then     -- core too fast (write pointer leading) ...
+            hr_core_speed <= "00";   -- ... slow down: NATIVE (28.375 MHz, below 50)
+         end if;
+         if hr_hdmi_ff = '0' then    -- flicker-free OFF ...
+            hr_core_speed <= "00";   -- ... hold authentic native, no dither
+         end if;
+      end if;
+   end process; -- p_flicker_fsm
+
+   -- Flicker-free ON/OFF menu bit into the hr_clk domain. Toggling it live only changes the
+   -- glitch-free mux select, so there is no core reset (identical to C64MEGA65's mechanism).
+   i_cdc_hdmi_ff : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i     => main_clk,
+         src_data_i(0) => main_osm_control_i(C_MENU_HDMI_FF),
+         dst_clk_i     => hr_clk_i,
+         dst_data_o(0) => hr_hdmi_ff
+      ); -- i_cdc_hdmi_ff
 
    -- mount + write-back status into the core clock domain (slowly varying
    -- flags + track count; covered by M2M/common.xdc's cdc_stable constraint)

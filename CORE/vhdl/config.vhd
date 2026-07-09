@@ -108,6 +108,9 @@ constant HELP_1 : string :=
    " The disk boots after mounting; press\n" &
    " Space on ' ADF:' to eject it again.\n\n" &
 
+   " HDMI: Flicker-free smooths scrolling;\n" &
+   " turn it OFF for VGA / 15 kHz analog.\n\n" &
+
    " Cursor right to learn more.       (1 of 2)\n" &
    " Press Space to close the help screen.";
 
@@ -296,7 +299,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 41;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 42;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -305,16 +308,17 @@ constant OPTM_SIZE         : natural := 41;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 12 lines, HDMI Settings submenu view = 7 lines,
+-- Main menu view = 13 lines, HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 12;
+constant OPTM_DY           : natural := 13;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   line  7: 720p 50 Hz 16:9  /  8: 576p 50 4:3  /  9: 576p 50 5:4
---   line 28: VGA Standard / 32: VGA 15 kHz with HS/VS / 33: VGA 15 kHz with CSYNC
+--   line 25: HDMI Flicker-free toggle (C_MENU_HDMI_FF)
+--   line 29: VGA Standard / 33: VGA 15 kHz with HS/VS / 34: VGA 15 kHz with CSYNC
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
--- Lines 19..26 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
+-- Lines 15..22 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
 -- M2M$GET_SETTING and programs ascal directly (ASCAL_USAGE=1).
 -- Line 2 (" ADF:%s") is a manual CRT/ROM load item handled by the Shell: it
@@ -350,23 +354,25 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 23: line
    " Back to main menu\n"   &    -- 24: close submenu
 
-   " VGA: %s\n"             &    -- 25: VGA (analog output) submenu
-   " VGA Display Mode\n"    &    -- 26: headline
-   "\n"                     &    -- 27: line
-   " Standard\n"            &    -- 28: scandoubled 31.25 kHz; default
-   "\n"                     &    -- 29: line
-   " Retro 15 kHz mode\n"   &    -- 30: text (sub-headline for the two 15 kHz options)
-   "\n"                     &    -- 31: line
-   " 15 kHz with HS/VS\n"   &    -- 32: raw 15.625 kHz RGB, separate syncs
-   " 15 kHz with CSYNC\n"   &    -- 33: raw 15.625 kHz RGB, composite sync (SCART)
-   "\n"                     &    -- 34: line
-   " Back to main menu\n"   &    -- 35: close submenu
+   " HDMI: Flicker-free\n"  &    -- 25: single-select toggle, default ON (issue #12)
 
-   " Reload screen cfg\n"   &    -- 36: re-read /amiga/screen_*.bin (no re-synth)
-   "\n"                     &    -- 37: line
-   " About & Help\n"        &    -- 38: help
-   "\n"                     &    -- 39: line
-   " Close Menu\n";              -- 40: close
+   " VGA: %s\n"             &    -- 26: VGA (analog output) submenu
+   " VGA Display Mode\n"    &    -- 27: headline
+   "\n"                     &    -- 28: line
+   " Standard\n"            &    -- 29: scandoubled 31.25 kHz; default
+   "\n"                     &    -- 30: line
+   " Retro 15 kHz mode\n"   &    -- 31: text (sub-headline for the two 15 kHz options)
+   "\n"                     &    -- 32: line
+   " 15 kHz with HS/VS\n"   &    -- 33: raw 15.625 kHz RGB, separate syncs
+   " 15 kHz with CSYNC\n"   &    -- 34: raw 15.625 kHz RGB, composite sync (SCART)
+   "\n"                     &    -- 35: line
+   " Back to main menu\n"   &    -- 36: close submenu
+
+   " Reload screen cfg\n"   &    -- 37: re-read /amiga/screen_*.bin (no re-synth)
+   "\n"                     &    -- 38: line
+   " About & Help\n"        &    -- 39: help
+   "\n"                     &    -- 40: line
+   " Close Menu\n";              -- 41: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -379,6 +385,7 @@ constant OPTM_G_FILTER     : integer := 3;   -- HDMI Filter radio; mirrored as O
 constant OPTM_G_VGA        : integer := 4;   -- VGA/analog output mode radio (Standard / 15 kHz HS+VS / 15 kHz CSYNC)
 constant OPTM_G_About      : integer := 5;
 constant OPTM_G_SCRRELOAD  : integer := 6;   -- momentary: re-read /amiga/screen_*.bin
+constant OPTM_G_HDMIFF     : integer := 7;   -- HDMI flicker-free toggle (issue #12); read in HDL (mega65.vhd)
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -416,23 +423,26 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              -- 23: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 24: Close submenu / back to main menu
 
-                                             OPTM_G_SUBMENU,                           -- 25: VGA submenu block: "VGA: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 26: Headline "VGA Display Mode"
-                                             OPTM_G_LINE,                              -- 27: Line
-                                             OPTM_G_VGA + OPTM_G_STDSEL,               -- 28: Standard (default)
-                                             OPTM_G_LINE,                              -- 29: Line
-                                             OPTM_G_TEXT,                              -- 30: Text "Retro 15 kHz mode"
-                                             OPTM_G_LINE,                              -- 31: Line
-                                             OPTM_G_VGA,                               -- 32: 15 kHz with HS/VS
-                                             OPTM_G_VGA,                               -- 33: 15 kHz with CSYNC
-                                             OPTM_G_LINE,                              -- 34: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 35: Close submenu / back to main menu
+                                             OPTM_G_HDMIFF + OPTM_G_SINGLESEL
+                                                           + OPTM_G_STDSEL,            -- 25: HDMI: Flicker-free (single-select, default ON)
 
-                                             OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,      -- 36: Reload screen cfg (momentary action)
-                                             OPTM_G_LINE,                              -- 37: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 38: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 39: Line
-                                             OPTM_G_CLOSE                              -- 40: Close Menu
+                                             OPTM_G_SUBMENU,                           -- 26: VGA submenu block: "VGA: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 27: Headline "VGA Display Mode"
+                                             OPTM_G_LINE,                              -- 28: Line
+                                             OPTM_G_VGA + OPTM_G_STDSEL,               -- 29: Standard (default)
+                                             OPTM_G_LINE,                              -- 30: Line
+                                             OPTM_G_TEXT,                              -- 31: Text "Retro 15 kHz mode"
+                                             OPTM_G_LINE,                              -- 32: Line
+                                             OPTM_G_VGA,                               -- 33: 15 kHz with HS/VS
+                                             OPTM_G_VGA,                               -- 34: 15 kHz with CSYNC
+                                             OPTM_G_LINE,                              -- 35: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 36: Close submenu / back to main menu
+
+                                             OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,      -- 37: Reload screen cfg (momentary action)
+                                             OPTM_G_LINE,                              -- 38: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 39: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 40: Line
+                                             OPTM_G_CLOSE                              -- 41: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------
