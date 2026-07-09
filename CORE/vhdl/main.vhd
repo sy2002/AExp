@@ -190,6 +190,7 @@ architecture synthesis of main is
          kms_level      : in  std_logic;
          kbd_mouse_type : in  std_logic_vector(1 downto 0);
          kbd_mouse_data : in  std_logic_vector(7 downto 0);
+         kbd_ack        : out std_logic;   -- CIA-A keyboard-SDR-read handshake (see keyboard.vhd)
 
          pwr_led        : out std_logic;
          fdd_led        : out std_logic;
@@ -355,6 +356,9 @@ architecture synthesis of main is
    signal kbd_mouse_data   : std_logic_vector(7 downto 0);
    signal kbd_mouse_type   : std_logic_vector(1 downto 0);
    signal kms_level        : std_logic;
+   -- CIA-A "keyboard SDR read" back-channel (from minimig_m65) driving keyboard.vhd's
+   -- send-then-wait-for-ack flow control (real keyboard handshake, see keyboard.vhd)
+   signal kbd_ack          : std_logic;
 
    -- video
    signal vid_hsync_n      : std_logic;
@@ -628,6 +632,7 @@ begin
          kbd_mouse_data_o   => kbd_mouse_data,
          kbd_mouse_type_o   => kbd_mouse_type,
          kms_level_o        => kms_level,
+         kbd_ack_i          => kbd_ack,
          core_reset_o       => kbd_core_reset,
          mouse_rmb_o        => kbd_mouse_rmb
       ); -- i_keyboard
@@ -764,6 +769,7 @@ begin
          kms_level      => kms_level,
          kbd_mouse_type => kbd_mouse_type,
          kbd_mouse_data => kbd_mouse_data,
+         kbd_ack        => kbd_ack,
 
          pwr_led        => pwr_led_o,
          fdd_led        => fdd_led_o,

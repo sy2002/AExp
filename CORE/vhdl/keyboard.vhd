@@ -32,16 +32,21 @@
 -- Behavior of this module: We mirror the state of all 80 MEGA65 keys in a register. As soon as the
 -- scanner reports a state that differs from the mirror (i.e. exactly one event per press edge and
 -- one per release edge), the key is looked up in the MEGA65-to-Amiga translation table below and -
--- if it maps to an Amiga key - an event is pushed into a small FIFO. A pacing timer drains the
--- FIFO at most once per millisecond: it puts the keycode on kbd_mouse_data_o (bit 7 = release
--- flag) and toggles kms_level_o. The pacing is necessary because Kickstart's keyboard.device
--- needs time to read the SDR and to perform the (virtual) handshake after every single keycode
--- (on real hardware a code takes >500 us on the wire plus handshake; MiSTer relies on the HPS
--- naturally pacing the events). Two different MEGA65 keys can change state as little as ~14 us
--- apart within one scan sweep, so without FIFO+pacing, events could be lost. After reset, the
--- first event is additionally held back for 100 ms, because minimig_syscontrol.v stretches the
--- internal reset by 4 frames (~80 ms PAL) - events sent earlier would be swallowed by CIA-A's
--- reset and keys held down during a core reset would get lost.
+-- if it maps to an Amiga key - an event is pushed into a small FIFO. The FIFO is drained with
+-- send-then-wait-for-acknowledge FLOW CONTROL, exactly as a real Amiga keyboard blocks on the CPU
+-- handshake before shifting out the next code: a code goes on kbd_mouse_data_o (bit 7 = release
+-- flag) with a kms_level_o toggle, and the NEXT code is held back until a minimum 1 ms gap has
+-- elapsed AND the Amiga has consumed the current code - signalled by kbd_ack_i, a CPU read of the
+-- keycode SDR ($BFEC01) - or a ~143 ms deadlock timeout fires. This never overwrites the
+-- single-byte CIA-A SDR before the reader has taken the previous code, for ANY reader speed: a
+-- fast reader (Kickstart's interrupt-driven keyboard.device) still paces at the 1 ms floor, a
+-- slow raw-CIA reader (e.g. VATestprogram's keyboard test) is paced at its own read rate, and a
+-- non-reading consumer is released by the timeout instead of deadlocking. The 1 ms floor also
+-- covers the ~14 us worst-case spacing of two MEGA65 key edges within one scan sweep. See the
+-- "Pacing" constants and the pacer process below for the exact mechanism (rising-edge ack detect
+-- plus a settling blackout). After reset, the first event is additionally held back for 100 ms,
+-- because minimig_syscontrol.v stretches the internal reset by 4 frames (~80 ms PAL) - events sent
+-- earlier would be swallowed by CIA-A's reset and keys held down during a core reset would get lost.
 --
 -- MEGA65 -> Amiga keycode mapping (raw Amiga keycodes as per the Amiga Hardware Reference Manual,
 -- Appendix on keyboard; confirmed against the codes used in Minimig.sv and ciaa.v):
@@ -112,31 +117,19 @@
 -- whole duration ("phantom shift" suppression, like PS/2-to-Amiga converters):
 -- * The Amiga-side shift state is tracked separately (shift_l_sent/shift_r_sent) and converges
 --   to "physical AND NOT suppressed". The shift BREAK codes are queued BEFORE the F2 make (the
---   press edge is held back until the Amiga-side shifts read released), and once a shift has
---   been consumed this way it stays hidden (shift_hold_hidden) for as long as it is physically
---   held - it is retracted once and NOT re-toggled around each F-key, so the Amiga never sees a
---   shift qualifier together with a substituted F-key and the substituted F-keys reach a raw
---   keyboard reader (e.g. VATestprogram's CIA-serial keyboard test) as clean isolated
---   make/break pairs instead of being wrapped in machine-paced shift churn.
--- * That single early retract break can itself be lost by a SLOW raw reader: it is queued ~1 ms
---   before the F2 make, and a single-byte CIA SDR is overwritten if the reader has not consumed
---   it yet. So the retracted shift's break is RE-EMITTED on the physical shift release
---   (shift_l_consumed/shift_r_consumed). In the normal gesture (tap the F-key, THEN release the
---   shift as a separate edge) the re-emit is alone on the wire, so the reader reliably clears the
---   shift key. keyboard.device just sees a harmless redundant shift break; a raw tester needs it.
---   KNOWN RESIDUAL (raw readers only): if the F-key and the shift are released within the SAME
---   ~1 ms scan sweep, the F-key break and this re-emit land one pace apart and the slow reader
---   still drops one - a stuck F-key for F1/F3/F5/F7 (scanned before the shifts) or an uncleared
---   shift for F9 (after). Fully closing that needs real keyboard-handshake pacing (see
---   doc/temp_keyboard.md); the 1 ms pace is the floor, so a gate can only relocate the loss.
+--   press edge is held back until the Amiga-side shifts read released), and the shift MAKE codes
+--   are re-queued only AFTER the F2 break - the Amiga never sees a shift qualifier together with a
+--   substituted F-key. The keyboard handshake (kbd_ack_i flow control) delivers this retract/
+--   re-make pair reliably, so a raw CIA keyboard reader (e.g. VATestprogram's serial keyboard
+--   test) sees every code - the substituted F-keys are never stuck and the shift is never left
+--   hanging, on any reader speed.
 -- * The substituted code is latched per key (fkey_shifted), so releasing shift before the F-key
 --   still sends the matching F2 break - no stuck keys.
 -- * Consequences, by design: Shift+F2 (etc.) cannot be typed (the shift is consumed by the
 --   substitution - same as on any C64-style keyboard); pressing shift WHILE an unshifted
 --   F1 is already held simply types Shift+F1 (no substitution after the fact); while a
---   substituted F-key has been used, the shift qualifier stays hidden for ALL keys until the
---   physical shift is released (inherent to phantom-shift suppression - shifted characters
---   resume after the physical shift is released and pressed again);
+--   substituted F-key is held, the shift qualifier is hidden for ALL keys (inherent to
+--   phantom-shift suppression - shifted characters resume when the F-key is released);
 --   and the shift must lead the F-key by at least one scan sweep (~1 ms) - a faster chord
 --   (or holding Shift+F1 across a reset, which rebuilds the key mirror in scan order)
 --   delivers plain F1 plus shift for that press.
@@ -199,6 +192,13 @@ entity keyboard is
       kbd_mouse_data_o     : out std_logic_vector(7 downto 0); -- bits 6:0 keycode, bit 7 = 1: release
       kbd_mouse_type_o     : out std_logic_vector(1 downto 0); -- constant 2 = keyboard event
       kms_level_o          : out std_logic;                    -- toggles once per event
+
+      -- Flow-control back-channel from CIA-A (rtl/ciaa.v via minimig/minimig_m65): HIGH while
+      -- the Amiga reads the keycode SDR ($BFEC01) = "this code has been consumed". The pacer
+      -- waits for this before sending the next code - the real keyboard-to-CIA handshake. It is
+      -- a LEVEL held for the whole multi-cycle read, so it must be rising-edge-detected (see the
+      -- flow-control note in the header and the pacer process below).
+      kbd_ack_i            : in  std_logic;
 
       -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot (one-shot pulse, see header)
       core_reset_o         : out std_logic;
@@ -373,11 +373,40 @@ constant C_KEYMAP : t_keymap := (
    others            => C_NO_KEY -- RUN/STOP, NO SCRL, F13 and keys 76..79: unmapped
 );
 
--- Pacing of the keycode events towards CIA-A: at most one event per millisecond, so that
--- Kickstart's keyboard.device has finished reading the SDR and performing the handshake
--- (~200 us) long before the next keycode overwrites the SDR. A real keyboard needs >500 us
--- per code on the wire, so 1 ms is still faster than real hardware while being 100% safe.
-constant C_EVENT_PACE    : natural := 28_375;     -- 1 ms @ 28.375 MHz
+-- Pacing of the keycode events towards CIA-A. Send-then-wait-for-acknowledge flow control,
+-- exactly as a real Amiga keyboard blocks on the CPU handshake before shifting the next code:
+-- an event is emitted only once a minimum gap has elapsed AND the previous code has been
+-- consumed (the Amiga read the keycode SDR, kbd_ack_i) - or a deadlock timeout fires. This never
+-- overwrites an unread SDR for any reader speed - it fixes the single-byte-SDR overrun that a raw
+-- CIA reader like VATestprogram is subject to - yet stays as fast as a pure 1 ms pace for a fast
+-- reader (Kickstart's interrupt-driven keyboard.device):
+--   * min-gap = C_EVENT_PACE (1 ms): a conservative floor so a very fast reader can never make us
+--     overwhelm keyboard.device; keeps normal-typing latency identical to the old fixed 1 ms pace.
+--   * ack     = one CIA read of SDR $BFEC01 (kbd_ack_i). On the bus a read is a cck-gated level, so
+--     kbd_ack_i can appear as several clk_main pulses within one read; the pacer coalesces them into
+--     a single acknowledge (arm/idle-debounce) and blacks out the sdr_latch settling window after a
+--     send (see the pacer process). This makes the pacing ADAPTIVE: a fast reader acks within the
+--     floor => 1 ms pacing; a slow reader acks later => we wait for it; no overrun either way.
+--   * timeout = C_ACK_TIMEOUT (~143 ms, the real keyboard's resync window): a deadlock ceiling so
+--     a consumer that never reads the SDR (interrupts off, between resets) cannot wedge the
+--     keyboard. Only ever reached by a genuinely non-reading consumer; the code is dropped, not
+--     retransmitted, on expiry (acceptable for a synthetic keyboard).
+constant C_EVENT_PACE    : natural := 28_375;     -- 1 ms @ 28.375 MHz (min-gap floor)
+constant C_ACK_TIMEOUT   : natural := 4_038_750;  -- ~143 ms @ 28.375 MHz: deadlock fallback only
+constant C_ACK_GUARD     : natural := 8;          -- ~2 clk7: blackout the ack right after a send so
+                                                  -- a read landing in ciaa's sdr_latch settling
+                                                  -- window (still the PREVIOUS code) cannot ack the
+                                                  -- current one. Must be >= sdr_latch settle
+                                                  -- (~1 clk7) and << the fastest reader response.
+constant C_ACK_SETTLE    : natural := 24;         -- kbd_ack_i low-time (cycles) that marks the END of
+                                                  -- ONE CIA read. On the bus a read is a cck-gated
+                                                  -- level, so kbd_ack_i can appear as SEVERAL clk_main
+                                                  -- pulses (~1 clk7 = ~4 cycles apart) within one read
+                                                  -- (verified: 3 edges/read against amiga_clk + the
+                                                  -- m68k bridge). Coalesce them into ONE ack by
+                                                  -- re-arming only after kbd_ack_i idles this long:
+                                                  -- >> an intra-read cck notch (~4 cycles), << the
+                                                  -- >= 1 ms gap between two reads.
 
 -- Hold back the first event after reset: minimig_syscontrol.v stretches the core-internal
 -- reset by another 4 frames (~80 ms PAL); events sent during that time would be lost in
@@ -414,6 +443,14 @@ signal pace_cnt      : natural range 0 to C_RESET_HOLDOFF := 0;
 signal kms_level     : std_logic := '0';
 signal kbd_data      : std_logic_vector(7 downto 0) := (others => '0');
 
+-- Flow-control pacer state (see the pacing note in the header and C_ACK_* above):
+signal ack_seen      : std_logic := '1';   -- current code consumed (1 = ready to send the next)
+signal to_cnt        : natural range 0 to C_ACK_TIMEOUT := 0;  -- deadlock timeout countdown
+signal kbd_ack_d     : std_logic := '0';   -- 1-cycle history of kbd_ack_i for rising-edge detect
+signal ack_guard     : natural range 0 to C_ACK_GUARD := 0;    -- post-send ack blackout countdown
+signal ack_armed     : std_logic := '0';   -- '1' = ready to accept the next read's ack (one per read)
+signal ack_low_cnt   : natural range 0 to C_ACK_SETTLE := 0;   -- kbd_ack_i low-time (read-end debounce)
+
 -- shifted F-key substitution state (see "SHIFTED F-KEYS" in the header):
 -- fkey_shifted(k)='1': key k's make was sent as its shifted variant (base+1) - the
 -- matching break must use the same code, and the Amiga-side shifts stay suppressed
@@ -423,15 +460,6 @@ signal shift_l_sent  : std_logic := '0';   -- shift state as the Amiga currently
 signal shift_r_sent  : std_logic := '0';
 signal fwait         : std_logic := '0';   -- shifted-F make pending, waiting for shift breaks
 signal fwait_num     : integer range 0 to 79 := 0;
--- '1' once a physically-held shift has been consumed by an F-key substitution: the Amiga-side
--- shift then stays hidden for the whole shift-hold (retracted once, not re-toggled around each
--- F-key; see "SHIFTED F-KEYS" in the header). Cleared as soon as no shift is physically held.
-signal shift_hold_hidden : std_logic := '0';
--- '1' while a Left/Right shift is retracted for an F-key substitution. Its clearing break may
--- have been lost by a slow raw CIA reader (SDR overrun of the early retract), so the break is
--- re-emitted on the physical shift release - see "SHIFTED F-KEYS". Only these two are ever set.
-signal shift_l_consumed : std_logic := '0';
-signal shift_r_consumed : std_logic := '0';
 
 -- CTRL+MEGA+RESTORE warm-boot one-shot (deliberately NOT cleared by reset_i - it
 -- triggers that very reset; see header)
@@ -468,7 +496,7 @@ begin
 
          -- Amiga-side shift suppression is wanted while a shifted-F make is pending
          -- (fwait) or while any F-key sent as its shifted variant is still down
-         v_suppress := fwait or shift_hold_hidden
+         v_suppress := fwait
                        or ((not key_pressed_n(m65_f1)) and fkey_shifted(m65_f1))
                        or ((not key_pressed_n(m65_f3)) and fkey_shifted(m65_f3))
                        or ((not key_pressed_n(m65_f5)) and fkey_shifted(m65_f5))
@@ -485,16 +513,6 @@ begin
             if kb_key_pressed_n_i = '1' or v_shift_phys = '0' then
                fwait <= '0';
             end if;
-         end if;
-
-         -- Once a shift has been consumed by an F-key substitution, keep the Amiga-side shift
-         -- hidden (v_suppress) for as long as the shift stays physically held - it is retracted
-         -- once, before the first substituted F-key, and is NOT re-made around each F-key. This
-         -- removes the machine-paced shift break/make right after every F-key break, which a raw
-         -- CIA keyboard reader can otherwise lose (the F-key break gets overwritten in the single-
-         -- byte SDR by the code that immediately follows it). Cleared when no shift is held.
-         if v_shift_phys = '0' then
-            shift_hold_hidden <= '0';
          end if;
 
          -- One queued event per cycle, priority: converge the Amiga-side shift keys
@@ -518,31 +536,12 @@ begin
             end if;
          elsif kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
 
-            -- shift keys: normally mirror only - their Amiga make/break events are generated by
-            -- the convergence logic above. EXCEPTION (issue #10 shift-hang): a shift that was
-            -- retracted for an F-key substitution may have had that retract break lost by a slow
-            -- raw CIA reader (single-byte SDR overrun). Re-emit the break on the physical release
-            -- so the reader clears the key. Alone on the wire in the normal tap-F-key-then-release-
-            -- shift gesture; see the SHIFTED F-KEYS header note for the same-sweep-release residual.
+            -- shift keys: mirror only - their Amiga make/break events are generated by the
+            -- convergence logic above (from physical state minus suppression). Under the keyboard
+            -- handshake the retract-before/re-make-after shift codes around a substituted F-key
+            -- are delivered reliably, so no release-time re-emit compensation is needed here.
             if kb_key_num_i = m65_left_shift or kb_key_num_i = m65_right_shift then
-               if kb_key_pressed_n_i = '1' and
-                  ((kb_key_num_i = m65_left_shift  and shift_l_consumed = '1') or
-                   (kb_key_num_i = m65_right_shift and shift_r_consumed = '1')) then
-                  if v_fifo_free then
-                     key_pressed_n(kb_key_num_i) <= '1';
-                     if kb_key_num_i = m65_left_shift then
-                        fifo(to_integer(fifo_wr_ptr)) <= '1' & "1100000";  -- $60 break (Left Shift)
-                        shift_l_consumed <= '0';
-                     else
-                        fifo(to_integer(fifo_wr_ptr)) <= '1' & "1100001";  -- $61 break (Right Shift)
-                        shift_r_consumed <= '0';
-                     end if;
-                     fifo_wr_ptr <= fifo_wr_ptr + 1;
-                  end if;
-                  -- FIFO full: leave the mirror unchanged so the release edge is retried next sweep
-               else
-                  key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
-               end if;
+               key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
 
             -- keys that do not exist on the Amiga only update the mirror
             elsif v_amiga_code = C_NO_KEY then
@@ -559,11 +558,6 @@ begin
                   fifo(to_integer(fifo_wr_ptr)) <= '0' & v_amiga_code(6 downto 1) & '1';
                   fifo_wr_ptr                   <= fifo_wr_ptr + 1;
                   fkey_shifted(kb_key_num_i)    <= '1';
-                  shift_hold_hidden             <= '1';   -- keep shift hidden for the rest of the hold
-                  -- remember which physically-held shift was retracted, so its clearing break
-                  -- can be re-emitted on release (the early retract may be lost to SDR overrun)
-                  if key_pressed_n(m65_left_shift)  = '0' then shift_l_consumed <= '1'; end if;
-                  if key_pressed_n(m65_right_shift) = '0' then shift_r_consumed <= '1'; end if;
                   fwait                         <= '0';
                else
                   fwait     <= '1';
@@ -593,16 +587,51 @@ begin
             end if;
          end if;
 
-         -- Pace the events towards CIA-A: put the keycode on the data output and toggle
-         -- kms_level (the level change is the strobe that ciaa.v reacts to). The data output
-         -- is held stable until the next event, as required by ciaa.v's clk7n_en sampling.
-         if pace_cnt /= 0 then
-            pace_cnt <= pace_cnt - 1;
-         elsif fifo_rd_ptr /= fifo_wr_ptr then
+         -- Pace the events towards CIA-A with send-then-wait-for-acknowledge flow control (see the
+         -- pacing note in the header). Put the keycode on the data output and toggle kms_level (the
+         -- level change is the strobe that ciaa.v reacts to); the data output is held stable until
+         -- the next event, as required by ciaa.v's clk7n_en sampling.
+
+         -- min-gap floor + timeout/blackout countdowns
+         if pace_cnt  /= 0 then pace_cnt  <= pace_cnt  - 1; end if;
+         if ack_guard /= 0 then ack_guard <= ack_guard - 1; end if;
+         if to_cnt    /= 0 then to_cnt    <= to_cnt    - 1; end if;
+
+         -- Acknowledge the code on the wire = the Amiga read the keycode SDR. A CIA read is presented
+         -- on the bus as a cck-gated level over the E-clock-synced access, so kbd_ack_i can appear as
+         -- SEVERAL clk_main pulses (~1 clk7 apart) within ONE read - it is NOT a single clean level.
+         -- Coalesce them into exactly one acknowledge: accept a RISING EDGE only while ARMED, and
+         -- re-arm only after kbd_ack_i has been LOW for C_ACK_SETTLE cycles (past any intra-read cck
+         -- notch, well within the >= 1 ms gap between two reads). Without this, a bounce pulse landing
+         -- after the send of the next code would falsely acknowledge it (overrun returns for a slow
+         -- reader whose read overlaps the send). ack_guard additionally blacks out the sdr_latch
+         -- settling window right after a send (a read there still returns the PREVIOUS code).
+         kbd_ack_d <= kbd_ack_i;
+         if kbd_ack_i = '1' then
+            ack_low_cnt <= 0;
+         elsif ack_low_cnt /= C_ACK_SETTLE then
+            ack_low_cnt <= ack_low_cnt + 1;
+         end if;
+         if ack_low_cnt = C_ACK_SETTLE then
+            ack_armed <= '1';                  -- read line idle => ready for the next read's ack
+         end if;
+         if kbd_ack_i = '1' and kbd_ack_d = '0' and ack_armed = '1' and ack_guard = 0 then
+            ack_seen  <= '1';                  -- one ack per read
+            ack_armed <= '0';                  -- ignore the rest of this (possibly bouncing) read
+         end if;
+
+         -- Send the next code once the min-gap elapsed AND the previous code was consumed (or the
+         -- deadlock timeout fired). This block is textually LAST so its writes (ack_seen<='0',
+         -- to_cnt, ack_guard) win over the decrements and the ack latch above in the same cycle.
+         if pace_cnt = 0 and (ack_seen = '1' or to_cnt = 0)
+            and fifo_rd_ptr /= fifo_wr_ptr then
             kbd_data    <= fifo(to_integer(fifo_rd_ptr));
             kms_level   <= not kms_level;
             fifo_rd_ptr <= fifo_rd_ptr + 1;
-            pace_cnt    <= C_EVENT_PACE;
+            pace_cnt    <= C_EVENT_PACE;   -- min-gap floor
+            ack_seen    <= '0';            -- wait for THIS code's fresh ack
+            to_cnt      <= C_ACK_TIMEOUT;  -- arm the deadlock fallback
+            ack_guard   <= C_ACK_GUARD;    -- blackout the sdr_latch settling window
          end if;
 
          if reset_i = '1' then
@@ -616,9 +645,15 @@ begin
             shift_l_sent  <= '0';
             shift_r_sent  <= '0';
             fwait         <= '0';
-            shift_hold_hidden <= '0';
-            shift_l_consumed  <= '0';
-            shift_r_consumed  <= '0';
+            -- flow-control pacer: ack_seen='1' so the first post-reset code isn't blocked waiting
+            -- for an ack that cannot exist yet; the 100 ms C_RESET_HOLDOFF (pace_cnt above) still
+            -- applies and composes cleanly (first code waits out the hold-off, then goes on ack_seen)
+            ack_seen      <= '1';
+            to_cnt        <= 0;
+            kbd_ack_d     <= '0';
+            ack_guard     <= 0;
+            ack_armed     <= '0';   -- re-arms after kbd_ack_i idles C_ACK_SETTLE cycles post-reset
+            ack_low_cnt   <= 0;
             -- deliberately NOT resetting kms_level/kbd_data: a stable level is a no-op for
             -- ciaa.v, while forcing it could generate a phantom keystrobe
          end if;
