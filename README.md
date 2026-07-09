@@ -66,6 +66,11 @@ Press <kbd>Help</kbd> to open the menu and mount a `*.adf` image via the
 the Amiga writes to a disk — saving a file, formatting, storing a high
 score — the change is written back to the `*.adf` file on your SD card.
 
+To **eject** the disk, open the menu with <kbd>Help</kbd>, move the highlight
+to the `ADF:` item and press <kbd>Space</kbd> — exactly like the C64 core. On
+an empty drive that same <kbd>Space</kbd> opens the file browser to mount a
+disk instead, so one key both mounts and ejects.
+
 Saving happens in the background, so the Amiga never stalls. After a write,
 the MEGA65's drive LED turns **yellow** while the change is being saved and
 **green** again once it is safely on the SD card. Please **wait until the LED
@@ -240,6 +245,18 @@ their authors intended.
 Careful: a regular VGA monitor shows **no picture at all** in the 15 kHz
 modes — including the on-screen-menu. If you locked yourself out, connect
 an HDMI display and switch back there; both outputs share the same menu.
+
+### Screen centering
+
+The Amiga's picture may not sit perfectly centered on your screen — an old
+quirk that every faithful Amiga recreation shares. AExp fixes it without
+re-flashing: drop a small `aexp_screen.cfg` file into `/amiga` and the core
+re-centers the picture, adjusting automatically for each Amiga screen mode.
+Two ready-made files ship with the core (one for 16:9 displays, one tuned
+like a 4:3 monitor); pick the one that looks best, or fine-tune your own with
+the included `aexp_screen_cfg.py` tool. HDMI and VGA are centered
+independently. The full guide is in
+[doc/screen_adjust.md](doc/screen_adjust.md).
 
 ### Audio
 
