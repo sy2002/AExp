@@ -261,7 +261,7 @@ PREP_START      INCRB
                 RSUB    LOAD_HDMI_FILTER, 1
 
                 ; Apply the screen-centering offsets (HDMI ascal window) from
-                ; /amiga/aexp_screen.bin (zeros if absent) before the core
+                ; /amiga/aexp_screen.cfg (zeros if absent) before the core
                 ; un-resets so the first frame is already positioned.
                 RSUB    LOAD_SCREEN_OFFSETS, 1
 
@@ -1145,7 +1145,7 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
 
 ; ----------------------------------------------------------------------------
 ; LOAD_SCREEN_OFFSETS: screen centering (issue #5). Reads the per-Amiga-mode
-; table of signed HDMI ascal input-crop edge offsets from /amiga/aexp_screen.bin
+; table of signed HDMI ascal input-crop edge offsets from /amiga/aexp_screen.cfg
 ; into RAM (SCR_TABLE). It does NOT push anything itself; DETECT_SCREEN_MODE
 ; (called from HANDLE_CORE_IO) watches the ascal-measured geometry + interlace
 ; flag, picks the matching row, and pushes that row's four offsets into CFD
@@ -1156,7 +1156,7 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
 ; core un-resets) and from OSM_SEL_POST on the "Reload screen cfg" item (live,
 ; no core reset / no re-synth -- the point of the SD-file tuning loop).
 ;
-; File /amiga/aexp_screen.bin (big-endian 16-bit words): "A","X", ver=3,
+; File /amiga/aexp_screen.cfg (big-endian 16-bit words): "A","X", ver=3,
 ; count=4, then 4 rows x 8 signed words in the fixed order lores-progressive,
 ; hires-progressive, lores-interlaced, hires-interlaced. Each row is an HDMI
 ; half followed by a VGA half: (himin_off, himax_off, vimin_off, vimax_off,
@@ -1173,7 +1173,7 @@ LOAD_SCREEN_OFFSETS INCRB
                 RBRA    _LSO_ZERO, Z            ; no SD device -> zero table
 
                 MOVE    SCR_FDH, R9        ; empty file handle struct
-                MOVE    SCR_FILE_NAME, R10      ; "/amiga/aexp_screen.bin"
+                MOVE    SCR_FILE_NAME, R10      ; "/amiga/aexp_screen.cfg"
                 XOR     R11, R11                ; "/" path separator
                 SYSCALL(f32_fopen, 1)
                 CMP     0, R10                  ; open OK?
@@ -1591,8 +1591,8 @@ ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 ; Screen centering (issue #5): per-Amiga-mode HDMI input-crop + VGA soft-blank table.
 ; File name, table geometry, mode indices and the serial-log strings. The four
 ; rows (lores-prog, hires-prog, lores-lace, hires-lace) default to all zeros
-; (no centering) until /amiga/aexp_screen.bin provides tuned values.
-SCR_FILE_NAME     .ASCII_W "/amiga/aexp_screen.bin"
+; (no centering) until /amiga/aexp_screen.cfg provides tuned values.
+SCR_FILE_NAME     .ASCII_W "/amiga/aexp_screen.cfg"
 
 SCR_MODES         .EQU 4                  ; table rows (file "count" byte)
 SCR_TABLE_WORDS   .EQU 32                 ; 4 rows x 8 words (HDMI 4 + VGA 4)
@@ -1679,7 +1679,7 @@ OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while a menu selection's
                                                 ; sub-activity (browser/help)
                                                 ; runs: gate 4 for the unmount
 
-; Screen centering (issue #5): file handle for /amiga/aexp_screen.bin
+; Screen centering (issue #5): file handle for /amiga/aexp_screen.cfg
 SCR_FDH    .BLOCK FAT32$FDH_STRUCT_SIZE
 ; per-Amiga-mode table (loaded by LOAD_SCREEN_OFFSETS, applied by
 ; DETECT_SCREEN_MODE): 4 rows x 8 signed words = an HDMI half

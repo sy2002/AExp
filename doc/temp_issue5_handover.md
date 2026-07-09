@@ -48,7 +48,7 @@ VGA." **One root cause, two decoupled fixes**, both now implemented:
 synthesized and verified on real R3 hardware (sy2002, 2026-07-09) — HDL edits
 only, no new file, no `.xpr` change. What remains is product polish, not core
 engineering: (a) finalise the shipped default VGA offset values in
-`aexp_screen.bin` for the release (they were 0 / untuned at merge time; HDMI had
+`aexp_screen.cfg` for the release (they were 0 / untuned at merge time; HDMI had
 real values), and (b) the eventual MiSTer-style *live* adjust that will replace
 the edit-file-and-Reload flow (a stopgap). The `vbl_t` blackout footgun (§5) is
 unchanged — minor, tool-mitigated, MiSTer-faithful.
@@ -143,7 +143,7 @@ trim cannot centre both → **two decoupled levers**.
 
 ## 6. Transport chain (one line, end to end)
 
-`/amiga/aexp_screen.bin` (v3) → firmware `LOAD_SCREEN_OFFSETS` into RAM
+`/amiga/aexp_screen.cfg` (v3) → firmware `LOAD_SCREEN_OFFSETS` into RAM
 `SCR_TABLE` (32 words) → `DETECT_SCREEN_MODE` pushes the matching row's **HDMI
 half to CFD `gp_reg` words 4-7** (`SCR_CFD_HDMI`) and **VGA half to words 0-3**
 (`SCR_CFD_VGA`) via `M2M$CFD_ADDR`/`M2M$CFD_DATA` (`0xFFF0`/`0xFFF1`) → in
@@ -155,7 +155,7 @@ offsets are latched per-frame in `p_vga_softblank`.
 
 ## 7. File format, tool, firmware, manual — the concrete artefacts
 
-- **SD file v3** `/amiga/aexp_screen.bin`, **68 bytes, big-endian**: `41 58 03 04`
+- **SD file v3** `/amiga/aexp_screen.cfg`, **68 bytes, big-endian**: `41 58 03 04`
   = "AX", version 3, count 4; then 4 rows in the fixed order lores-prog,
   hires-prog, lores-interlaced, hires-interlaced; each row = 8 signed-16 words =
   an HDMI half `[himin,himax,vimin,vimax]` then a VGA half

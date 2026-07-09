@@ -55,10 +55,10 @@ connector looks like a VGA connector.
 ## The easy way: just drop in the ready-made file
 
 Alpha 5 (and later) ships with a small settings file called
-**`aexp_screen.bin`**. It already contains sensible, tested screen positions
+**`aexp_screen.cfg`**. It already contains sensible, tested screen positions
 for both HDMI and VGA, so for most people it is truly "set and forget":
 
-1. Copy **`aexp_screen.bin`** into the **`/amiga`** folder on your SD card —
+1. Copy **`aexp_screen.cfg`** into the **`/amiga`** folder on your SD card —
    the same folder that holds `kick.rom` and your disk images.
 2. Start (or restart) the core.
 
@@ -244,8 +244,8 @@ until it is centered.
 Here is the whole cycle for dialing in your own perfect picture. It does **not**
 require rebooting or re-flashing the core:
 
-1. **Adjust and save** the file with the tool (it creates `aexp_screen.bin`).
-2. **Copy** `aexp_screen.bin` into the **`/amiga`** folder on your SD card.
+1. **Adjust and save** the file with the tool (it creates `aexp_screen.cfg`).
+2. **Copy** `aexp_screen.cfg` into the **`/amiga`** folder on your SD card.
 3. On the MEGA65, open the core's **on-screen menu** (press the **Help** key)
    and choose **"Reload screen cfg"**.
 4. **Look** at the picture. Not centered yet? Go back to step 1 and nudge the
@@ -256,7 +256,7 @@ reboot needed.
 
 > **If the VGA picture ever disappears (goes black):** you nudged a VGA value too
 > far. Don't worry — nothing is broken. Just set that value smaller (or delete
-> `aexp_screen.bin` entirely) and reload again. The **HDMI output is completely
+> `aexp_screen.cfg` entirely) and reload again. The **HDMI output is completely
 > independent**, so the menu stays visible on HDMI the whole time, which makes it
 > easy to recover.
 

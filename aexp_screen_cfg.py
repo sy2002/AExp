@@ -6,7 +6,7 @@ AExp (the Amiga 500 core for the MEGA65) can re-center its picture on BOTH
 outputs WITHOUT re-flashing the core. At start-up, and whenever you pick
 "Reload screen cfg" in the on-screen menu, it reads a small table from
 
-    /amiga/aexp_screen.bin
+    /amiga/aexp_screen.cfg
 
 on the SD card. This tool writes that file for you.
 
@@ -57,8 +57,8 @@ HOW TO RUN IT
   Set the same value in every row:     python3 aexp_screen_cfg.py --mode all --himin 32
   Show the current table:              python3 aexp_screen_cfg.py --list
 
-If you do not pass a file name, the default aexp_screen.bin is assumed.
-Then copy aexp_screen.bin into the /amiga folder of your SD card and pick
+If you do not pass a file name, the default aexp_screen.cfg is assumed.
+Then copy aexp_screen.cfg into the /amiga folder of your SD card and pick
 "Reload screen cfg" in the core menu (or reboot). Needs only Python 3.
 """
 
@@ -94,7 +94,7 @@ MODE_KEYS = [k for k, _ in MODES]
 OFF_MIN, OFF_MAX = -2048, 2047
 WARN_HDMI        = 400     # HDMI offsets are Amiga pixels (a whole line is ~754)
 WARN_VGA         = 32      # VGA offsets are small analog nudges; large ones can blank VGA
-DEFAULT_NAME     = "aexp_screen.bin"
+DEFAULT_NAME     = "aexp_screen.cfg"
 
 
 def new_table():
@@ -207,7 +207,7 @@ def interactive(table):
 def main():
     ap = argparse.ArgumentParser(
         description="Create/edit the AExp per-mode screen-centering file "
-                    "(/amiga/aexp_screen.bin): HDMI input-crop + VGA soft-blank.",
+                    "(/amiga/aexp_screen.cfg): HDMI input-crop + VGA soft-blank.",
         epilog="modes: " + ", ".join(MODE_KEYS) + " (or 'all'). "
                "HDMI: himin +N->LEFT, himax -N->RIGHT, vimin +N->UP, vimax -N->DOWN. "
                "VGA: hbl_l/hbl_r/vbl_t/vbl_b nudge the analog edges (tune on a monitor).",
