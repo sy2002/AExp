@@ -368,7 +368,7 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 35: line
    " Back to main menu\n"   &    -- 36: close submenu
 
-   " Reload screen cfg\n"   &    -- 37: re-read /amiga/screen_*.bin (no re-synth)
+   " Reload Screen Config\n" &   -- 37: re-read /amiga/screen_*.bin (no re-synth)
    "\n"                     &    -- 38: line
    " About & Help\n"        &    -- 39: help
    "\n"                     &    -- 40: line

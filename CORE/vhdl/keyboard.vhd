@@ -91,8 +91,8 @@
 --   66 ALT             Left Alt    ($64)
 --   67 HELP            Help        ($5F)
 --   68 F9              F9          ($58)    Shift+F9 = F10 ($59)
---   69 F11             F10         ($59)    Amiga only has F1..F10; note F10 is reachable
---                                           both here and via Shift+F9 (harmless overlap)
+--   69 F11             - unmapped -         does nothing on the Amiga (F10 = Shift+F9); free
+--                                           for other uses
 --   70 F13             - unmapped -         Amiga only has F1..F10
 --   71 ESC             Esc         ($45)
 --   72 CAPS LOCK       Caps Lock   ($62)    special, see comment below
@@ -112,16 +112,31 @@
 -- whole duration ("phantom shift" suppression, like PS/2-to-Amiga converters):
 -- * The Amiga-side shift state is tracked separately (shift_l_sent/shift_r_sent) and converges
 --   to "physical AND NOT suppressed". The shift BREAK codes are queued BEFORE the F2 make (the
---   press edge is held back until the Amiga-side shifts read released), and the shift MAKE codes
---   are re-queued only AFTER the F2 break - the Amiga never sees a shift qualifier together
---   with a substituted F-key.
+--   press edge is held back until the Amiga-side shifts read released), and once a shift has
+--   been consumed this way it stays hidden (shift_hold_hidden) for as long as it is physically
+--   held - it is retracted once and NOT re-toggled around each F-key, so the Amiga never sees a
+--   shift qualifier together with a substituted F-key and the substituted F-keys reach a raw
+--   keyboard reader (e.g. VATestprogram's CIA-serial keyboard test) as clean isolated
+--   make/break pairs instead of being wrapped in machine-paced shift churn.
+-- * That single early retract break can itself be lost by a SLOW raw reader: it is queued ~1 ms
+--   before the F2 make, and a single-byte CIA SDR is overwritten if the reader has not consumed
+--   it yet. So the retracted shift's break is RE-EMITTED on the physical shift release
+--   (shift_l_consumed/shift_r_consumed). In the normal gesture (tap the F-key, THEN release the
+--   shift as a separate edge) the re-emit is alone on the wire, so the reader reliably clears the
+--   shift key. keyboard.device just sees a harmless redundant shift break; a raw tester needs it.
+--   KNOWN RESIDUAL (raw readers only): if the F-key and the shift are released within the SAME
+--   ~1 ms scan sweep, the F-key break and this re-emit land one pace apart and the slow reader
+--   still drops one - a stuck F-key for F1/F3/F5/F7 (scanned before the shifts) or an uncleared
+--   shift for F9 (after). Fully closing that needs real keyboard-handshake pacing (see
+--   doc/temp_keyboard.md); the 1 ms pace is the floor, so a gate can only relocate the loss.
 -- * The substituted code is latched per key (fkey_shifted), so releasing shift before the F-key
 --   still sends the matching F2 break - no stuck keys.
 -- * Consequences, by design: Shift+F2 (etc.) cannot be typed (the shift is consumed by the
 --   substitution - same as on any C64-style keyboard); pressing shift WHILE an unshifted
 --   F1 is already held simply types Shift+F1 (no substitution after the fact); while a
---   substituted F-key is held, the shift qualifier is hidden for ALL keys (inherent to
---   phantom-shift suppression - shifted characters resume when the F-key is released);
+--   substituted F-key has been used, the shift qualifier stays hidden for ALL keys until the
+--   physical shift is released (inherent to phantom-shift suppression - shifted characters
+--   resume after the physical shift is released and pressed again);
 --   and the shift must lead the F-key by at least one scan sweep (~1 ms) - a faster chord
 --   (or holding Shift+F1 across a reset, which rebuilds the key mirror in scan order)
 --   delivers plain F1 plus shift for that press.
@@ -348,7 +363,8 @@ constant C_KEYMAP : t_keymap := (
    m65_alt           => x"64",   -- Left Alt
    m65_help          => x"5F",   -- Help
    m65_f9            => x"58",   -- F9
-   m65_f11           => x"59",   -- F10 (Amiga only has F1..F10)
+   -- F11 and F13 are intentionally unmapped: they fall to C_NO_KEY below and do
+   -- nothing on the Amiga. Amiga F10 is reached via Shift+F9 (see header).
    m65_esc           => x"45",   -- Esc
    m65_capslock      => x"62",   -- Caps Lock (lock-state semantics, see header)
    m65_up_crsr       => x"4C",   -- Cursor Up
@@ -407,6 +423,15 @@ signal shift_l_sent  : std_logic := '0';   -- shift state as the Amiga currently
 signal shift_r_sent  : std_logic := '0';
 signal fwait         : std_logic := '0';   -- shifted-F make pending, waiting for shift breaks
 signal fwait_num     : integer range 0 to 79 := 0;
+-- '1' once a physically-held shift has been consumed by an F-key substitution: the Amiga-side
+-- shift then stays hidden for the whole shift-hold (retracted once, not re-toggled around each
+-- F-key; see "SHIFTED F-KEYS" in the header). Cleared as soon as no shift is physically held.
+signal shift_hold_hidden : std_logic := '0';
+-- '1' while a Left/Right shift is retracted for an F-key substitution. Its clearing break may
+-- have been lost by a slow raw CIA reader (SDR overrun of the early retract), so the break is
+-- re-emitted on the physical shift release - see "SHIFTED F-KEYS". Only these two are ever set.
+signal shift_l_consumed : std_logic := '0';
+signal shift_r_consumed : std_logic := '0';
 
 -- CTRL+MEGA+RESTORE warm-boot one-shot (deliberately NOT cleared by reset_i - it
 -- triggers that very reset; see header)
@@ -443,7 +468,7 @@ begin
 
          -- Amiga-side shift suppression is wanted while a shifted-F make is pending
          -- (fwait) or while any F-key sent as its shifted variant is still down
-         v_suppress := fwait
+         v_suppress := fwait or shift_hold_hidden
                        or ((not key_pressed_n(m65_f1)) and fkey_shifted(m65_f1))
                        or ((not key_pressed_n(m65_f3)) and fkey_shifted(m65_f3))
                        or ((not key_pressed_n(m65_f5)) and fkey_shifted(m65_f5))
@@ -460,6 +485,16 @@ begin
             if kb_key_pressed_n_i = '1' or v_shift_phys = '0' then
                fwait <= '0';
             end if;
+         end if;
+
+         -- Once a shift has been consumed by an F-key substitution, keep the Amiga-side shift
+         -- hidden (v_suppress) for as long as the shift stays physically held - it is retracted
+         -- once, before the first substituted F-key, and is NOT re-made around each F-key. This
+         -- removes the machine-paced shift break/make right after every F-key break, which a raw
+         -- CIA keyboard reader can otherwise lose (the F-key break gets overwritten in the single-
+         -- byte SDR by the code that immediately follows it). Cleared when no shift is held.
+         if v_shift_phys = '0' then
+            shift_hold_hidden <= '0';
          end if;
 
          -- One queued event per cycle, priority: converge the Amiga-side shift keys
@@ -483,10 +518,31 @@ begin
             end if;
          elsif kb_key_pressed_n_i /= key_pressed_n(kb_key_num_i) then
 
-            -- shift keys: mirror only - their Amiga events are generated by the
-            -- convergence logic above (from physical state minus suppression)
+            -- shift keys: normally mirror only - their Amiga make/break events are generated by
+            -- the convergence logic above. EXCEPTION (issue #10 shift-hang): a shift that was
+            -- retracted for an F-key substitution may have had that retract break lost by a slow
+            -- raw CIA reader (single-byte SDR overrun). Re-emit the break on the physical release
+            -- so the reader clears the key. Alone on the wire in the normal tap-F-key-then-release-
+            -- shift gesture; see the SHIFTED F-KEYS header note for the same-sweep-release residual.
             if kb_key_num_i = m65_left_shift or kb_key_num_i = m65_right_shift then
-               key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
+               if kb_key_pressed_n_i = '1' and
+                  ((kb_key_num_i = m65_left_shift  and shift_l_consumed = '1') or
+                   (kb_key_num_i = m65_right_shift and shift_r_consumed = '1')) then
+                  if v_fifo_free then
+                     key_pressed_n(kb_key_num_i) <= '1';
+                     if kb_key_num_i = m65_left_shift then
+                        fifo(to_integer(fifo_wr_ptr)) <= '1' & "1100000";  -- $60 break (Left Shift)
+                        shift_l_consumed <= '0';
+                     else
+                        fifo(to_integer(fifo_wr_ptr)) <= '1' & "1100001";  -- $61 break (Right Shift)
+                        shift_r_consumed <= '0';
+                     end if;
+                     fifo_wr_ptr <= fifo_wr_ptr + 1;
+                  end if;
+                  -- FIFO full: leave the mirror unchanged so the release edge is retried next sweep
+               else
+                  key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
+               end if;
 
             -- keys that do not exist on the Amiga only update the mirror
             elsif v_amiga_code = C_NO_KEY then
@@ -503,6 +559,11 @@ begin
                   fifo(to_integer(fifo_wr_ptr)) <= '0' & v_amiga_code(6 downto 1) & '1';
                   fifo_wr_ptr                   <= fifo_wr_ptr + 1;
                   fkey_shifted(kb_key_num_i)    <= '1';
+                  shift_hold_hidden             <= '1';   -- keep shift hidden for the rest of the hold
+                  -- remember which physically-held shift was retracted, so its clearing break
+                  -- can be re-emitted on release (the early retract may be lost to SDR overrun)
+                  if key_pressed_n(m65_left_shift)  = '0' then shift_l_consumed <= '1'; end if;
+                  if key_pressed_n(m65_right_shift) = '0' then shift_r_consumed <= '1'; end if;
                   fwait                         <= '0';
                else
                   fwait     <= '1';
@@ -555,6 +616,9 @@ begin
             shift_l_sent  <= '0';
             shift_r_sent  <= '0';
             fwait         <= '0';
+            shift_hold_hidden <= '0';
+            shift_l_consumed  <= '0';
+            shift_r_consumed  <= '0';
             -- deliberately NOT resetting kms_level/kbd_data: a stable level is a no-op for
             -- ciaa.v, while forcing it could generate a phantom keystrobe
          end if;
