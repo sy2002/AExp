@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-A5";
+constant CORE_VERSION : string := "WIP-V1-A6";
 
 constant SCR_WELCOME : string :=
 
@@ -105,7 +105,8 @@ constant HELP_1 : string :=
 
    " Floppy: mount an .adf disk image via\n" &
    " the ' ADF:' menu item (read-only).\n" &
-   " The disk boots after mounting.\n\n" &
+   " The disk boots after mounting; press\n" &
+   " Space on ' ADF:' to eject it again.\n\n" &
 
    " Cursor right to learn more.       (1 of 2)\n" &
    " Press Space to close the help screen.";

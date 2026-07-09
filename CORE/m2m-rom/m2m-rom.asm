@@ -293,6 +293,15 @@ PREP_START      INCRB
 ;   R9: 0=OK, else error code
 OSM_SEL_POST    INCRB
 
+                ; issue #16: the menu selection's sub-activity (file browser /
+                ; help viewer) has returned - drop the gate-4 flag so SPACE-
+                ; unmount works again. Reached on EVERY non-fatal path out of
+                ; OPTM_CB_SEL (incl. the CLOSE early-out via _OPTMCB_RET), so
+                ; the flag can never stick at 1. R8 (the selected group, used
+                ; below) is untouched: R0 is bank-local after the INCRB.
+                MOVE    OSM_SUB_ACTIVE, R0
+                MOVE    0, @R0
+
                 ; HDMI Filter selection changed: re-push the matching (H, V)
                 ; coefficient pair into the ascal polyphase RAM. NO core
                 ; reset -- only the coefficient RAM content changes; the
@@ -339,6 +348,18 @@ _OSM_SEL_POST_R XOR     R8, R8
 ; called before the functionality and semantics associated with a certain
 ; menu item has been handled by the framework.
 OSM_SEL_PRE     INCRB
+
+                ; issue #16: a menu selection's sub-activity is about to run
+                ; (the file browser, its SD-mount retry / "press Space"
+                ; acknowledgments, or the WHS help viewer) and it polls
+                ; HANDLE_IO. Raise the gate-4 flag so HANDLE_UNMOUNT_KEY does
+                ; not mistake a SPACE inside one of those sub-screens - e.g.
+                ; Return-to-replace on the still-mounted ' ADF:' line - for an
+                ; unmount request. Cleared again in OSM_SEL_POST, which brackets
+                ; the whole select-callback body (options.asm OPTM_CB_SEL).
+                MOVE    OSM_SUB_ACTIVE, R0
+                MOVE    1, @R0
+
                 XOR     R8, R8
                 XOR     R9, R9
                 DECRB
@@ -387,6 +408,15 @@ ADF_WB_INIT     INCRB
                 MOVE    ADF_MOUNT_SEEN, R0
                 MOVE    0, @R0
                 MOVE    ADF_FL_STATE, R0
+                MOVE    0, @R0
+
+                ; issue #16 unmount state: no SPACE seen yet and no menu
+                ; sub-activity running. Seeded here (like the rest of the ADF
+                ; state) because HANDLE_IO can poll HANDLE_UNMOUNT_KEY during
+                ; boot wait loops, before RAM is otherwise written.
+                MOVE    ADF_UNMNT_PREV, R0
+                MOVE    0, @R0
+                MOVE    OSM_SUB_ACTIVE, R0
                 MOVE    0, @R0
 
                 MOVE    M2M$RAMROM_DEV, R0      ; anti-thrashing delay (ms)
@@ -502,6 +532,15 @@ _RTC_RET        DECRB
 ;
 ; Input/Output: none; all registers are preserved
 HANDLE_CORE_IO  SYSCALL(enter, 1)
+
+                ; ADF unmount with SPACE (issue #16): must run FIRST and on
+                ; EVERY poll. HANDLE_IO calls us at the top of every OSM key-
+                ; wait iteration, before that loop's KEYB$SCAN - the ordering
+                ; that lets us both suppress the menu's SPACE (so it never
+                ; becomes a mount) and, on a fresh press over the highlighted
+                ; ' ADF:' line, eject the disk. Cheap in the common path (OSM
+                ; closed) and RAMROM-transparent.
+                RSUB    HANDLE_UNMOUNT_KEY, 1
 
                 ; screen centering (issue #5): throttle the mode detector. A mode
                 ; change only needs to be reacted to within a few ms, so run
@@ -800,6 +839,211 @@ _FADF_RET       MOVE    R0, R9                  ; restore R9..R12
 
 _FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
                 RBRA    FATAL, 1
+
+; ----------------------------------------------------------------------------
+; ADF unmount with SPACE (issue #16)
+;
+; Mirrors the C64 gesture: with the OSM open and the cursor on the ' ADF:'
+; line, SPACE ejects the disk (df0 goes empty, the menu label reverts to
+; "<Load>"). The framework has NO unmount path for CRT/ROM devices
+; (HANDLE_MOUNTING always opens the browser for CRT/ROM mode, shell.asm) and
+; M2M must not be modified, so we intercept the key core-side. HANDLE_IO calls
+; HANDLE_CORE_IO - and thus HANDLE_UNMOUNT_KEY - at the TOP of every OSM key-
+; wait iteration, BEFORE that loop's KEYB$SCAN (options.asm). That ordering
+; lets us both suppress the menu's SPACE (so it never becomes a mount) and fire
+; the eject ourselves. Full design + adversarial review:
+; .research/INTEGRATION-SPEC-adf-unmount.md
+;
+; Five gates must all hold to act:
+;   1  OSM open            M2M$CSR bit M2M$CSR_OSM (else SPACE is the Amiga's)
+;   4  not a sub-activity  OSM_SUB_ACTIVE == 0 (the browser/help set it; this
+;                          is what keeps a SPACE on a browser "press Space"
+;                          screen reached via Return-to-replace from ejecting)
+;   2  ' ADF:' highlighted OPTM_CUR_SEL == the ADF item's flat menu index
+;   3  ADF mounted         PARSEST == PT_OK (else let SPACE fall through and
+;                          mount, matching the C64's SPACE-on-empty-drive)
+;   5  fresh SPACE edge    via the ADF_UNMNT_PREV latch (one act per press)
+;
+; Gates 1+4 read only absolute MMIO / RAM (no device window), so the common
+; path (OSM closed) is cheap and leaves the RAMROM selection untouched. Only
+; once we pass gate 4 do we snapshot RAMROM (R6/R7) and switch devices for
+; gates 2/3 and the eject; _HUK_RET restores it so HANDLE_CORE_IO stays
+; transparent to its caller. While gates 1-4 hold we suppress the menu's SPACE
+; EVERY iteration (race-free vs. KEYB$SCAN's edge detector) and eject only on
+; the gate-5 rising edge.
+;
+; Input/Output: none. Bank-local R0-R7; clobbers global R8-R10 (HANDLE_CORE_IO
+; has no live upper registers at its top and reloads them at first use).
+; ----------------------------------------------------------------------------
+HANDLE_UNMOUNT_KEY INCRB
+
+                ; read current SPACE state (M2M$KEYBOARD is low-active) and
+                ; update the edge latch UNCONDITIONALLY every call (OSM open or
+                ; closed), so opening the OSM with SPACE held cannot fake an edge
+                MOVE    M2M$KEYBOARD, R0
+                MOVE    @R0, R0
+                NOT     R0, R0                  ; low-active -> high-active
+                AND     M2M$KEY_SPACE, R0
+                MOVE    R0, R4                  ; R4 = 0x20 pressed / 0 released
+                MOVE    ADF_UNMNT_PREV, R1
+                MOVE    @R1, R5                 ; R5 = SPACE state last poll
+                MOVE    R4, @R1                 ; latch := current
+
+                ; --- gate 1: OSM open? (closed -> SPACE belongs to the Amiga)
+                MOVE    M2M$CSR, R0
+                MOVE    @R0, R0
+                AND     M2M$CSR_OSM, R0
+                RBRA    _HUK_RET_NS, Z
+
+                ; --- gate 4: inside a menu-item sub-activity (browser/help)? ---
+                MOVE    OSM_SUB_ACTIVE, R0
+                CMP     0, @R0
+                RBRA    _HUK_RET_NS, !Z
+
+                ; from here on we switch the RAMROM device; snapshot it first
+                ; so _HUK_RET can hand HANDLE_CORE_IO back the selection intact
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R6
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    @R0, R7
+
+                ; --- gate 2: is the ' ADF:' line highlighted? ---
+                ; CRTROM_M_GI(R8=0) -> R9 = the ADF item's flat menu index
+                ; (Carry=1 if found); OPTM_CUR_SEL is the live highlight in the
+                ; same flat coordinate. (CRTROM_M_GI selects M2M$CONFIG; gate 3
+                ; re-selects, and _HUK_RET restores the caller's selection.)
+                XOR     R8, R8                  ; CRT/ROM id 0 = the ADF item
+                RSUB    CRTROM_M_GI, 1
+                RBRA    _HUK_RET, !C            ; no CRT/ROM item -> bail (defensive)
+                MOVE    OPTM_CUR_SEL, R0
+                CMP     @R0, R9                 ; highlighted item == ADF item?
+                RBRA    _HUK_RET, !Z            ; other line -> bail
+
+                ; --- gate 3: is the ADF mounted? PARSEST == PT_OK ---
+                MOVE    AEXP_DEV_ADF, R8
+                MOVE    CRTROM_CSR_PARSEST, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10 = parse status
+                CMP     CRTROM_CSR_PT_OK, R10
+                RBRA    _HUK_RET, !Z            ; empty drive -> let SPACE mount
+
+                ; in context: suppress the menu's SPACE this iteration, BEFORE
+                ; KEYB$SCAN runs. KEYB$SCAN's rising edge is
+                ; (pressed AND NOT KEYB_PRESSED), so pre-setting the SPACE bit
+                ; kills the edge -> KEYB$GETKEY never returns SPACE ->
+                ; OPTM_CB_SEL / HANDLE_MOUNTING never fire for it. Done on every
+                ; in-context poll (not only our own edge), so it is immune to
+                ; the read skew between our M2M$KEYBOARD read and the menu's.
+                MOVE    KEYB_PRESSED, R0
+                OR      M2M$KEY_SPACE, @R0
+
+                ; --- gate 5: act once per physical press (rising edge) ---
+                CMP     0, R4                   ; SPACE pressed now?
+                RBRA    _HUK_RET, Z
+                CMP     0, R5                   ; ..released last poll?
+                RBRA    _HUK_RET, !Z            ; still held -> already handled
+                RSUB    ADF_UNMOUNT, 1          ; eject + flush + disarm
+
+_HUK_RET        MOVE    M2M$RAMROM_DEV, R0      ; restore the RAMROM selection
+                MOVE    R6, @R0                 ; (keeps HANDLE_CORE_IO
+                MOVE    M2M$RAMROM_4KWIN, R0    ;  transparent to its caller)
+                MOVE    R7, @R0
+_HUK_RET_NS     DECRB
+                RET
+
+; ADF_UNMOUNT: eject the mounted ADF, then flush + disarm the write-back.
+;
+; Order matters: eject FIRST so the Amiga sees df0 vanish and stops writing,
+; THEN flush the already-committed dirty tracks (the eject leaves the HyperRAM
+; image intact), THEN disarm. This mirrors PREP_LOAD_IMAGE's flush+disarm; the
+; disarm block is intentionally duplicated rather than shared, to keep the not-
+; yet-HW-verified write path (PREP_LOAD_IMAGE) byte-identical for this milestone.
+; Switches the RAMROM device; the caller (HANDLE_UNMOUNT_KEY) restores it.
+;
+; Input/Output: none. Bank-local R0; clobbers global R8-R10.
+ADF_UNMOUNT     INCRB
+
+                ; 1. eject: STATUS := ST_IDLE on the ADF device. The validator
+                ;    (adf_mount_wrapper.vhd p_validate, VS_DONE) sees
+                ;    req_status /= REQ_OK and drops disk_mounted; the track
+                ;    engine announces df0 empty within ~1 ms. STATUS/PARSEST ->
+                ;    IDLE also makes the Shell's CRTROM_MLST_GET revert the
+                ;    ' ADF:' menu label for free (same mechanism as ST_LDNG at
+                ;    the start of every load).
+                MOVE    AEXP_DEV_ADF, R8
+                MOVE    CRTROM_CSR_STATUS, R9
+                MOVE    CRTROM_CSR_ST_IDLE, R10
+                RSUB    CRTROM_CSR_W, 1
+
+                ; 2. force-flush all dirty tracks (bounded, ignore the anti-
+                ;    thrashing gate). FLUSH_ADF_STEP streams from our own FDH
+                ;    snapshot and does not depend on disk_mounted, so it still
+                ;    works after the eject. On a clean/unarmed disk (the common
+                ;    read-only case) the first step returns 0 at once. On budget
+                ;    exhaustion we leave armed and let the background flush
+                ;    finish later (benign: df0 already shows empty).
+                ;
+                ;    First apply the SAME card-change guard HANDLE_CORE_IO's SD
+                ;    guard uses (SD_CHANGED, or an active-slot switch while
+                ;    armed): a swapped/pulled card makes the retained FDH stale,
+                ;    and flushing to it would write the old disk into the new
+                ;    card (the ROSM_INTEGRITY rule) - and FLUSH_ADF_STEP's FAT32
+                ;    errors are FATAL. We run BEFORE that SD guard (RSUB'd first
+                ;    in HANDLE_CORE_IO), so an eject in the card-change window
+                ;    would otherwise crash. On a change, DISCARD the dirty bitmap
+                ;    (mirrors _HCIO_KILL) instead of flushing, then disarm.
+                MOVE    SD_CHANGED, R0
+                CMP     1, @R0
+                RBRA    _ADF_UM_DROP, Z
+                MOVE    ADF_FDH_VALID, R0       ; slot check only when armed
+                CMP     1, @R0
+                RBRA    _ADF_UM_FLUSH, !Z       ; not armed -> flush is a no-op
+                MOVE    M2M$CSR, R0
+                MOVE    @R0, R0
+                AND     M2M$CSR_SD_ACTIVE, R0
+                MOVE    ADF_SD_SLOT, R1
+                CMP     @R1, R0
+                RBRA    _ADF_UM_FLUSH, Z        ; same slot -> safe to flush
+
+_ADF_UM_DROP    MOVE    M2M$RAMROM_DEV, R0      ; card changed: drop the dirty
+                MOVE    AEXP_DEV_ADF, @R0       ; bitmap (write-1-to-clear) so a
+                MOVE    M2M$RAMROM_4KWIN, R0    ; later mount cannot flush stale
+                MOVE    ADF_WBC_4KWIN, @R0      ; tracks into the new file, then
+                MOVE    ADF_WBC_DIRTY0, R0      ; fall through to disarm
+                MOVE    11, R1
+_ADF_UM_WIPE    MOVE    0xFFFF, @R0++
+                SUB     1, R1
+                RBRA    _ADF_UM_WIPE, !Z
+                RBRA    _ADF_UM_DIS, 1
+
+_ADF_UM_FLUSH   MOVE    8192, R0                ; chunk budget (> 4 full disks)
+_ADF_UM_FL      MOVE    1, R8                   ; forced step
+                RSUB    FLUSH_ADF_STEP, 1
+                CMP     0, R8                   ; clean and idle?
+                RBRA    _ADF_UM_DIS, Z
+                SUB     1, R0
+                RBRA    _ADF_UM_FL, !Z
+                RBRA    _ADF_UM_RET, 1          ; budget gone: leave armed
+
+                ; 3. disarm the write-back (mirrors PREP_LOAD_IMAGE): a later
+                ;    genuine mount's PARSEST=READY re-arms it with a fresh
+                ;    handle snapshot. PARSEST is IDLE now, so _HCIO_MOUNT will
+                ;    not re-arm regardless; ADF_MOUNT_SEEN:=0 is the correct
+                ;    clean state for the next mount.
+_ADF_UM_DIS     MOVE    ADF_FDH_VALID, R0
+                MOVE    0, @R0
+                MOVE    ADF_MOUNT_SEEN, R0
+                MOVE    0, @R0
+                MOVE    ADF_FL_STATE, R0
+                MOVE    0, @R0
+                MOVE    M2M$RAMROM_DEV, R0      ; WR_EN := 0 (df0 write-protected)
+                MOVE    AEXP_DEV_ADF, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    ADF_WBC_4KWIN, @R0
+                MOVE    ADF_WBC_CTRL, R0
+                MOVE    0, @R0
+
+_ADF_UM_RET     DECRB
+                RET
 
 ; ----------------------------------------------------------------------------
 ; HDMI Filter dispatch
@@ -1428,6 +1672,12 @@ ADF_FL_STATE    .BLOCK 1                        ; 0: idle  1: track session
 ADF_FL_REMAIN   .BLOCK 1                        ; bytes left in session track
 ADF_FL_BADDR_LO .BLOCK 1                        ; session byte address within
 ADF_FL_BADDR_HI .BLOCK 1                        ; image and file (32 bit)
+
+; ADF unmount-with-SPACE state (issue #16, see HANDLE_UNMOUNT_KEY)
+ADF_UNMNT_PREV  .BLOCK 1                        ; SPACE state last poll (edge)
+OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while a menu selection's
+                                                ; sub-activity (browser/help)
+                                                ; runs: gate 4 for the unmount
 
 ; Screen centering (issue #5): file handle for /amiga/aexp_screen.bin
 SCR_FDH    .BLOCK FAT32$FDH_STRUCT_SIZE
