@@ -52,23 +52,44 @@ connector looks like a VGA connector.
 
 ---
 
-## The easy way: just drop in the ready-made file
+## The easy way: try one of the two ready-made files
 
-Alpha 5 (and later) ships with a small settings file called
-**`aexp_screen.cfg`**. It already contains sensible, tested screen positions
-for both HDMI and VGA, so for most people it is truly "set and forget":
+AExp ships with **two** ready-made settings files, each tuned for a
+different kind of screen:
 
-1. Copy **`aexp_screen.cfg`** into the **`/amiga`** folder on your SD card —
-   the same folder that holds `kick.rom` and your disk images.
-2. Start (or restart) the core.
+* **`aexp_screen.cfg_16_9`** — for a plain **16:9** display that just fills
+  the screen and has no "4:3" aspect mode of its own. It leaves the picture
+  almost exactly as the Amiga draws it (only a tiny nudge on the hires
+  modes). Tested to work well on a cheap 16:9 monitor with no 4:3 emulation.
+* **`aexp_screen.cfg_4_3`** — a gentle "underscan" that pulls all four edges
+  in a little. Tested to work very well on a **4:3 Checkmate display**, and —
+  perhaps surprisingly — just as well on a **Samsung 55" 4K TV**.
 
-That is it. The picture should now be nicely centered. If you are happy, you
-can stop reading here.
+Because every TV and monitor overscans and stretches a little differently,
+there is no single file that is perfect everywhere. So the plan is simple:
+**try both and keep whichever looks best on your screen.**
 
-The core even adjusts automatically as programs change the picture shape: the
-Amiga can show a few different "screen modes" (see below), and AExp detects which
-one is on screen and applies the matching settings for you. You do not have to
-do anything.
+1. Copy **both** files into the **`/amiga`** folder on your SD card — the
+   same folder that holds `kick.rom` and your disk images.
+2. Pick one to try and **rename it to `aexp_screen.cfg`** — that is, remove
+   the trailing `_16_9` or `_4_3` so the name ends in just `.cfg`. Only a
+   file named exactly `aexp_screen.cfg` is read by the core.
+3. Start the core, or — if it is already running — open the on-screen menu
+   (press the **Help** key) and choose **"Reload screen cfg"**.
+4. Look at the picture. Happy? You are done. If not, rename the *other* file
+   to `aexp_screen.cfg` (replacing the first one) and use **"Reload screen
+   cfg"** again to compare. Each reload takes about a second — no reboot
+   needed.
+
+The core adjusts automatically as programs change the picture shape: the
+Amiga can show a few different "screen modes" (see below), and both files
+carry the right settings for each mode, so AExp always applies the matching
+one for you. You do not have to do anything.
+
+One thing to know: these two presets center the **HDMI** picture and leave
+the **VGA** (analog) edges untouched. If you use the analog output and it
+sits off-center, tune it by hand as described under "Fine-tuning it
+yourself" below.
 
 ---
 
@@ -92,6 +113,11 @@ If your specific TV or monitor still trims an edge or sits slightly off, you can
 adjust the numbers to taste. AExp ships with a small helper program,
 **`aexp_screen_cfg.py`**, that writes the settings file for you. You only need
 **Python 3** installed on your computer (Windows, macOS or Linux) — nothing else.
+
+Tip: the tool edits an existing `aexp_screen.cfg` in place if one is present, so
+the easiest starting point is to rename whichever ready-made preset looked best
+(`aexp_screen.cfg_16_9` or `aexp_screen.cfg_4_3`) to `aexp_screen.cfg` first, and
+then fine-tune it from there.
 
 Open a terminal in the folder that contains the tool and run it with no extra
 options to enter its friendly, interactive mode:

@@ -129,6 +129,33 @@ is running, the right button can stay "stuck" for up to half a minute
 (Workbench shows its menu bar and stops redrawing) before it clears on its
 own. Just give it a moment after swapping devices.
 
+#### No mouse? Drive the pointer from the keyboard
+
+Have no Amiga mouse or adapter at hand? You can still operate Workbench. The
+Amiga's operating system can move the mouse pointer from the keyboard, and
+that feature works on this core too. It is provided by Intuition (the Amiga's
+windowing system), so it is available in Workbench and other OS-friendly
+programs — but **not** in games or demos that take over the machine.
+
+The MEGA65 keys map onto the Amiga's built-in combinations like this:
+
+| Action                      | Keys                                                                   |
+|-----------------------------|------------------------------------------------------------------------|
+| Move the pointer            | <kbd>MEGA</kbd> + <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> |
+| Move the pointer **faster** | <kbd>MEGA</kbd> + <kbd>Shift</kbd> + <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> |
+| **Left** mouse button       | <kbd>MEGA</kbd> + <kbd>Alt</kbd>                                        |
+| **Right** mouse button      | <kbd>Run/Stop</kbd>                                                     |
+
+<kbd>MEGA</kbd> is the Amiga's *left Amiga* key and <kbd>Alt</kbd> is its
+*left Alt*, so <kbd>MEGA</kbd> + <kbd>Alt</kbd> is exactly the Amiga's
+built-in "left click". The pointer keeps accelerating the longer you hold an
+arrow, so tap the keys for fine positioning and hold them to cross the screen.
+
+On a real Amiga the **right** button is *Right Amiga + Right Alt*, but the
+MEGA65 keyboard has no Right Alt key. That is no problem here: as described
+above, AExp maps <kbd>Run/Stop</kbd> straight to the right mouse button, so
+hold <kbd>Run/Stop</kbd> whenever you would right-click.
+
 ### Keyboard
 
 The most important mappings:
