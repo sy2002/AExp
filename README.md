@@ -201,15 +201,22 @@ the scaling filter:
 | CRT (S-Video)   | scanlines plus a slightly softened picture, like S-Video  |
 | CRT (Composite) | scanlines plus heavy horizontal blur, like an antenna or composite cable |
 
-The core includes a **flicker fixer** for the Amiga's interlace modes:
-laced screens such as the 640x512 Workbench or the interlaced pictures
-that demos love are woven into a stable, full-resolution HDMI picture —
-the same job the A3000's "Amber" chip or an Indivision does on real
-hardware. Demos that flicker *on purpose* (alternating two images at
-50 Hz to fake extra colors, transparency or glowing lights) keep
-flickering: that is the intended look, and only a CRT softens it. If you
-want the full story about Amiga video modes and flicker, read
-[doc/video_modes.md](doc/video_modes.md).
+These two features both fight "flicker", but they cure two entirely
+different things — one the shimmer of interlaced screens, the other a
+periodic hitch in smooth motion:
+
+#### Interlace flicker fixer (automatic)
+
+Laced screens such as the 640x512 Workbench or the interlaced pictures that
+demos love are woven into a stable, full-resolution HDMI picture — the same
+job the A3000's "Amber" chip or an Indivision does on real hardware. This
+runs automatically; there is no menu entry for it. Demos that flicker *on
+purpose* (alternating two images at 50 Hz to fake extra colors, transparency
+or glowing lights) keep flickering: that is the intended look, and only a CRT
+softens it. If you want the full story about Amiga video modes and flicker,
+read [doc/video_modes.md](doc/video_modes.md).
+
+#### Flicker-free: smooth motion (menu entry)
 
 The third `HDMI:` menu entry, **Flicker-free** (on by default), keeps the
 HDMI picture perfectly smooth. An Amiga runs a hair below 50 Hz while HDMI
