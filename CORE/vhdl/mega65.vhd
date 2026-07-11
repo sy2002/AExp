@@ -512,9 +512,8 @@ begin
    -- no CDC. Key numbers share the m2m_keyb / keyboard.vhd m65_* numbering:
    -- Help=67, F11=69, F13=70, MEGA(left)=61, Run/Stop=63. The radio is one-hot with
    -- a guaranteed STDSEL default (Help), so the fall-through = Help = classic behaviour.
-   -- NOTE: the MEGA+Run/Stop combo is CLOSED with Run/Stop alone - its Run/Stop half
-   -- (qnice_keys bit 6 -> OPTM_KEY_MENUUP) fires before the combo's bit-7 close, so
-   -- re-holding both would reopen the menu (see doc/keyboard.md); no lockout either way.
+   -- The MEGA+Run/Stop combo closes symmetrically (hold both again): m2m_keyb hides
+   -- Run/Stop's menu-up bit 6 while MEGA is held, so no bit-6 close/bit-7 reopen bounce.
    osm_key_a_o <= 69 when main_osm_control_i(C_MENU_OSMKEY_F11)   = '1' else
                   70 when main_osm_control_i(C_MENU_OSMKEY_F13)   = '1' else
                   61 when main_osm_control_i(C_MENU_OSMKEY_COMBO) = '1' else

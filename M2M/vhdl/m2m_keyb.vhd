@@ -176,6 +176,18 @@ begin
          else
             keys_n(7) <= osm_sa_n;               -- single key
          end if;
+
+         -- Combo anti-bounce: while the MEGA+Run/Stop combo opener is armed and its
+         -- MEGA half (osm_key_a_i) is held, Run/Stop is a combo component, not a
+         -- stand-alone "menu up" - so hide it from bit 6 (this override runs after the
+         -- case, so it wins for key_num = osm_key_b_i). Closing the OSM by holding both
+         -- again then fires ONLY the combo's bit-7 close; otherwise Run/Stop's bit 6
+         -- (OPTM_KEY_MENUUP, the lower bit that KEYB$GETKEY returns first) closes the
+         -- menu and the still-latched bit 7 immediately reopens it. Run/Stop alone
+         -- (MEGA not held => osm_sa_n = '1') keeps bit 6, so it still closes the menu.
+         if osm_combo_i = '1' and osm_sa_n = '0' then
+            keys_n(6) <= '1';
+         end if;
       end if;
    end process;
 end beh;
