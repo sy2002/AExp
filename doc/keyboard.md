@@ -11,10 +11,12 @@ you think about the keyboard.
 
 If you only remember one sentence, make it this one:
 
-> **In the default mode, you get exactly the character printed on the MEGA65
-> keycap.** Press the key that shows `@`, and the Amiga receives `@`.
+> **In the default mode, you get the character printed on the MEGA65 keycap.**
+> Press the key that shows `@`, and the Amiga receives `@`.
 
-Everything below is detail on top of that promise.
+Everything below is detail on top of that promise — including a handful of MEGA65
+caps whose character the *Amiga itself* has no way to show, which no keyboard
+mapping can conjure up.
 
 ---
 
@@ -58,10 +60,24 @@ Choose this mode if you grew up on an Amiga and your muscle memory expects the
 Amiga layout, or if you are following instructions written for a real Amiga
 (some demos and old manuals assume the Amiga's own keymap).
 
-> **Both modes are always faithful to a US/ANSI keyboard.** AExp assumes the
-> Amiga's default American keymap, exactly as a real Amiga 500 running Kickstart
-> 1.3 does. The two modes differ only in *which* physical key stands for *which*
-> Amiga key — not in the underlying Amiga.
+The reference for Amiga mode is deft's "custom caps" layout, drawn from a British
+Amiga A600. A couple of its keys are *functions*, not letters — notably
+<kbd>CLR/HOME</kbd>, which is the Amiga <kbd>&larr;</kbd> (Backspace) key: it
+deletes to the left. The "←" printed on that reference cap is the Backspace
+symbol, not a character you can print.
+
+> **The Amiga's keymap has the final say — including on the pound sign.** AExp
+> only sends the Amiga raw key codes; which *character* each one becomes is chosen
+> by the keymap the Amiga has loaded. Out of the box that is the **US keymap**
+> built into Kickstart 1.3, so <kbd>Shift</kbd>+<kbd>3</kbd> = `#` and there is
+> **no `£`** — it isn't on the US layout at all (the glyph lives in the Amiga
+> font, but nothing on the US keyboard types it). deft's layout, though, is a
+> British Amiga (`£` on the `3` key). To reproduce it exactly — `£` on
+> <kbd>Shift</kbd>+<kbd>3</kbd>, `@` on <kbd>Shift</kbd>+<kbd>;</kbd> — load the
+> British keymap on the Amiga side with **`SetMap gb`** (from a Workbench boot; it
+> needs `DEVS:Keymaps/gb`). A game or demo that boots without Workbench stays on
+> the US keymap. AExp can't pick the keymap for you — on a real Amiga that was
+> always the software's job.
 
 ---
 
@@ -123,6 +139,13 @@ A few friendly notes on this table:
   <kbd>&larr;</kbd> key types on its own.
 * The back-tick <code>&#96;</code> lives on the <kbd>&larr;</kbd> key
   (with <kbd>Shift</kbd> or <kbd>MEGA</kbd>).
+* **A few of the MEGA65's own symbols simply aren't on the Amiga at all.** The
+  Amiga's character set has no printable left-arrow and no `π`, so the
+  <kbd>&larr;</kbd> key sends `_` (its ASCII legend) instead of an arrow, and
+  <kbd>MEGA</kbd>+<kbd>&uarr;</kbd> sends nothing — there is no such character on
+  the Amiga to send. (`£` is the same story from the other side: the glyph exists
+  in the Amiga font but not on its US keyboard layout, so the <kbd>&pound;</kbd>
+  key sends `\`; see the keymap note under *Amiga mode*, above.)
 * A dash `—` means the MEGA65 cap shows a graphic symbol there that the Amiga has
   no character for, so nothing is sent. A blank cell means the key has no such
   legend.
