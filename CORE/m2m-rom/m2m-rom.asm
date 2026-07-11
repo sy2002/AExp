@@ -312,12 +312,36 @@ OSM_SEL_POST    INCRB
                 RSUB    LOAD_HDMI_FILTER, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
-                ; "Reload screen cfg" pressed: re-read the SD file and re-push
-                ; the offsets. No core reset -- the picture repositions from
-                ; the next frame. Reloads on every press (the single-select
-                ; item's checkmark just toggles cosmetically).
+                ; "Reload Screen Config" pressed. This is a MOMENTARY action,
+                ; not an on/off toggle (issue #19): show "<Loading Screen
+                ; Config>" on the item's line for the ~1-2 s the SD re-mount +
+                ; reload takes -- the OSM is frozen meanwhile because QNICE
+                ; serves the menu synchronously -- then repaint the original
+                ; label with no "=" checkmark left behind.
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 RBRA    _OSM_SEL_POST_R, !Z
+
+                ; Paint the "loading" label. OPTM_CUR_SEL is the highlighted
+                ; item's flat index; the menu is flat-indexed but on-screen rows
+                ; collapse submenus, so translate to the visible row first
+                ; (_OPTM_R_F2M_O is the same "from the outside" helper OPTM_SET /
+                ; OPTM_SELECT use). Then print across the full content width at
+                ; the left edge (x = OPTM_X+1, y = OPTM_Y+row+1).
+                MOVE    OPTM_CUR_SEL, R8
+                MOVE    @R8, R8
+                MOVE    OPTM_F_MS_SLCT, R9      ; fatal-context (unused on OK)
+                RSUB    _OPTM_R_F2M_O, 1        ; R8 = row; C=1 -> off this level
+                RBRA    _OSP_SCR_RM, C          ; (defensive) skip paint if so
+                MOVE    OPTM_Y, R10
+                MOVE    @R10, R10
+                ADD     R8, R10
+                ADD     1, R10                  ; R10 = screen y (+1 for frame)
+                MOVE    OPTM_X, R9
+                MOVE    @R9, R9
+                ADD     1, R9                   ; R9 = screen x (+1 for frame)
+                MOVE    SCR_LOADING_STR, R8
+                RSUB    SCR$PRINTSTRXY, 1
+
                 ; The user may have pulled the SD card to write a new file with
                 ; the python tool; the shared SD controller is then de-negotiated
                 ; until a re-mount runs SD$RESET (and a same-slot tray swap does
@@ -327,7 +351,7 @@ _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 ; mount. Safe for config-save: write-back is gated on CONFIG_FILE
                 ; (untouched), and re-mounting keeps CONFIG_DEVH's own bookkeeping
                 ; consistent with the freshly reset controller.
-                MOVE    CONFIG_DEVH, R8
+_OSP_SCR_RM     MOVE    CONFIG_DEVH, R8
                 CMP     0, @R8                  ; any SD device mounted at all?
                 RBRA    _OSP_SCR_LOAD, Z        ; none -> let LOAD zero the table
                 RSUB    WAIT1SEC, 1             ; debounce a just-reinserted card
@@ -336,6 +360,23 @@ _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 SYSCALL(f32_mnt_sd, 1)          ; SD$RESET + re-read geometry;
                                                 ; LOAD's f32_fopen re-checks status
 _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
+
+                ; Momentary reset: clear the single-select state everywhere so
+                ; no "=" ever sticks. M2M$FORCE_MENU clears the QNICE setting
+                ; register bit AND the menu's in-memory selection (and erases
+                ; the on-screen marker); OPTM_SHOW then repaints every label
+                ; (ours reverts to "Reload Screen Config", markerless) and
+                ; OPTM_SELECT restores the cursor highlight. OPTM_CUR_SEL is
+                ; untouched by these calls, so it still points at our item.
+                MOVE    OPTM_CUR_SEL, R8
+                MOVE    @R8, R8
+                XOR     R9, R9                  ; 0 = unselected
+                RSUB    M2M$FORCE_MENU, 1
+                RSUB    OPTM_SHOW, 1
+                MOVE    OPTM_CUR_SEL, R8
+                MOVE    @R8, R8
+                MOVE    OPTM_SEL_SEL, R9
+                RSUB    OPTM_SELECT, 1
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
@@ -1593,6 +1634,13 @@ ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 ; rows (lores-prog, hires-prog, lores-lace, hires-lace) default to all zeros
 ; (no centering) until /amiga/aexp_screen.cfg provides tuned values.
 SCR_FILE_NAME     .ASCII_W "/amiga/aexp_screen.cfg"
+
+; Momentary "Reload Screen Config" busy label (issue #19). SCR$PRINTSTR renders
+; the < > as the framework's arrow glyphs (same look as <Mount>/<Load>). It is
+; exactly OPTM_DX (23) characters, so printed at the content's left edge it
+; fills the whole width; it is shown while the SD re-mount + reload runs and
+; then OPTM_SHOW repaints it away.
+SCR_LOADING_STR   .ASCII_W "<Loading Screen Config>"
 
 SCR_MODES         .EQU 4                  ; table rows (file "count" byte)
 SCR_TABLE_WORDS   .EQU 32                 ; 4 rows x 8 words (HDMI 4 + VGA 4)
