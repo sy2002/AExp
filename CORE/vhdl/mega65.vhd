@@ -150,6 +150,13 @@ port (
    main_drive_led_o        : out std_logic;
    main_drive_led_col_o    : out std_logic_vector(23 downto 0);
 
+   -- OSM-open key selection (issue #8): the core decodes the "OSM: %s" radio and
+   -- tells the framework's m2m_keyb which key(s) drive the menu-open bit
+   -- (qnice_keys bit 7). Threaded core->framework->m2m_keyb, exactly like video_fl_o.
+   osm_key_a_o             : out integer range 0 to 79;
+   osm_key_b_o             : out integer range 0 to 79;
+   osm_combo_o             : out std_logic;
+
    -- Joysticks and paddles input
    main_joy_1_up_n_i       : in  std_logic;
    main_joy_1_down_n_i     : in  std_logic;
@@ -398,6 +405,16 @@ constant C_MENU_VGA_15KHZCS   : natural := 36;   -- VGA: raw 15.625 kHz RGB with
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
 constant C_MENU_KBD_AMIGA     : natural := 43;
 
+-- OSM-open key radio (issue #8): selects which key(s) drive the framework's
+-- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
+-- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 48 (Help) carries
+-- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
+constant C_MENU_OSMKEY_HELP   : natural := 48;
+constant C_MENU_OSMKEY_F11    : natural := 49;
+constant C_MENU_OSMKEY_F13    : natural := 50;
+constant C_MENU_OSMKEY_COMBO  : natural := 51;
+
 begin
 
    -- hr_core_* is driven by the 2-master HyperRAM arbiter at the bottom of this
@@ -488,6 +505,22 @@ begin
    -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
    main_drive_led_o     <= main_fdd_led or main_adf_dirty;
    main_drive_led_col_o <= x"FFFF00" when main_adf_dirty = '1' else x"00FF00";
+
+   -- OSM-open key selection (issue #8): decode the "OSM: %s" radio into m2m_keyb's
+   -- selected-key inputs. main_osm_control_i is static in the core clock domain
+   -- (like the keyboard-mode and VGA bits), so this is pure combinational routing -
+   -- no CDC. Key numbers share the m2m_keyb / keyboard.vhd m65_* numbering:
+   -- Help=67, F11=69, F13=70, MEGA(left)=61, Run/Stop=63. The radio is one-hot with
+   -- a guaranteed STDSEL default (Help), so the fall-through = Help = classic behaviour.
+   -- NOTE: the MEGA+Run/Stop combo is CLOSED with Run/Stop alone - its Run/Stop half
+   -- (qnice_keys bit 6 -> OPTM_KEY_MENUUP) fires before the combo's bit-7 close, so
+   -- re-holding both would reopen the menu (see doc/keyboard.md); no lockout either way.
+   osm_key_a_o <= 69 when main_osm_control_i(C_MENU_OSMKEY_F11)   = '1' else
+                  70 when main_osm_control_i(C_MENU_OSMKEY_F13)   = '1' else
+                  61 when main_osm_control_i(C_MENU_OSMKEY_COMBO) = '1' else
+                  67;                                    -- Help (default)
+   osm_key_b_o <= 63 when main_osm_control_i(C_MENU_OSMKEY_COMBO) = '1' else 67;
+   osm_combo_o <= main_osm_control_i(C_MENU_OSMKEY_COMBO);
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main

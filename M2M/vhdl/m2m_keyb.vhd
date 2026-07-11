@@ -37,9 +37,19 @@ entity m2m_keyb is
       kio10_i              : in std_logic;                     -- data input from keyboard
       
       -- interface to the core
-      enable_core_i        : in std_logic;                     -- 0 = core is decoupled from the keyboard, 1 = standard operation      
+      enable_core_i        : in std_logic;                     -- 0 = core is decoupled from the keyboard, 1 = standard operation
       key_num_o            : out integer range 0 to 79;        -- cycles through all keys with SCAN_FREQUENCY
       key_pressed_n_o      : out std_logic;                    -- low active: debounced feedback: is kb_key_num_o pressed right now?
+
+      -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): the key(s) that drive the OSM-open
+      -- bit (qnice_keys bit 7) are chosen by the core, so a core can offer the user a
+      -- key other than Help. The bit is built from the *ungated* scan below (never
+      -- gated by enable_core_i), so the chosen key opens AND closes the menu. The
+      -- defaults = key 67 (Help) => identical to the classic behaviour for any core
+      -- that does not drive these ports.
+      osm_key_a_i          : in integer range 0 to 79 := 67;   -- primary menu-open key
+      osm_key_b_i          : in integer range 0 to 79 := 67;   -- second key of a combo
+      osm_combo_i          : in std_logic := '0';              -- '1' = require osm_key_a_i AND osm_key_b_i
 
       -- control the drive led on the MEGA65 keyboard
       power_led_i          : in std_logic;
@@ -59,6 +69,11 @@ signal matrix_col_idx      : integer range 0 to 9 := 0;
 signal key_num             : integer range 0 to 79;
 signal key_status_n        : std_logic;
 signal keys_n              : std_logic_vector(15 downto 0) := x"FFFF"; -- low active, "no key pressed"
+
+-- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): latched low-active status of the
+-- core-selected menu-open key(s), refreshed once per scan pass (see below).
+signal osm_sa_n            : std_logic := '1';   -- status of osm_key_a_i
+signal osm_sb_n            : std_logic := '1';   -- status of osm_key_b_i
 
 begin
    -- output the keyboard interface for the core
@@ -128,10 +143,18 @@ begin
    end process;      
    
    -- make qnice_keys_o a register and fill it
-   -- see sysdef.asm for the key-to-bit mapping      
+   -- see sysdef.asm for the key-to-bit mapping
+   --
+   -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): bit 7 (the OSM-open bit) is no
+   -- longer the fixed Help key. key_num cycles through all 80 keys at
+   -- SCAN_FREQUENCY; when it passes osm_key_a_i / osm_key_b_i we latch that key's
+   -- status into osm_sa_n / osm_sb_n. Bit 7 is then rebuilt every cycle from the
+   -- latches (low-active: '0' = pressed), so it refreshes once per pass just like
+   -- every other qnice_keys bit. Defaults (67/67/'0') reproduce the classic
+   -- "bit 7 follows Help" behaviour exactly.
    handle_qnice_keys : process(clk_main_i)
    begin
-      if rising_edge(clk_main_i) then      
+      if rising_edge(clk_main_i) then
          case key_num is
             when 73        => keys_n(0) <= key_status_n;     -- Cursor up
             when 7         => keys_n(1) <= key_status_n;     -- Cursor down
@@ -140,11 +163,19 @@ begin
             when 1         => keys_n(4) <= key_status_n;     -- Return
             when 60        => keys_n(5) <= key_status_n;     -- Space
             when 63        => keys_n(6) <= key_status_n;     -- Run/Stop
-            when 67        => keys_n(7) <= key_status_n;     -- Help
             when 4         => keys_n(8) <= key_status_n;     -- F1
             when 5         => keys_n(9) <= key_status_n;     -- F3
             when others    => null;
          end case;
+
+         -- bit 7 = the core-selected OSM-open key(s), latched per scan pass
+         if key_num = osm_key_a_i then osm_sa_n <= key_status_n; end if;
+         if key_num = osm_key_b_i then osm_sb_n <= key_status_n; end if;
+         if osm_combo_i = '1' then
+            keys_n(7) <= osm_sa_n or osm_sb_n;   -- pressed only when BOTH are pressed
+         else
+            keys_n(7) <= osm_sa_n;               -- single key
+         end if;
       end if;
-   end process;   
+   end process;
 end beh;

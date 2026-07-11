@@ -215,9 +215,12 @@ button), so the Amiga briefly sees them as you reach for the menu, and the combo
 can clash with genuine Amiga use. Prefer a function key unless you have a reason
 not to.
 
-However you open the menu, you can always **close** it with the same key, and
-<kbd>Run/Stop</kbd> also steps back out of the menu — so you can never lock
-yourself out.
+However you open the menu, <kbd>Run/Stop</kbd> always steps back out of it — so
+you can never lock yourself out. The single-key openers (<kbd>Help</kbd>,
+<kbd>F11</kbd>, <kbd>F13</kbd>) also **close** the menu when you press them again;
+the <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd> combo is closed with <kbd>Run/Stop</kbd>
+alone (holding both again would land you right back in the menu, because
+<kbd>Run/Stop</kbd> is itself the universal "step out" key).
 
 ---
 

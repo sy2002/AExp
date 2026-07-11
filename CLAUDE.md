@@ -96,7 +96,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with THREE sanctioned
+- `M2M/` — the framework. **NEVER modify**, with FOUR sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -112,8 +112,15 @@ the deep material lives in `doc/` (see "Key documents").
   (`iauto=0`, `himin/himax/vimin/vimax`) for HDMI screen centering; new
   inputs default to 0 = the full auto-detected window (other cores
   unaffected). Issue #5, 2026-07-08 — implemented, awaiting synthesis.
-  All other framework fixes go into `CORE/CORE.xdc` (constraints) or get
-  documented for upstreaming.
+  (4) `osm-hotkey` — three core-driven inputs (`osm_key_a_i`/`osm_key_b_i`
+  default 67=Help, `osm_combo_i` default '0') threaded core →
+  `framework.vhd` → `m2m_keyb.vhd` so the core picks which key(s) drive the
+  menu-open bit (`qnice_keys` bit 7, the *ungated* scan); the defaults
+  reproduce the classic Help-only behaviour and leave the firmware ROM
+  byte-identical, so every existing M2M core is unchanged. Issue #8,
+  2026-07-11 — implemented, awaiting synthesis; **the 4th exception still
+  needs sy2002's explicit sign-off** (spec §8). All other framework fixes
+  go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):
   - `mega65.vhd` — BRAM lanes (2×256K×8 chip, 2×256K×8 slow, 2×128K×8

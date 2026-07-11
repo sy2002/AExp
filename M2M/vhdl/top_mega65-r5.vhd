@@ -310,6 +310,9 @@ architecture synthesis of mega65_r5 is
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
    signal video_fl               : std_logic;   -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+   signal osm_key_a              : integer range 0 to 79;  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+   signal osm_key_b              : integer range 0 to 79;  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+   signal osm_combo              : std_logic;              -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
 
    -- Joysticks and Paddles
    signal main_joy1_up_n_in      : std_logic;
@@ -666,6 +669,9 @@ begin
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
       video_fl_i              => video_fl,     -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+      osm_key_a_i             => osm_key_a,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+      osm_key_b_i             => osm_key_b,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+      osm_combo_i             => osm_combo,    -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
       main_joy1_up_n_o        => main_joy1_up_n_in,
       main_joy1_down_n_o      => main_joy1_down_n_in,
       main_joy1_left_n_o      => main_joy1_left_n_in,
@@ -837,6 +843,9 @@ begin
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
          video_fl_o              => video_fl,  -- M2M-UPSTREAM interlace (AExp 2026-07-04)
+         osm_key_a_o             => osm_key_a,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+         osm_key_b_o             => osm_key_b,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
+         osm_combo_o             => osm_combo,  -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10)
 
          -- Audio output (Signed PCM)
          main_audio_left_o       => main_audio_l,

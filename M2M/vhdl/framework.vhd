@@ -135,6 +135,13 @@ port (
    -- M2M-UPSTREAM interlace (AExp 2026-07-04): interlace field flag from the core,
    -- feeds ascal's weave deinterlacer; the default keeps progressive-only cores unchanged
    video_fl_i              : in    std_logic := '0';
+   -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): the core picks which key(s) drive the
+   -- framework's menu-open bit (qnice_keys bit 7), so the user can open the OSM with a
+   -- key other than Help. Passed straight into i_m2m_keyb; the defaults reproduce the
+   -- classic Help-only behaviour for any core that leaves them unconnected.
+   osm_key_a_i             : in    integer range 0 to 79 := 67;
+   osm_key_b_i             : in    integer range 0 to 79 := 67;
+   osm_combo_i             : in    std_logic := '0';
    main_joy1_up_n_o        : out   std_logic;
    main_joy1_down_n_o      : out   std_logic;
    main_joy1_left_n_o      : out   std_logic;
@@ -572,6 +579,11 @@ begin
          enable_core_i        => main_csr_keyboard_on,
          key_num_o            => main_key_num_o,
          key_pressed_n_o      => main_key_pressed_n_o,
+
+         -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): core-selected OSM-open key(s)
+         osm_key_a_i          => osm_key_a_i,
+         osm_key_b_i          => osm_key_b_i,
+         osm_combo_i          => osm_combo_i,
 
          -- control the drive led on the MEGA65 keyboard
          power_led_i          => main_power_led_i,

@@ -299,7 +299,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 49;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 58;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -308,16 +308,20 @@ constant OPTM_SIZE         : natural := 49;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 20 lines, HDMI Settings submenu view = 7 lines,
--- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines.
+-- Main menu view = 21 lines, HDMI Settings submenu view = 7 lines,
+-- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
+-- OSM-open key submenu view = 8 lines. The main view is the tallest, so OPTM_DY
+-- tracks it (the +1 vs before is the collapsed "OSM: %s" label, issue #8).
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 20;
+constant OPTM_DY           : natural := 21;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   line  9: 720p 50 Hz 16:9  / 10: 576p 50 4:3  / 11: 576p 50 5:4
 --   line 27: HDMI Flicker-free toggle (C_MENU_HDMI_FF)
 --   line 31: VGA Standard / 35: VGA 15 kHz with HS/VS / 36: VGA 15 kHz with CSYNC
 --   line 43: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
+--   lines 48..51: OSM-open key radio (C_MENU_OSMKEY_*); Help (48, default) / F11 /
+--                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 17..24 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
@@ -379,11 +383,21 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    -- 42: line
    " Amiga\n"               &    -- 43: keyboard mode radio: pure positional (C_MENU_KBD_AMIGA)
    " MEGA65\n"              &    -- 44: keyboard mode radio: semantic "cap is law"; default
-   "\n"                     &    -- 45: line
 
-   " About & Help\n"        &    -- 46: help
+   " OSM: %s\n"             &    -- 45: OSM-open key submenu (issue #8): "OSM: <choice>"
+   " Key to open the menu\n" &   -- 46: headline (inside submenu)
    "\n"                     &    -- 47: line
-   " Close Menu\n";              -- 48: close
+   " Help\n"                &    -- 48: OSMKEY radio: Help (C_MENU_OSMKEY_HELP); default
+   " F11\n"                 &    -- 49: OSMKEY radio: F11 (C_MENU_OSMKEY_F11)
+   " F13\n"                 &    -- 50: OSMKEY radio: F13 (C_MENU_OSMKEY_F13)
+   " MEGA + Run/Stop\n"     &    -- 51: OSMKEY radio: MEGA+Run/Stop combo (C_MENU_OSMKEY_COMBO)
+   "\n"                     &    -- 52: line
+   " Back to main menu\n"   &    -- 53: close submenu
+
+   "\n"                     &    -- 54: line
+   " About & Help\n"        &    -- 55: help
+   "\n"                     &    -- 56: line
+   " Close Menu\n";              -- 57: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -398,6 +412,7 @@ constant OPTM_G_About      : integer := 5;
 constant OPTM_G_SCRRELOAD  : integer := 6;   -- momentary: re-read /amiga/screen_*.bin
 constant OPTM_G_HDMIFF     : integer := 7;   -- HDMI flicker-free toggle (issue #12); read in HDL (mega65.vhd)
 constant OPTM_G_KBD        : integer := 8;   -- keyboard mapping mode radio (issue #6): Amiga / MEGA65; read in HDL (mega65.vhd)
+constant OPTM_G_OSMKEY     : integer := 9;   -- OSM-open key radio (issue #8): Help / F11 / F13 / MEGA+Run-Stop; read in HDL (mega65.vhd)
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -460,11 +475,21 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              -- 42: Line
                                              OPTM_G_KBD,                               -- 43: Amiga (pure positional)
                                              OPTM_G_KBD + OPTM_G_STDSEL,               -- 44: MEGA65 (semantic; default)
-                                             OPTM_G_LINE,                              -- 45: Line
 
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 46: About & Help (WHS(1))
+                                             OPTM_G_SUBMENU,                           -- 45: OSM-open key submenu block: "OSM: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 46: Headline "Key to open the menu"
                                              OPTM_G_LINE,                              -- 47: Line
-                                             OPTM_G_CLOSE                              -- 48: Close Menu
+                                             OPTM_G_OSMKEY + OPTM_G_STDSEL,            -- 48: Help (default opener)
+                                             OPTM_G_OSMKEY,                            -- 49: F11
+                                             OPTM_G_OSMKEY,                            -- 50: F13
+                                             OPTM_G_OSMKEY,                            -- 51: MEGA + Run/Stop
+                                             OPTM_G_LINE,                              -- 52: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 53: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 54: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 55: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 56: Line
+                                             OPTM_G_CLOSE                              -- 57: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------
