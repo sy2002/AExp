@@ -104,6 +104,10 @@ entity main is
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
       kb_key_pressed_n_i      : in  std_logic;                -- low active: debounced feedback: is kb_key_num_i pressed right now?
 
+      -- Keyboard mapping mode (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
+      -- (semantic "cap is law"; default). Static OSM bit, see keyboard.vhd.
+      keyboard_mode_i         : in  std_logic;
+
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
       joy_1_down_n_i          : in  std_logic;
@@ -628,6 +632,7 @@ begin
 
          kb_key_num_i       => kb_key_num_i,
          kb_key_pressed_n_i => kb_key_pressed_n_i,
+         keyboard_mode_i    => keyboard_mode_i,
 
          kbd_mouse_data_o   => kbd_mouse_data,
          kbd_mouse_type_o   => kbd_mouse_type,

@@ -171,9 +171,9 @@ just as the MEGA65 caps show:
 | <kbd>F1</kbd> … <kbd>F9</kbd> (odd) | F1, F3, F5, F7, F9 |
 | <kbd>Shift</kbd>+<kbd>F1</kbd> … | F2, F4, F6, F8, F10 |
 
-The three MEGA65 keys past the Amiga's range — <kbd>F11</kbd> and <kbd>F13</kbd> —
-send nothing to the Amiga by default. That makes them handy for a job of their
-own: opening the AExp menu (see below).
+The MEGA65 keys past the Amiga's range — <kbd>F11</kbd> and <kbd>F13</kbd> — send
+nothing to the Amiga by default. That makes them handy for a job of their own:
+opening the AExp menu (see below).
 
 ### Amiga keys with no MEGA65 twin
 
@@ -193,8 +193,8 @@ familiar choice and it stays the default.
 
 But on the Amiga, <kbd>Help</kbd> is a *real* key that Amiga software uses. If
 you would rather send <kbd>Help</kbd> to the Amiga and open the menu another way,
-AExp lets you choose. In the on-screen menu, under **Keyboard**, the
-**menu-key** selector offers:
+AExp lets you choose. In the on-screen menu, under **Keyboard**, open the
+**`OSM:`** submenu ("key to open the menu") and pick one of:
 
 | Menu opens with          | Notes                                                         |
 |--------------------------|--------------------------------------------------------------|

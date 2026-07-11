@@ -163,7 +163,19 @@ hold <kbd>Run/Stop</kbd> whenever you would right-click.
 
 ### Keyboard
 
-The most important mappings:
+The MEGA65 keyboard drives the Amiga, and you choose **how**. Two mapping
+modes are available in the menu's **Keyboard** section:
+
+* **MEGA65 mode** (default) — *the cap is law*: you get exactly the character
+  printed on the MEGA65 keycap, including the front-face symbols typed with
+  <kbd>MEGA</kbd> (so `{` is <kbd>MEGA</kbd>+<kbd>:</kbd>, `~` is
+  <kbd>MEGA</kbd>+<kbd>,</kbd>, and so on). Best if the MEGA65 is the keyboard
+  you know.
+* **Amiga mode** — *positional*: each key sends the Amiga key in the same
+  place on a real Amiga keyboard, so the shifted number row and a few
+  punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory.
+
+The most important keys, the same in both modes:
 
 | MEGA65                                                | Amiga                                    |
 |-------------------------------------------------------|------------------------------------------|
@@ -173,11 +185,16 @@ The most important mappings:
 | <kbd>Run/Stop</kbd>                                   | Right mouse button (hold)                |
 | <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9      |
 | <kbd>Shift</kbd> + F-key                              | F2, F4, F6, F8, F10 (as printed on the MEGA65 keycaps) |
-| <kbd>Help</kbd>                                       | Opens and closes the core's menu         |
+| <kbd>Help</kbd>                                       | Opens and closes the core's menu (changeable) |
 
-<kbd>Esc</kbd>, <kbd>Tab</kbd> and <kbd>Caps Lock</kbd> work as expected.
-Amiga keys that have no MEGA65 counterpart (for example the right Alt key
-and most of the numeric keypad) cannot be typed at the moment.
+<kbd>Esc</kbd>, <kbd>Tab</kbd> and <kbd>Caps Lock</kbd> work as expected. By
+default <kbd>Help</kbd> opens the menu, but you can reassign it — to
+<kbd>F11</kbd>, <kbd>F13</kbd> or <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd> — in the
+Keyboard menu, which frees <kbd>Help</kbd> for the Amiga.
+
+**The full keyboard guide — how to type every Amiga symbol, both modes side by
+side, and steering the mouse from the keyboard — is in
+[doc/keyboard.md](doc/keyboard.md).**
 
 ### Video: HDMI
 
