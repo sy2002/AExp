@@ -109,15 +109,16 @@ So what works depends on what you plug in:
 | Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                |
 | Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                |
 | Faithful Tank Mouse replica that *actively drives* the line         | Yes                | Yes                                |
-| mouSTer in Amiga-mouse mode                                         | Yes                | <kbd>Run/Stop</kbd> key (see note) |
+| mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                             |
 | Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)         |
 | Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)         |
 
-Note on the mouSTer: it emulates a real tank mouse so faithfully that it
-inherits the exact same limitation. A future mouSTer firmware option, or a
-tiny adapter with a built-in pull-up resistor, could make its right button
-work natively. I opened an issue in the mouSTer GitHub repo, you might want
-to "like" it to motivate the maintainer to implement the feature: https://github.com/willyvmm/mouSTer/issues/53
+(*) Note on the mouSTer: it emulates a real tank mouse so faithfully that it
+inherits the exact same limitation. Therefore you need to download firmware version
+`3.23.5313` or newer, for example [here](https://github.com/user-attachments/files/29939061/mouSTer.fw.3.23.5313.zip).
+With new firmware, mouSTer supports a new setting in the `[mouse]` section: `activeplotlines=true`.
+With that, you can use the right button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
+Here is an example of a known-to-work [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
 **A simple DIY adapter makes the right button work**, even with an original
 tank mouse or a mouSTer. The only missing piece is the pull-up that a real
