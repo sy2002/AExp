@@ -15,3 +15,4 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V1-A4     | 07/05/26 | 2dece73 | Writable ADF floppy support (issue #1)
 | WIP-V1-A5     | 07/08/26 | 04f231b | HDMI and VGA screen adjustment (per Amiga screen mode) via config file and Python tool (issue #5). Added battery-backed real-time clock (issue #13). Removed Non-PAL screen modes.
 | WIP-V1-A6     | 07/10/26 | 0f037b9 | HDMI flicker-free (issue #12). Battery-buffered clock (issue #13). Improved keyboard signal faithfulness on CIA-level. Added two official aexp_screen.cfg files with great known-to-work default values. Unmount ADFs by pressing SPACE (issue #16). Fixed F-key issues (#9 and #10).
+| WIP-V1-A7     | 07/12/26 | 3963a84 | Configurable keyboard mapping (issue #6). OSM invocation via another key than "Help" (issue #8). Make "Load Screen Config" less confusing (issue #19).
