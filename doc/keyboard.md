@@ -1,4 +1,4 @@
-# Keyboard and mouse shortcuts
+# AExp Keyboard & Mouse
 
 AExp offers two keyboard mappings. Select **MEGA65** or **Amiga** in the
 on-screen menu under **Keyboard**. You can change modes while software is
