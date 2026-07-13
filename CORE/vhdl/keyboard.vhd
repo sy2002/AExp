@@ -60,25 +60,49 @@
 --                           layout); Shift passes through 1:1 (so Shift+2 = '@' etc., the Amiga-native
 --                           symbols). No semantic remap, no MEGA-symbol layer, MEGA = Left-Amiga.
 --
--- The Shift+F1..F9 -> F2..F10 substitution and every mode-independent behaviour (warm boot, RMB
--- substitute, Caps-Lock, pacing) stay active in BOTH modes.
+-- Mode-independent behaviour (warm boot, the right-mouse-button substitute, keyboard pacing) stays
+-- active in BOTH modes. The Shift+F1..F9 -> F2..F10 substitution is MEGA65-mode-only now: Amiga mode
+-- gives every Amiga F-key (F1..F10) its own MEGA65 key via the top-row remap below, so it needs no
+-- Shift trick. The right-mouse-button substitute uses a different source key per mode (see its note).
 --
--- Amiga-mode positional keymap (C_KEYMAP_AMIGA) - it differs from the MEGA65-mode base keymap
--- (C_KEYMAP_MEGA65) in exactly eight cells (0, 40, 43, 49, 51, 53, 54, 75):
---   #  MEGA65 key      Amiga key (code)           MEGA65-mode base (for reference)
---   -- --------------- -------------------------- ----------------------------------
---    0 INS/DEL         Del          ($46)         Backspace ($41)
---   40 + (plus)        - _  ($0B, Amiga '-' key)  Keypad +  ($5E)
---   43 - (minus)       = +  ($0C, Amiga '=' key)  -         ($0B)
---   49 * (asterisk)    ] }  ($1B, Amiga ']' key)  Keypad *  ($5D)
---   51 CLR/HOME        Backspace    ($41)         Del       ($46)
---   53 = (equal)       Right Amiga  ($67)         =         ($0C)
---   54 ARROW UP (sym)  - unmapped - (no Amiga key) ] }      ($1B)
---   75 RESTORE         Right Alt    ($65)         Right Amiga ($67)
--- All other cells are shared: digits $01..$0A, letters (Q-row $10.., A-row $20.., Z-row $31..),
--- Return $44, Space $40, cursor keys $4C..$4F, TAB $42, ESC $45, HELP $5F, CTRL $63, ALT $64,
--- L/R Shift $60/$61, Caps Lock $62, MEGA=Left Amiga $66, the ,./ cluster $38/$39/$3A, the
--- : ; @ cluster $29/$2A/$1A, GBP=\ $0D, F1..F9 $50..$58 (F11/F13 unmapped, see issue #9).
+-- Amiga-mode positional keymap (C_KEYMAP_AMIGA) - each MEGA65 key sends the raw Amiga keycode of the
+-- key in the geometrically-corresponding slot of deft's "custom caps" A600 layout. Two groups differ
+-- from the MEGA65-mode base keymap (C_KEYMAP_MEGA65):
+--
+--   (a) THE TOP FUNCTION-KEY ROW maps positionally onto the Amiga's Esc + F1..F10 row. The MEGA65 row
+--       is longer (five extra keys left of F1), so those extras fill in Esc/F1..F4 and the printed
+--       F-keys slide right by two:
+--         MEGA65 : RUN/STOP  ESC  ALT  CAPSLOCK  NOSCRL | F1  F3  F5  F7  F9  F11 | ... HELP  F13
+--         Amiga  : Esc       F1   F2   F3        F4     | F5  F6  F7  F8  F9  F10 | ... Help  L.Alt
+--       so RUN/STOP=Esc $45, ESC=F1 $50, ALT=F2 $51, CAPSLOCK=F3 $52, NOSCRL=F4 $53, F1=F5 $54,
+--       F3=F6 $55, F5=F7 $56, F7=F8 $57, F9=F9 $58, F11=F10 $59, HELP=Help $5F, F13=Left Alt $64.
+--       CAPS LOCK -> F3 is taken from the CPLD's MOMENTARY caps key (matrix 78, m65_capslock_mom) so
+--       F3 is a normal momentary key; the latched caps LEVEL (key 72) is left unmapped in this mode.
+--
+--   (b) THE PUNCTUATION / MODIFIER cells that follow the Amiga's own labelling rather than the MEGA65's:
+--         #  MEGA65 key      Amiga key (code)           MEGA65-mode base (for reference)
+--          0 INS/DEL         Del          ($46)         Backspace ($41)
+--         40 + (plus)        - _  ($0B, Amiga '-' key)  Keypad +  ($5E)
+--         43 - (minus)       = +  ($0C, Amiga '=' key)  -         ($0B)
+--         49 * (asterisk)    ] }  ($1B, Amiga ']' key)  Keypad *  ($5D)
+--         51 CLR/HOME        Backspace    ($41)         Del       ($46)
+--         53 = (equal)       Right Amiga  ($67)         =         ($0C)
+--         54 ARROW UP (sym)  - unmapped - (right mouse) ] }      ($1B)
+--         75 RESTORE         Right Alt    ($65)         Right Amiga ($67)
+--
+-- All other cells are shared with C_KEYMAP_MEGA65: digits $01..$0A, letters (Q-row $10.., A-row
+-- $20.., Z-row $31..), Return $44, Space $40, cursor keys $4C..$4F, TAB $42, CTRL $63, L/R Shift
+-- $60/$61, MEGA=Left Amiga $66, the ,./ cluster $38/$39/$3A, the : ; @ cluster $29/$2A/$1A, GBP=\ $0D.
+--
+-- Two Amiga functions have NO home in Amiga mode, both from MEGA65 keyboard-hardware limits (not a
+-- choice - see the deep notes in doc/keyboard.md):
+--   * Amiga CAPS LOCK ($62): the top-row CAPS LOCK key is F3 here, and the home-row SHIFT LOCK key -
+--     which sits exactly where the Amiga's Caps Lock is - is merged by the keyboard CPLD with the
+--     Z-row LEFT SHIFT into ONE matrix key (15); the raw shift-lock is never transmitted, so it cannot
+--     drive Caps Lock without also turning LEFT SHIFT into Caps Lock. Engaging SHIFT LOCK therefore
+--     just holds Amiga Left Shift (a shift-lock). Amiga Caps Lock stays reachable in MEGA65 mode.
+--   * F11/F13 leak an Amiga keycode here (F10 / Left Alt), so - unlike MEGA65 mode - they are no
+--     longer "clean" OSM-open keys; opening the menu with one also sends its keycode (accepted).
 --
 -- MEGA65-mode SEMANTIC resolution (function resolve() below) - the cap character per legend:
 --   symbol keys (all three legends):
@@ -143,13 +167,15 @@
 --   pressing another that forces it down - are not real typing; they resolve serially and self-heal
 --   when the conflicting key is released, delaying only that one key, never freezing the keyboard.)
 --
--- SHIFTED F-KEYS (F1/F3/F5/F7/F9 + Shift -> F2/F4/F6/F8/F10, both modes): unified into the engine
+-- SHIFTED F-KEYS (F1/F3/F5/F7/F9 + Shift -> F2/F4/F6/F8/F10, MEGA65 MODE ONLY): unified into the engine
 -- above. Shift+F1 resolves to code $51 (base+1) with f0='1' (the Amiga must not see Shift together
 -- with the substituted F-key). The Shift is retracted before the F2 make and re-made after the F2
 -- break iff still physically held - all reliably delivered by the handshake, so raw CIA readers see
 -- clean isolated make/break pairs with no stuck F-key and no hanging Shift. Shift+F2 (etc.) cannot
 -- be typed (the Shift is consumed by the substitution); the Shift must lead the F-key by at least one
--- scan sweep (~1 ms); F11/F13 are unmapped (issue #9; Amiga F10 = Shift+F9).
+-- scan sweep (~1 ms); F11/F13 are unmapped in MEGA65 mode (Amiga F10 = Shift+F9). In AMIGA mode this
+-- whole substitution is SKIPPED: the top-row remap gives every F-key its own MEGA65 key (F11=F10,
+-- F13=Left Alt), so Shift passes straight through the F-keys there.
 --
 -- WARM BOOT (July 2026): Ctrl+LAmiga+RAmiga = CTRL+MEGA+RESTORE is detected here by MIRROR state and
 -- pulses core_reset_o (one shot; re-armed only after the combo has been released for several scan
@@ -159,20 +185,28 @@
 -- Keys still held after the boot are re-delivered as plain make codes once the 100 ms holdoff
 -- expires; Kickstart ignores them.
 --
--- RIGHT MOUSE BUTTON substitute (July 2026): holding RUN/STOP (key 63, which has no Amiga keycode) is
--- exported as a level on mouse_rmb_o; main.vhd ORs it into Minimig's mouse_btn(1). On a real Amiga the
--- mouse right button shorts DB9 pin 9 (POTX) to GND while PAULA drives the pot lines high - the
--- MEGA65's paddle circuit can only drain the line, so a GND-shorting button is electrically invisible
--- to it (verified with two Amiga tank mice on real R3 hardware, 2026-07-03). RUN/STOP events never
--- reach the Amiga (mirror-only), so the substitute cannot interfere with the keycode stream.
+-- RIGHT MOUSE BUTTON substitute (July 2026): a held key is exported as a level on mouse_rmb_o; main.vhd
+-- ORs it into Minimig's mouse_btn(1). The SOURCE key is mode-dependent: RUN/STOP (key 63) in MEGA65
+-- mode, but the ARROW-UP symbol key (key 54, left of RESTORE) in Amiga mode - where RUN/STOP is
+-- repurposed as Esc. In each mode the chosen key has no Amiga keycode (mirror-only), so the substitute
+-- cannot interfere with the keycode stream. On a real Amiga the mouse right button shorts DB9 pin 9
+-- (POTX) to GND while PAULA drives the pot lines high - the MEGA65's paddle circuit can only drain the
+-- line, so a GND-shorting button is electrically invisible to it (verified with two Amiga tank mice on
+-- real R3 hardware, 2026-07-03).
 --
 -- Known limitations (by design): Amiga keys with no MEGA65 counterpart cannot be typed (in MEGA65
 -- mode: Right Alt, the numeric pad except the borrowed '+'/'*', the international keys $2B/$30).
 --
--- CAPS LOCK: A real Amiga keyboard sends a single make $62 when the lock turns ON and a single break
--- $E2 when it turns OFF - nothing while held. The MEGA65 keyboard controller reports the LOCK STATE
--- (not the momentary key state) on key number 72, so the generic edge-to-make/break translation of
--- this module reproduces that behaviour exactly. No special casing needed.
+-- CAPS LOCK: the MEGA65 keyboard CPLD exposes this key TWO ways - a LATCHED lock LEVEL at key 72
+-- (m65_capslock) and a RAW MOMENTARY press at key 78 (m65_capslock_mom). In MEGA65 mode key 72 -> Amiga
+-- Caps Lock $62: a real Amiga keyboard sends a single make $62 when the lock turns ON and a single break
+-- $E2 when it turns OFF - nothing while held, and the CPLD's latched level reproduces that exactly
+-- through the generic edge-to-make/break translation (no special casing). In Amiga mode key 72 is
+-- unused and key 78 -> F3, so F3 is an ordinary momentary key (press = make, release = break).
+-- NOTE: the keycap's lock latch AND its LED are owned by the keyboard CPLD (LED_CAPS <= caps_lock,
+-- with no path from the main-FPGA serial stream - it carries only the 4 RGB power/drive LEDs), so
+-- pressing CAPS LOCK for F3 still flips the LED on/off. The core cannot suppress it: it is a keyboard-
+-- CPLD-firmware limit, unreachable by the core or by any M2M change.
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
@@ -295,6 +329,14 @@ constant m65_capslock      : integer := 72;
 constant m65_up_crsr       : integer := 73;  -- cursor up
 constant m65_left_crsr     : integer := 74;  -- cursor left
 constant m65_restore       : integer := 75;
+-- The MEGA65 keyboard CPLD exposes the CAPS LOCK key TWICE in the scan matrix: as the LATCHED
+-- lock LEVEL at key 72 (m65_capslock - flips per press and holds; this is what drives the keycap
+-- LED, which the keyboard CPLD owns and the core cannot suppress), and as the RAW MOMENTARY press
+-- at key 78 (SCAN_IN(0), asserted only while the key is physically down - the CPLD forwards it so
+-- the MEGA65 can gate its 40 MHz "turbo" on "caps held"). Amiga mode drives F3 from the MOMENTARY
+-- one, so the top-row CAPS LOCK key behaves like an ordinary function key (press = make, release =
+-- break) independently of the lock latch. Both matrix bits ride the standard 0..79 scan into m2m_keyb.
+constant m65_capslock_mom  : integer := 78;
 
 -- Marker for MEGA65 keys that have no Amiga counterpart. All valid raw Amiga keycodes are
 -- <= $67, i.e. bit 7 of a valid table entry is always 0 and bits 6:0 carry the keycode.
@@ -304,9 +346,12 @@ constant C_NO_KEY : std_logic_vector(7 downto 0) := x"FF";
 --   C_KEYMAP_MEGA65 : the base for MEGA65 (semantic) mode. The symbol keys and the five differing
 --                     number-row keys are OVERRIDDEN by resolve() below (their entries here are the
 --                     positional fallbacks and are only reached for keys resolve() does not special-
---                     case). F1..F9 base codes ($50..$58) are read from here for both modes.
---   C_KEYMAP_AMIGA  : the pure positional (Amiga) mode, = C_KEYMAP_MEGA65 with eight cells changed
---                     (0, 40, 43, 49, 51, 53, 54, 75; see the header).
+--                     case). F1..F9 base codes ($50..$58) are read from here for the MEGA65-mode
+--                     Shift+F substitution.
+--   C_KEYMAP_AMIGA  : the pure positional (Amiga) mode. It shares most cells with C_KEYMAP_MEGA65 but
+--                     remaps the whole top function-key row onto the Amiga's Esc + F1..F10 (plus the
+--                     punctuation/modifier cells listed in the header). Used verbatim (Shift passes
+--                     through 1:1); the Shift+F substitution does NOT apply in this mode.
 type t_keymap is array(0 to 79) of std_logic_vector(7 downto 0);
 
 constant C_KEYMAP_MEGA65 : t_keymap := (
@@ -388,22 +433,45 @@ constant C_KEYMAP_MEGA65 : t_keymap := (
 );
 
 constant C_KEYMAP_AMIGA : t_keymap := (
-   -- the eight cells that differ from C_KEYMAP_MEGA65 (positional "custom caps", see header)
+   -- === the MEGA65 top row maps POSITIONALLY onto the Amiga Esc + F1..F10 row ===
+   -- The MEGA65 function row is longer than the Amiga's (five extra keys sit to the left of F1),
+   -- so those extras fill in Esc/F1..F4 and the printed F-keys slide right by two:
+   --   MEGA65 : RUN/STOP  ESC  ALT  CAPSLOCK  NOSCRL | F1  F3  F5  F7  F9  F11 | ... HELP  F13
+   --   Amiga  : Esc       F1   F2   F3        F4     | F5  F6  F7  F8  F9  F10 | ... Help  L.Alt
+   m65_run_stop      => x"45",   -- Esc  (the right-mouse-button substitute moves to ARROW-UP, below)
+   m65_esc           => x"50",   -- F1
+   m65_alt           => x"51",   -- F2
+   m65_capslock_mom  => x"52",   -- F3   (the top-row CAPS LOCK key, taken from the CPLD's MOMENTARY
+                                 --        caps matrix key 78 so F3 is a normal momentary key; the
+                                 --        LATCHED level at key 72 is left unmapped below, see header)
+   m65_no_scrl       => x"53",   -- F4
+   m65_f1            => x"54",   -- F5
+   m65_f3            => x"55",   -- F6
+   m65_f5            => x"56",   -- F7
+   m65_f7            => x"57",   -- F8
+   m65_f9            => x"58",   -- F9
+   m65_f11           => x"59",   -- F10
+   m65_help          => x"5F",   -- Help
+   m65_f13           => x"64",   -- Left Alt
+
+   -- === positional punctuation / modifiers that differ from the MEGA65 base keymap ===
    m65_ins_del       => x"46",   -- Del
    m65_plus          => x"0B",   -- Amiga '-' key (- _)
    m65_minus         => x"0C",   -- Amiga '=' key (= +)
    m65_asterisk      => x"1B",   -- Amiga ']' key (] })
    m65_clr_home      => x"41",   -- Backspace
    m65_equal         => x"67",   -- Right Amiga
-   m65_arrow_up      => C_NO_KEY,-- no Amiga counterpart
+   m65_arrow_up      => C_NO_KEY,-- no Amiga keycode; used as the right-mouse-button substitute
    m65_restore       => x"65",   -- Right Alt (image "ALT")
-   -- all other cells are identical to C_KEYMAP_MEGA65
+   m65_capslock      => C_NO_KEY,-- the LATCHED caps LEVEL (key 72) is unused in Amiga mode; F3 comes
+                                 --   from the momentary caps key (m65_capslock_mom) above. The home-
+                                 --   row SHIFT LOCK cannot be Amiga Caps Lock: the CPLD merges it with
+                                 --   LEFT SHIFT into key 15, so Amiga Caps Lock is a MEGA65-mode-only
+                                 --   function here (via key 72). See the header.
+
+   -- === shared cells (identical to C_KEYMAP_MEGA65) ===
    m65_return        => x"44",
    m65_horz_crsr     => x"4E",
-   m65_f7            => x"56",
-   m65_f1            => x"50",
-   m65_f3            => x"52",
-   m65_f5            => x"54",
    m65_vert_crsr     => x"4D",
    m65_3             => x"03",
    m65_w             => x"11",
@@ -455,11 +523,6 @@ constant C_KEYMAP_AMIGA : t_keymap := (
    m65_mega          => x"66",   -- Left Amiga
    m65_q             => x"10",
    m65_tab           => x"42",
-   m65_alt           => x"64",   -- Left Alt
-   m65_help          => x"5F",
-   m65_f9            => x"58",
-   m65_esc           => x"45",
-   m65_capslock      => x"62",
    m65_up_crsr       => x"4C",
    m65_left_crsr     => x"4F",
    others            => C_NO_KEY
@@ -495,8 +558,22 @@ begin
    r.f0     := '0';
    r.is_sym := '0';
 
-   -- Shifted-F substitution applies in BOTH modes: Shift+F1/F3/F5/F7/F9 -> F2/F4/F6/F8/F10 = base+1,
-   -- with the Amiga Shift dropped (f0). The base codes are identical in both keymaps.
+   -- Amiga mode: PURE positional, Shift passes through 1:1. In this mode the whole MEGA65 top row
+   -- (RUN/STOP, ESC, ALT, CAPS LOCK, NO SCROLL, F1, F3, F5, F7, F9, F11) maps directly onto the
+   -- Amiga's Esc + F1..F10, so EVERY Amiga F-key has its own MEGA65 key. The Shift+F substitution
+   -- below is therefore NOT applied here - it is a MEGA65-mode-only trick for reaching the even
+   -- F-keys (F2/F4/F6/F8/F10) that MEGA65 mode has no dedicated cap for.
+   if amiga_mode = '1' then
+      base := C_KEYMAP_AMIGA(key);
+      if base /= C_NO_KEY then
+         r.valid := '1';
+         r.code  := base(6 downto 0);
+      end if;
+      return r;
+   end if;
+
+   -- MEGA65 mode only: Shift+F1/F3/F5/F7/F9 -> F2/F4/F6/F8/F10 = base+1, with the Amiga Shift
+   -- dropped (f0). The base codes are read from the MEGA65 keymap.
    if f_shiftable_fkey(key) then
       base    := C_KEYMAP_MEGA65(key);
       r.valid := '1';
@@ -505,16 +582,6 @@ begin
          r.f0   := '1';                       -- the Amiga must not see Shift with the substituted F-key
       else
          r.code := base(6 downto 0);
-      end if;
-      return r;
-   end if;
-
-   -- Amiga mode: pure positional, Shift passes through 1:1.
-   if amiga_mode = '1' then
-      base := C_KEYMAP_AMIGA(key);
-      if base /= C_NO_KEY then
-         r.valid := '1';
-         r.code  := base(6 downto 0);
       end if;
       return r;
    end if;
@@ -731,8 +798,12 @@ begin
    core_reset_o      <= core_reset;
 
    -- right mouse button substitute: level straight from the key mirror (registered there);
-   -- reset_i clears the mirror, so the button reads released during/after reset
-   mouse_rmb_o       <= not key_pressed_n(m65_run_stop);
+   -- reset_i clears the mirror, so the button reads released during/after reset.
+   -- The source key is mode-dependent: RUN/STOP in MEGA65 mode, but the ARROW-UP symbol key (left
+   -- of RESTORE) in Amiga mode, where RUN/STOP is repurposed as Esc. Both source keys are mirror-only
+   -- (C_NO_KEY = no Amiga keycode) in their own mode, so the button never disturbs the keycode stream.
+   mouse_rmb_o       <= (not key_pressed_n(m65_run_stop)) when keyboard_mode_i = '0'
+                        else (not key_pressed_n(m65_arrow_up));
 
    keyboard_events : process(clk_main_i)
       variable v_amiga_mode  : std_logic;

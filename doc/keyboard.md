@@ -66,6 +66,10 @@ Amiga A600. A couple of its keys are *functions*, not letters — notably
 deletes to the left. The "←" printed on that reference cap is the Backspace
 symbol, not a character you can print.
 
+The function-key row, the modifier keys, the right mouse button and Caps/Shift
+Lock all work differently in this mode — see **Amiga mode in detail**, below, for
+the full picture.
+
 > **The Amiga's keymap has the final say — including on the pound sign.** AExp
 > only sends the Amiga raw key codes; which *character* each one becomes is chosen
 > by the keymap the Amiga has loaded. Out of the box that is the **US keymap**
@@ -164,20 +168,98 @@ natural Amiga meaning:
 
 ---
 
-## The special keys (both modes)
+## Amiga mode in detail
 
-These behave the same whichever mapping mode you choose.
+In **Amiga mode** the mapping is positional: every key stands where the same key
+stands on a real Amiga, following deft's "custom caps" A600 layout. Most of the
+keyboard is identical to MEGA65 mode — the visible differences are the shifted
+number row, the `: ; @` punctuation (which follow the Amiga's labels), and the
+special keys below.
+
+### The function-key row
+
+The MEGA65's top row is longer than the Amiga's, so it maps across positionally:
+the five keys to the left of <kbd>F1</kbd> fill in the Amiga's <kbd>Esc</kbd> and
+<kbd>F1</kbd>–<kbd>F4</kbd>, and the printed F-keys slide right by two.
+
+| MEGA65 key            | Amiga key |
+|-----------------------|-----------|
+| <kbd>Run/Stop</kbd>   | **Esc**   |
+| <kbd>Esc</kbd>        | F1        |
+| <kbd>Alt</kbd>        | F2        |
+| <kbd>Caps Lock</kbd>  | F3        |
+| <kbd>No Scroll</kbd>  | F4        |
+| <kbd>F1</kbd>         | F5        |
+| <kbd>F3</kbd>         | F6        |
+| <kbd>F5</kbd>         | F7        |
+| <kbd>F7</kbd>         | F8        |
+| <kbd>F9</kbd>         | F9        |
+| <kbd>F11</kbd>        | F10       |
+| <kbd>Help</kbd>       | Help      |
+| <kbd>F13</kbd>        | Left Alt  |
+
+All ten Amiga function keys are directly reachable, so — unlike MEGA65 mode — you
+do **not** use <kbd>Shift</kbd>+F-key for the even ones.
+
+### The modifier keys
+
+All four Amiga modifier keys are reachable in Amiga mode:
+
+| MEGA65 key         | Amiga key   |
+|--------------------|-------------|
+| <kbd>MEGA</kbd>    | Left Amiga  |
+| <kbd>=</kbd>       | Right Amiga |
+| <kbd>F13</kbd>     | Left Alt    |
+| <kbd>RESTORE</kbd> | Right Alt   |
+
+### Right mouse button, Caps Lock and Shift Lock
+
+Three keys behave specially in Amiga mode, and it is worth knowing why:
+
+* **The right mouse button moves to the <kbd>&uarr;</kbd> key** — the up-arrow
+  *symbol* key just left of <kbd>RESTORE</kbd> (not a cursor key). Hold it to
+  right-click. It has to move because <kbd>Run/Stop</kbd>, which is the right
+  button in MEGA65 mode, is now the Amiga's <kbd>Esc</kbd>.
+* **<kbd>Caps Lock</kbd> is F3**, and it acts as a normal momentary key — press
+  and release, like any function key. Its keycap LED will still blink on and off
+  as you press it; that LED is wired to the keyboard's own controller and cannot
+  be switched off by the core. It is purely cosmetic and does nothing on the
+  Amiga.
+* **<kbd>Shift Lock</kbd> gives you a shift-lock** — it holds the Amiga's Left
+  Shift down until you release it. It sits where the Amiga's Caps Lock is, and
+  for typing capital letters it does the same job; the only difference is that it
+  also shifts the number row. A *true* Amiga Caps Lock (letters only) is not
+  separately available in Amiga mode, because the MEGA65 keyboard wires Shift Lock
+  and the left <kbd>Shift</kbd> together as a single key. If you want the Amiga's
+  own Caps Lock, use **MEGA65 mode**, where the top-row <kbd>Caps Lock</kbd> is
+  exactly that.
+
+> **Opening the menu in Amiga mode.** <kbd>F11</kbd> and <kbd>F13</kbd> now send
+> Amiga keys too (F10 and Left Alt), so if you use one of them to open the menu it
+> also reaches the Amiga. That is usually harmless, but if you want a menu key
+> that never touches the Amiga, stay on <kbd>Help</kbd> — or switch to MEGA65
+> mode, where <kbd>F11</kbd>/<kbd>F13</kbd> stay "clean".
+
+---
+
+## The special keys
+
+Unless noted, these behave the same in both modes. The keys that **differ in
+Amiga mode** — the top-row function keys, <kbd>Run/Stop</kbd>, <kbd>RESTORE</kbd>
+and the right-mouse-button key — are covered in *Amiga mode in detail*, above.
 
 | MEGA65 key                                            | Amiga function                          |
 |-------------------------------------------------------|-----------------------------------------|
 | <kbd>MEGA</kbd>                                       | **Left Amiga** key                      |
-| <kbd>RESTORE</kbd>                                    | **Right Amiga** key                     |
-| <kbd>Run/Stop</kbd>                                   | **Right mouse button** (hold it)        |
 | <kbd>Ctrl</kbd>+<kbd>MEGA</kbd>+<kbd>RESTORE</kbd>    | **Reset** (Ctrl+Left-Amiga+Right-Amiga) |
-| <kbd>Esc</kbd> <kbd>Tab</kbd> <kbd>Caps Lock</kbd>    | Esc, Tab, Caps Lock (as expected)       |
 | <kbd>Ctrl</kbd>                                       | Ctrl                                     |
-| <kbd>Alt</kbd>                                        | Left Alt                                 |
+| <kbd>Tab</kbd>                                        | Tab                                     |
 | Cursor keys                                           | Cursor keys                             |
+| <kbd>RESTORE</kbd>                                    | Right Amiga · *Amiga mode:* Right Alt   |
+| <kbd>Run/Stop</kbd>                                   | Right mouse button (hold) · *Amiga mode:* Esc |
+| <kbd>Esc</kbd>                                        | Esc · *Amiga mode:* F1                  |
+| <kbd>Caps Lock</kbd>                                  | Caps Lock · *Amiga mode:* F3            |
+| <kbd>Alt</kbd>                                        | Left Alt · *Amiga mode:* F2             |
 
 The famous Amiga three-finger salute — the warm reboot — is
 <kbd>Ctrl</kbd>+<kbd>MEGA</kbd>+<kbd>RESTORE</kbd> here, which is exactly the
@@ -185,9 +267,9 @@ Amiga's <kbd>Ctrl</kbd>+<kbd>Left&nbsp;Amiga</kbd>+<kbd>Right&nbsp;Amiga</kbd>.
 
 ### Function keys
 
-A real Amiga has ten function keys, <kbd>F1</kbd> to <kbd>F10</kbd>. The MEGA65
-keyboard prints only the odd ones and gets the even ones with <kbd>Shift</kbd> —
-just as the MEGA65 caps show:
+A real Amiga has ten function keys, <kbd>F1</kbd> to <kbd>F10</kbd>. In **MEGA65
+mode** the keyboard prints only the odd ones and gets the even ones with
+<kbd>Shift</kbd> — just as the MEGA65 caps show:
 
 | You press                       | Amiga gets |
 |---------------------------------|:----------:|
@@ -195,16 +277,20 @@ just as the MEGA65 caps show:
 | <kbd>Shift</kbd>+<kbd>F1</kbd> … | F2, F4, F6, F8, F10 |
 
 The MEGA65 keys past the Amiga's range — <kbd>F11</kbd> and <kbd>F13</kbd> — send
-nothing to the Amiga by default. That makes them handy for a job of their own:
-opening the AExp menu (see below).
+nothing to the Amiga in MEGA65 mode. That makes them handy for a job of their
+own: opening the AExp menu (see below).
+
+In **Amiga mode** the F-keys work differently — all ten are on their own keys and
+you never need <kbd>Shift</kbd>. See the function-key table in *Amiga mode in
+detail*, above.
 
 ### Amiga keys with no MEGA65 twin
 
 The MEGA65 keyboard is a little shorter than an Amiga's on the right-hand side,
 and it has no numeric keypad. In **MEGA65 mode** those Amiga-only keys simply
 cannot be typed. In **Amiga mode** the mapping is positional, so all four Amiga
-modifier keys become reachable: <kbd>MEGA</kbd> = Left Amiga, <kbd>RESTORE</kbd> =
-Right Alt, <kbd>=</kbd> = Right Amiga, <kbd>Alt</kbd> = Left Alt.
+modifier keys become reachable: <kbd>MEGA</kbd> = Left Amiga, <kbd>=</kbd> = Right
+Amiga, <kbd>F13</kbd> = Left Alt, <kbd>RESTORE</kbd> = Right Alt.
 
 ---
 
@@ -255,14 +341,17 @@ machine).
 |-----------------------------|------------------------------------------------------------------------|
 | Move the pointer            | <kbd>MEGA</kbd> + <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> |
 | Move the pointer **faster** | <kbd>MEGA</kbd> + <kbd>Shift</kbd> + arrows                             |
-| **Left** mouse button       | <kbd>MEGA</kbd> + <kbd>Alt</kbd>                                        |
-| **Right** mouse button      | <kbd>Run/Stop</kbd>                                                     |
+| **Left** mouse button       | <kbd>MEGA</kbd> + <kbd>Alt</kbd> — *Amiga mode:* <kbd>MEGA</kbd> + <kbd>F13</kbd> |
+| **Right** mouse button      | <kbd>Run/Stop</kbd> — *Amiga mode:* <kbd>&uarr;</kbd> (the up-arrow symbol key) |
 
 <kbd>MEGA</kbd> is the Amiga's Left Amiga key and <kbd>Alt</kbd> is its Left Alt,
 so <kbd>MEGA</kbd>+<kbd>Alt</kbd> is exactly the Amiga's built-in "left click".
-The pointer keeps accelerating the longer you hold an arrow, so tap for fine
-positioning and hold to cross the screen. There is more about the mouse — and a
-simple DIY adapter for a real right mouse button — in [mouse.md](mouse.md).
+In **Amiga mode** the Left Alt key moves to <kbd>F13</kbd>, so the built-in left
+click is <kbd>MEGA</kbd>+<kbd>F13</kbd> there, and the right button is the
+<kbd>&uarr;</kbd> key (see *Amiga mode in detail*). The pointer keeps accelerating
+the longer you hold an arrow, so tap for fine positioning and hold to cross the
+screen. There is more about the mouse — and a simple DIY adapter for a real right
+mouse button — in [mouse.md](mouse.md).
 
 ---
 

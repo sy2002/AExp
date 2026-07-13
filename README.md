@@ -99,7 +99,9 @@ line, not drive it, so it cannot sense the right button of an original tank
 mouse. This is a hardware property, identical on every MEGA65 model from R3
 to R6. The built-in answer is always available: **hold the <kbd>Run/Stop</kbd>
 key** as a right mouse button (hold it while moving the mouse to open the
-Workbench menus).
+Workbench menus). In the positional **Amiga keyboard mode** this substitute
+moves to the <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), because
+there <kbd>Run/Stop</kbd> is the Amiga's <kbd>Esc</kbd>.
 
 So what works depends on what you plug in:
 
@@ -149,13 +151,15 @@ The MEGA65 keys map onto the Amiga's built-in combinations like this:
 |-----------------------------|------------------------------------------------------------------------|
 | Move the pointer            | <kbd>MEGA</kbd> + <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> |
 | Move the pointer **faster** | <kbd>MEGA</kbd> + <kbd>Shift</kbd> + <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&larr;</kbd> <kbd>&rarr;</kbd> |
-| **Left** mouse button       | <kbd>MEGA</kbd> + <kbd>Alt</kbd>                                        |
-| **Right** mouse button      | <kbd>Run/Stop</kbd>                                                     |
+| **Left** mouse button       | <kbd>MEGA</kbd> + <kbd>Alt</kbd> *(Amiga mode: <kbd>MEGA</kbd> + <kbd>F13</kbd>)* |
+| **Right** mouse button      | <kbd>Run/Stop</kbd> *(Amiga mode: <kbd>&uarr;</kbd> key)*               |
 
 <kbd>MEGA</kbd> is the Amiga's *left Amiga* key and <kbd>Alt</kbd> is its
 *left Alt*, so <kbd>MEGA</kbd> + <kbd>Alt</kbd> is exactly the Amiga's
-built-in "left click". The pointer keeps accelerating the longer you hold an
-arrow, so tap the keys for fine positioning and hold them to cross the screen.
+built-in "left click". (In the positional Amiga keyboard mode the *left Alt* key
+moves to <kbd>F13</kbd>, so use <kbd>MEGA</kbd> + <kbd>F13</kbd> there.) The
+pointer keeps accelerating the longer you hold an arrow, so tap the keys for fine
+positioning and hold them to cross the screen.
 
 On a real Amiga the **right** button is *Right Amiga + Right Alt*, but the
 MEGA65 keyboard has no Right Alt key. That is no problem here: as described
@@ -176,20 +180,27 @@ modes are available in the menu's **Keyboard** section:
   place on a real Amiga keyboard, so the shifted number row and a few
   punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory.
 
-The most important keys, the same in both modes:
+The most important keys (the meanings below are for the default MEGA65 mode;
+where Amiga mode differs it is noted in the right column):
 
 | MEGA65                                                | Amiga                                    |
 |-------------------------------------------------------|------------------------------------------|
 | <kbd>MEGA</kbd>                                       | Left Amiga                               |
-| <kbd>RESTORE</kbd>                                    | Right Amiga                              |
 | <kbd>CTRL</kbd> + <kbd>MEGA</kbd> + <kbd>RESTORE</kbd> | Ctrl + Left Amiga + Right Amiga (reset) |
-| <kbd>Run/Stop</kbd>                                   | Right mouse button (hold)                |
-| <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9      |
-| <kbd>Shift</kbd> + F-key                              | F2, F4, F6, F8, F10 (as printed on the MEGA65 keycaps) |
+| <kbd>RESTORE</kbd>                                    | Right Amiga · *Amiga mode:* Right Alt    |
+| <kbd>Run/Stop</kbd>                                   | Right mouse button, hold · *Amiga mode:* Esc |
+| <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9 *(MEGA65 mode)* |
+| <kbd>Shift</kbd> + F-key                              | F2, F4, F6, F8, F10 *(MEGA65 mode)*      |
 | <kbd>Help</kbd>                                       | Opens and closes the core's menu (changeable) |
 
-<kbd>Esc</kbd>, <kbd>Tab</kbd> and <kbd>Caps Lock</kbd> work as expected. By
-default <kbd>Help</kbd> opens the menu, but you can reassign it — to
+In the default **MEGA65 mode** <kbd>Esc</kbd>, <kbd>Tab</kbd> and
+<kbd>Caps Lock</kbd> work as expected. In **Amiga mode** the entire top row is
+positional — <kbd>Run/Stop</kbd> is Esc, <kbd>Esc</kbd> is F1, <kbd>Alt</kbd> is
+F2, <kbd>Caps Lock</kbd> is F3 … <kbd>F11</kbd> is F10 — the right mouse button
+moves to the <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), and
+<kbd>F13</kbd> becomes Left Alt. The full per-key breakdown is in the guide below.
+
+By default <kbd>Help</kbd> opens the menu, but you can reassign it — to
 <kbd>F11</kbd>, <kbd>F13</kbd> or <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd> — in the
 Keyboard menu, which frees <kbd>Help</kbd> for the Amiga.
 
