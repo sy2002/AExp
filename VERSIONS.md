@@ -21,6 +21,8 @@ offers convenient features.
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
+* Adjustable picture, per Amiga screen mode: HDMI crop plus analog
+  position (pan) and analog overscan, via a config file and helper tool
 * Battery-backed real-time clock
 
 As this is a "Version 1" there are many large and small features missing. Here

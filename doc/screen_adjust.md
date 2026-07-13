@@ -1,9 +1,9 @@
-# Getting a Nicely Centered Picture (HDMI & VGA)
+# Getting the Picture Right (HDMI & VGA)
 
 When you first run AExp — the Amiga 500 core for the MEGA65 — you may notice
-that the Amiga's picture is not perfectly centered on your screen. It might
-sit a little too far to one side, or an edge might be cut off by your TV or
-monitor.
+that the Amiga's picture is not perfectly placed on your screen. It might sit
+a little too far to one side, an edge might be cut off, or a demo might show
+strange-looking leftovers in the border.
 
 This is a well-known quirk of how the real Amiga produced its video signal.
 The good news: AExp gives you an easy, safe way to fix it, usually just by
@@ -24,9 +24,9 @@ so if you have centered a picture on MiSTer before, this will feel familiar.
 
 ---
 
-## Why the Amiga is tricky to center
+## Why the Amiga is tricky to place
 
-Two things work against a perfectly centered picture:
+Two things work against a perfectly placed picture:
 
 1. **The Amiga was generous and a little sloppy with its borders.** It drew a
    wide picture surrounded by a border, and different programs placed their
@@ -35,20 +35,37 @@ Two things work against a perfectly centered picture:
    Old TVs hid this because they overscanned (they cropped the edges anyway).
    A modern, pixel-exact display shows everything, including the wonkiness.
 
-2. **HDMI and VGA drift in opposite directions.** AExp can send its picture two
-   ways at once: as a modern **HDMI** signal to a TV or monitor, and as an
-   old-school **analog VGA** signal for retro monitors. These two paths process
-   the Amiga's timing differently, so they end up nudged the *opposite* way —
-   the HDMI picture tends to drift right, the VGA picture tends to drift left.
-   Because they misbehave in opposite directions, they each need their **own**
-   adjustment. One knob cannot fix both.
-
-That is the whole reason the adjustment file (below) has separate settings for
-HDMI and for VGA.
+2. **HDMI and VGA need different tools.** AExp can send its picture two ways
+   at once: as a modern **HDMI** signal to a TV or monitor, and as an
+   old-school **analog VGA** signal for retro monitors. These two paths work
+   completely differently, so each gets its **own** adjustment. One knob
+   cannot fix both.
 
 **Remember:** The core is not outputting a VGA signal at all. VGA is used here
 as a shortcut for "analog signal". We use this shortcut because the hardware
 connector looks like a VGA connector.
+
+---
+
+## The three controls
+
+AExp gives you three independent controls, each stored per Amiga screen mode:
+
+1. **HDMI crop** — picks a rectangle of the Amiga picture and scales it to
+   fill your HDMI screen. Moving an edge re-frames (and slightly zooms) the
+   HDMI picture. HDMI only.
+2. **Analog position** (`pan_x`, `pan_y`) — moves the **complete** analog
+   picture, on-screen menu included, left/right/up/down. Works in all three
+   VGA modes (Standard, 15 kHz HS/VS, 15 kHz CSYNC).
+3. **Analog overscan** (`os_l`, `os_r`, `os_t`, `os_b`) — hides or reveals
+   the Amiga's border edges on the analog output. Handy when a demo leaves
+   odd-looking material in the overscan area. It changes what is *visible*;
+   it does not move anything.
+
+One thing none of these controls do: **change the true size of the picture.**
+Position moves it, overscan trims it, HDMI crop re-frames it — but if the
+analog picture as a whole is too wide or too narrow for your monitor, that is
+what the monitor's own H-size/V-size controls are for.
 
 ---
 
@@ -86,10 +103,9 @@ Amiga can show a few different "screen modes" (see below), and both files
 carry the right settings for each mode, so AExp always applies the matching
 one for you. You do not have to do anything.
 
-One thing to know: these two presets center the **HDMI** picture and leave
-the **VGA** (analog) edges untouched. If you use the analog output and it
-sits off-center, tune it by hand as described under "Fine-tuning it
-yourself" below.
+One thing to know: these two presets adjust the **HDMI** picture and leave
+the **analog** output untouched. If you use the analog output and it sits
+off-center, tune it by hand as described below.
 
 ---
 
@@ -102,15 +118,15 @@ An OCS PAL Amiga displays one of these screen modes:
 * Lores interlaced
 * Hires interlaced
 
-Each mode can want a slightly different centering, so the file holds one row of
+Each mode can want slightly different values, so the file holds one row of
 settings per mode, and AExp picks the right row automatically.
 
 ---
 
 ## Fine-tuning it yourself (for the tinkerers)
 
-If your specific TV or monitor still trims an edge or sits slightly off, you can
-adjust the numbers to taste. AExp ships with a small helper program,
+If your specific TV or monitor still trims an edge or sits slightly off, you
+can adjust the numbers to taste. AExp ships with a small helper program,
 **`aexp_screen_cfg.py`**, that writes the settings file for you. You only need
 **Python 3** installed on your computer (Windows, macOS or Linux) — nothing else.
 
@@ -127,45 +143,26 @@ python3 aexp_screen_cfg.py
 ```
 
 It shows the current settings as a table and asks which mode row you want to
-edit. Pick a row, then nudge its numbers a little at a time. It looks like this:
+edit. Pick a row, and it walks you through the three groups — HDMI crop,
+analog position, analog overscan. Press Enter at a group prompt to skip that
+whole group, and Enter on any value to keep it as-is. When you are done, press
+Enter at the row prompt to **save** the file.
+
+Prefer one-liners? Everything works from the command line too:
 
 ```
-AExp screen centering -- per Amiga graphics mode, HDMI + VGA.
-
-  #  mode              HDMI  himin  himax  vimin  vimax   VGA  hbl_l  hbl_r  vbl_t  vbl_b
-  0  Lores                      +0     +0     +0     +0           +0     +0     +0     +0
-  1  Hires                      +0     +0     +0     +0           +0     +0     +0     +0
-  2  Lores interlaced           +0     +0     +0     +0           +0     +0     +0     +0
-  3  Hires interlaced           +0     +0     +0     +0           +0     +0     +0     +0
-
-  edit which row 0-3 (Enter = save & exit):
+python3 aexp_screen_cfg.py --mode lores --pan-x 8            # analog picture right
+python3 aexp_screen_cfg.py --mode all --pan-y -3             # analog picture up, all modes
+python3 aexp_screen_cfg.py --mode lores --himin 32           # trim HDMI left edge
+python3 aexp_screen_cfg.py --mode all --reset pan            # undo all analog panning
+python3 aexp_screen_cfg.py --mode lores-i --copy-from lores  # reuse tuned values
+python3 aexp_screen_cfg.py --list                            # show the current table
 ```
 
-Type a row number, and it walks you through the eight numbers for that mode —
-four for HDMI, then four for VGA. Press Enter on any value to keep it as-is.
-When you are done, press Enter at the row prompt to **save** the file.
+The tool prints, after every change, which way the picture will move — so you
+never have to memorize sign conventions.
 
-What the numbers do, in everyday language:
-
-- **HDMI numbers** (`himin`, `himax`, `vimin`, `vimax`) nudge the Amiga picture
-  **left / right / up / down** on your HDMI screen. Start with small steps; the
-  tool prints a reminder of which direction each one moves the picture.
-- **VGA numbers** (`hbl_l`, `hbl_r`, `vbl_t`, `vbl_b`) nudge the **left, right,
-  top and bottom** edges of the analog VGA picture. Because analog monitors vary
-  so much, the best approach is simply to change a value, look at the screen, and
-  repeat until it is centered.
-
-A value of `0` means "leave that edge exactly as it is." Setting everything back
-to `0` gives you the original, unchanged picture again.
-
-### How the numbers really work: HDMI and VGA are different animals
-
-The HDMI and VGA numbers do not just have different names — they drive two
-completely different mechanisms. Once you know which is which, tuning becomes
-predictable, and it explains a surprise: **on HDMI you can never truly slide
-(pan) the picture, while on VGA you can.**
-
-#### HDMI: pick a rectangle, then blow it up to fill the screen
+### HDMI crop: pick a rectangle, then blow it up to fill the screen
 
 The HDMI side runs through a digital scaler. It takes a rectangle out of the
 Amiga's picture and stretches that rectangle to fill your entire HDMI screen.
@@ -184,12 +181,12 @@ the left does nothing — there is nothing to the left of the Amiga's own pictur
 so it is ignored (it clamps to "full"). A positive `himax` is ignored for the
 same reason. On HDMI you always *trim inward*, never expand outward.
 
-The big consequence: **you cannot pan the picture on HDMI.** Whatever rectangle
-you choose is always blown up to fill the exact same screen, so every change does
-two things at once — it re-frames *and* zooms. To move the picture to the right
-you trim the right edge (`himax` negative); the part that remains is stretched to
-fill the screen, so the content shifts right, but it also becomes a little
-bigger. There is no "move without resizing."
+One consequence: **HDMI adjustment is a re-frame, not a pure slide.** Whatever
+rectangle you choose is always blown up to fill the same screen, so every
+change moves the content *and* zooms it a little. To move the picture right
+you trim the right edge (`himax` negative); the remaining part is stretched to
+fill the screen, so the content shifts right, but it also becomes slightly
+bigger. In practice this is exactly what you want for centering.
 
 Quick recipe:
 
@@ -204,64 +201,93 @@ Quick recipe:
 Because this all happens on the *source* side, one HDMI setting centers every
 HDMI resolution (16:9, 4:3, 5:4) at the same time.
 
-#### VGA: slide the picture around inside the monitor's own frame
+### Analog position: move the whole picture
 
-The VGA side is analog, and it works the other way round. Your monitor — not
-AExp — decides how big a pixel is, from its own timing and its size and position
-knobs. All AExp does is tell the monitor where the active picture starts and
-stops within each line and each frame (the "blanking"). Move those start and
-stop points and the picture slides around inside the frame the monitor is
-already drawing.
+`pan_x` and `pan_y` move the **complete analog picture** — Workbench, demo,
+border and the on-screen menu together — without touching its size or the
+HDMI output. Positive values move right and down, negative values left and up:
 
-Here **both signs are meaningful**, and each number moves one edge of the active
-window:
+- `pan_x` — one step is one hires pixel (half a lores pixel). The step size
+  is the same in Standard and in the 15 kHz modes.
+- `pan_y` — one step is one Amiga picture line.
 
-- `hbl_l` — the LEFT edge. A positive value moves it right; a negative value
-  moves it left.
-- `hbl_r` — the RIGHT edge. Positive extends it to the right; negative pulls it
-  in from the right.
-- `vbl_t` — the TOP edge. Positive moves it down; negative moves it up.
-- `vbl_b` — the BOTTOM edge. This one is special: `0` leaves the bottom at its
-  natural place, a **negative** value pulls the bottom up, and a positive value
-  is an unusual "absolute" mode you almost never want — so treat `vbl_b` as
-  **"0 or negative."**
+Under the hood, AExp shifts the timing of the sync pulses relative to the
+picture content — exactly what the H/V-position knobs of a monitor do,
+just from the core's side. Two honest consequences follow from that:
 
-The big consequence: **on VGA you can pan.** Move both horizontal edges the
-*same* way and the whole picture slides without changing size — `hbl_l` and
-`hbl_r` both positive slides it right, both negative slides it left. Move them in
-*opposite* directions and you widen or narrow the window instead. (On an analog
-monitor the exact width also depends on the monitor's own size control, so the
-"resize" half is a little fuzzy; the "slide" half is rock-solid.)
+- **CRTs and sync-locked monitors follow the pan exactly.** This includes
+  SCART/RGB setups on the 15 kHz CSYNC mode — the composite sync is generated
+  from the already-moved timing, so everything stays consistent.
+- **Some analog-input flat panels re-center themselves.** An LCD with
+  auto-position logic measures the incoming signal and may quietly undo part
+  or all of your pan, immediately or on its next "Auto" run. That is the
+  monitor being helpful, not a core bug. On such a display, use overscan
+  trimming (below) and the HDMI output for exact placement, or simply use the
+  monitor's own position controls.
 
-Quick recipe:
+Also good to know: the **same physical monitor may place two different cores
+differently.** The C64 core and AExp produce different analog timings, and a
+monitor may even store separate settings per timing. Do not expect one core's
+numbers to mean anything for another core.
 
-- Picture too far **left** (the usual VGA symptom) -> raise `hbl_l` and `hbl_r`
-  together.
-- Too far **right** -> lower both together (into negative).
-- Too **high** -> `vbl_t` negative.
-- Too **low** -> `vbl_t` positive.
-- Bottom edge overscanned -> `vbl_b` a little negative.
+**Safety and range.** The core never lets the pan push a sync pulse into the
+visible picture: requests are automatically limited to roughly an eighth of a
+line horizontally, and to whatever black border room your current settings
+leave around the sync. If the picture stops moving before it is where you
+want it, hide a little border on that side first (overscan, below) — that
+frees up more room and the pan limit grows with it. Vertical pan is limited
+to ±64 lines. Because of these built-in limits, a pan value cannot produce a
+broken or lost signal; the worst case is that the picture moves less than
+you asked for.
 
-One safety note: keep the vertical values modest. A *large* negative `vbl_t`
-(more than about 30 lines) can accidentally blank the whole VGA picture. If that
-ever happens, do not panic — set the value smaller (or delete the file) and
-reload. The HDMI output is independent, so the menu stays visible the whole time
-and you can always recover. (The tool warns you when a VGA value gets this large.)
+### Analog overscan: hide or reveal the border edges
 
-#### At a glance
+The four overscan values trim the visible area of the analog picture, edge by
+edge. This is the tool for demos or games that leave garbage-looking material
+in the border, and for displays that show more border than you would like:
 
-| Aspect | HDMI | VGA |
-|---|---|---|
-| What it does | picks a rectangle of the Amiga picture and zooms it to fill the screen | slides the active picture around inside the monitor's own frame |
-| Can it pan (slide without resizing)? | **No** — every change re-frames *and* zooms | **Yes** — move both edges the same way |
-| Left edge (`himin` / `hbl_l`) | `0` or positive (trims left) | either sign (positive = right, negative = left) |
-| Right edge (`himax` / `hbl_r`) | `0` or negative (trims right) | either sign (positive = right, negative = left) |
-| Top edge (`vimin` / `vbl_t`) | `0` or positive (trims top) | either sign (positive = down, negative = up) |
-| Bottom edge (`vimax` / `vbl_b`) | `0` or negative (trims bottom) | `0` or negative |
+- `os_l` — left edge: positive hides border on the left, negative reveals more.
+- `os_r` — right edge: **negative** hides border on the right, positive
+  reveals more.
+- `os_t` — top edge: positive hides lines at the top, negative reveals more.
+- `os_b` — bottom edge: **negative** hides lines at the bottom, `0` leaves it
+  untouched. (A positive value is a legacy "absolute line" mode you almost
+  never want.)
 
-Whichever output you are tuning, the method is the same: start from the shipped
-defaults, change one number by a small amount, save, reload, and look. Repeat
-until it is centered.
+Horizontal steps are quarter lores pixels; vertical steps are lines. Hidden
+areas simply turn black — overscan does **not** move the remaining picture
+(that is what position is for), and it does not resize anything. The on-screen
+menu keeps itself inside the remaining visible area, so it stays fully usable
+while you trim.
+
+If you used the "VGA offsets" of an earlier AExp release: these are the same
+four values, now with honest names. They always cropped the picture — they
+never panned it, despite what older documentation said. Use `pan_x`/`pan_y`
+for panning.
+
+### What about picture size?
+
+If, after positioning and trimming, the analog picture is still too wide,
+too narrow, too tall or too short *as a whole*, none of these controls will
+fix that — stretching the picture needs either your monitor's H/V-size
+controls or a scaler in the signal path. AExp deliberately keeps the native
+analog output scaler-free, because that is what makes the 15 kHz modes
+authentic for CRTs.
+
+### At a glance
+
+| Aspect | HDMI crop | Analog position | Analog overscan |
+|---|---|---|---|
+| What it does | picks a source rectangle and zooms it to fill the HDMI screen | moves the complete analog picture (menu included) | hides/reveals analog border edges |
+| Moves the picture? | re-frames it (plus slight zoom) | **yes** — a true slide | no |
+| Resizes anything? | slight zoom is inherent | no | no (trimmed areas turn black) |
+| Fields | `himin` `himax` `vimin` `vimax` | `pan_x` `pan_y` | `os_l` `os_r` `os_t` `os_b` |
+| Units | Amiga source pixels | hires pixels / lines | quarter lores pixels / lines |
+| Works on | HDMI only | all three VGA modes | all three VGA modes |
+| Display caveats | none | auto-positioning LCDs may cancel it; CRTs follow exactly | none |
+
+Whichever control you are tuning, the method is the same: change one number
+by a small amount, save, reload, and look. Repeat until it is right.
 
 ---
 
@@ -274,17 +300,35 @@ require rebooting or re-flashing the core:
 2. **Copy** `aexp_screen.cfg` into the **`/amiga`** folder on your SD card.
 3. On the MEGA65, open the core's **on-screen menu** (press the **Help** key)
    and choose **"Reload screen cfg"**.
-4. **Look** at the picture. Not centered yet? Go back to step 1 and nudge the
+4. **Look** at the picture. Not right yet? Go back to step 1 and nudge the
    numbers a bit more.
 
 Each reload takes about a second, and your changes appear immediately — no
-reboot needed.
+reboot needed. Position changes settle within a blink; you never get a torn
+or broken picture from a reload.
 
-> **If the VGA picture ever disappears (goes black):** you nudged a VGA value too
-> far. Don't worry — nothing is broken. Just set that value smaller (or delete
-> `aexp_screen.cfg` entirely) and reload again. The **HDMI output is completely
-> independent**, so the menu stays visible on HDMI the whole time, which makes it
-> easy to recover.
+> **If the analog picture ever disappears (goes black):** an overscan value is
+> hiding everything. Don't worry — nothing is broken. Set the overscan values
+> smaller (or delete `aexp_screen.cfg` entirely) and reload again. The **HDMI
+> output is completely independent**, so the menu stays visible on HDMI the
+> whole time, which makes it easy to recover. (Pan values cannot cause this —
+> they are limited in hardware.)
+
+---
+
+## File versions: v3 and v4
+
+Older AExp releases used a version-3 settings file (68 bytes, no position
+fields). The current format is version 4 (84 bytes: HDMI crop, analog
+overscan and analog position per mode).
+
+- The **core** reads both: a v3 file keeps working exactly as before, with
+  the analog position simply at zero.
+- The **tool** reads both and always saves v4. When it loads a v3 file it
+  keeps your HDMI and overscan values and tells you it upgraded the format.
+- Careful in the other direction: cores **older than WIP-V1-A9 ignore a v4
+  file completely** (you lose your HDMI centering there). If you still run an
+  older core, keep a copy of your old v3 file around until you upgrade.
 
 ---
 
@@ -294,8 +338,8 @@ The "edit a file, copy it over, reload" method described here is a **temporary
 solution for the alpha releases.** It works well and is completely safe, but it
 is admittedly a bit fiddly.
 
-A future release will most likely replace it with a far more convenient,
-**MiSTer-style** approach: you will nudge the picture **live** using the keyboard
-and watch it move on screen in real time, then simply save when it looks right —
-no separate tool, no copying files back and forth. Until then, the method in this
-guide gives you full control over how your Amiga picture looks on both outputs.
+A future release will most likely add a far more convenient, **MiSTer-style**
+approach on top: nudge the picture **live** with the keyboard, watch it move,
+and save when it looks right — no separate tool, no copying files back and
+forth. Until then, the method in this guide covers HDMI framing, analog
+position and analog overscan for every Amiga screen mode.

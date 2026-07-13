@@ -288,16 +288,19 @@ Careful: a regular VGA monitor shows **no picture at all** in the 15 kHz
 modes — including the on-screen-menu. If you locked yourself out, connect
 an HDMI display and switch back there; both outputs share the same menu.
 
-### Screen centering
+### Screen adjustment
 
-The Amiga's picture may not sit perfectly centered on your screen — an old
-quirk that every faithful Amiga recreation shares. AExp fixes it without
-re-flashing: drop a small `aexp_screen.cfg` file into `/amiga` and the core
-re-centers the picture, adjusting automatically for each Amiga screen mode.
-Two ready-made files ship with the core (one for 16:9 displays, one tuned
-like a 4:3 monitor); pick the one that looks best, or fine-tune your own with
-the included `aexp_screen_cfg.py` tool. HDMI and VGA are centered
-independently. The full guide is in
+The Amiga's picture may not sit perfectly on your screen — an old quirk that
+every faithful Amiga recreation shares. AExp fixes it without re-flashing:
+drop a small `aexp_screen.cfg` file into `/amiga` and the core adjusts the
+picture, automatically per Amiga screen mode. Three independent controls are
+available: **HDMI crop** re-frames the picture on HDMI; **analog position**
+moves the complete analog picture (menu included) left/right/up/down in all
+three VGA modes; **analog overscan** hides or reveals the Amiga border edges,
+which some demos fill with odd-looking material. Two ready-made files ship
+with the core (one for 16:9 displays, one tuned like a 4:3 monitor); pick the
+one that looks best, or fine-tune your own with the included
+`aexp_screen_cfg.py` tool. The full guide is in
 [doc/screen_adjust.md](doc/screen_adjust.md).
 
 ### Audio

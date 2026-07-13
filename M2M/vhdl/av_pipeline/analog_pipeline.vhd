@@ -47,6 +47,15 @@ entity analog_pipeline is
       -- (Hint : Scandoubler off does not automatically mean retro 15 kHz on.)
       video_retro15kHz_i      : in  std_logic;
 
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-13): analog picture position.
+      -- Signed pan in source-raster units (pan_x: two source clocks = one AExp
+      -- hires pixel, pan_y: one source line; positive = right/down), applied by
+      -- analog_positioner AFTER the OSM and BEFORE CSYNC generation, so core
+      -- content and OSM move together in all three analog modes. 0 = inert
+      -- combinational bypass, so cores that leave the defaults are unchanged.
+      video_pan_x_i           : in  std_logic_vector(11 downto 0) := (others => '0');
+      video_pan_y_i           : in  std_logic_vector(11 downto 0) := (others => '0');
+
       -- Video output (VGA)
       vga_red_o               : out std_logic_vector(7 downto 0);
       vga_green_o             : out std_logic_vector(7 downto 0);
@@ -91,7 +100,12 @@ architecture synthesis of analog_pipeline is
    signal vga_blue_ps        : std_logic_vector(7 downto 0);
    signal vga_hs_ps          : std_logic;
    signal vga_vs_ps          : std_logic;
+   signal vga_de_ps          : std_logic;
    signal vga_cs_ps          : std_logic;
+
+   -- M2M-UPSTREAM screen-center: positioned (panned) syncs, after the OSM
+   signal vga_hs_pos         : std_logic;
+   signal vga_vs_pos         : std_logic;
 
    component video_mixer is
       port (
@@ -202,14 +216,35 @@ begin
          vga_blue_o        => vga_blue_ps,
          vga_hs_o          => vga_hs_ps,
          vga_vs_o          => vga_vs_ps,
-         vga_de_o          => open
+         vga_de_o          => vga_de_ps
       ); -- i_video_overlay_video
 
+   -- M2M-UPSTREAM screen-center: pan the complete analog picture (core + OSM)
+   -- by re-timing the syncs relative to the final RGB stream. Placed after the
+   -- OSM and before CSYNC generation, so one instance covers Standard, 15 kHz
+   -- HS/VS and 15 kHz CSYNC. The DE input feeds the porch-derived safety
+   -- clamps; the scandoubler flag normalizes the pan units to the source
+   -- raster. Zero pan = combinational bypass.
+   i_analog_positioner : entity work.analog_positioner
+      port map (
+         clk_i     => video_clk_i,
+         rst_i     => video_rst_i,
+         hs_i      => vga_hs_ps,
+         vs_i      => vga_vs_ps,
+         de_i      => vga_de_ps,
+         doubled_i => video_scandoubler_i,
+         pan_x_i   => video_pan_x_i,
+         pan_y_i   => video_pan_y_i,
+         hs_o      => vga_hs_pos,
+         vs_o      => vga_vs_pos
+      ); -- i_analog_positioner
+
+   -- M2M-UPSTREAM screen-center: CSYNC is generated from the POSITIONED syncs
    i_csync : entity work.csync
       port map (
          clk   => video_clk_i,
-         hsync => vga_hs_ps,
-         vsync => vga_vs_ps,
+         hsync => vga_hs_pos,
+         vsync => vga_vs_pos,
          csync => vga_cs_ps
       ); -- i_csync
 
@@ -232,8 +267,9 @@ begin
             -- connector, see: https://en.wikipedia.org/wiki/VGA_connector
             -- Composite sync output that is compatible with the MiSTer VGA to SCART adaptor needs
             -- the composite sync signal on pin 13 and HIGH on pin 14, see: https://misterfpga.org/viewtopic.php?t=1811
-            vga_hs_o    <= vga_hs_ps when not video_csync_i else not vga_cs_ps;
-            vga_vs_o    <= vga_vs_ps when not video_csync_i else '1';
+            -- M2M-UPSTREAM screen-center: the pins carry the positioned syncs
+            vga_hs_o    <= vga_hs_pos when not video_csync_i else not vga_cs_ps;
+            vga_vs_o    <= vga_vs_pos when not video_csync_i else '1';
          end if;
       end process;
    end block VGA_OUT_PHASE_SHIFTED;

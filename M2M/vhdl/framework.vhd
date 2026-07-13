@@ -939,6 +939,10 @@ begin
          qnice_vga_hbl_r_i       => qnice_gp_reg_o( 27 downto  16),
          qnice_vga_vbl_t_i       => qnice_gp_reg_o( 43 downto  32),
          qnice_vga_vbl_b_i       => qnice_gp_reg_o( 59 downto  48),
+         -- M2M-UPSTREAM screen-center: analog picture position (pan) from the
+         -- CFD gp_reg (words 8-9, low 12 bits each); QNICE clock domain
+         qnice_vga_pan_x_i       => qnice_gp_reg_o(139 downto 128),
+         qnice_vga_pan_y_i       => qnice_gp_reg_o(155 downto 144),
          qnice_hdmax_o           => qnice_hdmax,
          qnice_vdmax_o           => qnice_vdmax,
          qnice_interlaced_o      => qnice_interlaced,   -- M2M-UPSTREAM screen-center

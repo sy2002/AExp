@@ -78,14 +78,26 @@ entity av_pipeline is
       qnice_vimin_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vimax_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
 
-      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed VGA soft-blank
-      -- active-window edge offsets (MiSTer-style, core-agnostic) from the CFD
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed analog OVERSCAN
+      -- (soft-blank) edge offsets (MiSTer-style, core-agnostic) from the CFD
       -- gp_reg words 0-3; qnice_clk domain, CDC'd to the video domain below.
-      -- They reposition ONLY the analog (scandoubler) picture; 0 = inert.
+      -- They crop/reveal the edges of ONLY the analog picture (they cannot
+      -- move it -- that is what the pan inputs below are for); 0 = inert.
+      -- Units: horizontal in video clocks (a quarter AExp lores pixel),
+      -- vertical in core lines.
       qnice_vga_hbl_l_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vga_hbl_r_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vga_vbl_t_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vga_vbl_b_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-13): signed analog picture
+      -- POSITION (pan) from the CFD gp_reg words 8-9; qnice_clk domain, CDC'd
+      -- to the video domain below and applied by analog_positioner after the
+      -- OSM (core content and OSM move together); 0 = inert. Units are
+      -- source-raster based: pan_x in two-source-clock steps (one AExp hires
+      -- pixel), pan_y in source lines; positive = right/down.
+      qnice_vga_pan_x_i       : in  std_logic_vector(11 downto 0) := (others => '0');
+      qnice_vga_pan_y_i       : in  std_logic_vector(11 downto 0) := (others => '0');
 
       -- To QNICE
       qnice_hdmax_o           : out std_logic_vector(11 downto 0);
@@ -232,16 +244,24 @@ signal vid_himax_off          : std_logic_vector(11 downto 0);
 signal vid_vimin_off          : std_logic_vector(11 downto 0);
 signal vid_vimax_off          : std_logic_vector(11 downto 0);
 
--- M2M-UPSTREAM screen-center (VGA soft-blank, core-agnostic): a MiSTer-style
--- (Minimig.sv:755-840) soft-blank that repositions ONLY the analog picture by
--- reconstructing the active window from the raw hblank/hsync/vblank/vsync edges
--- and moving it by four signed edge offsets. Runs in the video (= core) clock
--- domain. Feeds only i_analog_pipeline; ascal (via i_crop) and i_video_counters
--- keep the raw blanking, so HDMI and the SYS_CORE geometry stay decoupled.
+-- M2M-UPSTREAM screen-center (analog overscan soft-blank, core-agnostic): a
+-- MiSTer-style (Minimig.sv:755-840) soft-blank that crops/reveals the edges of
+-- ONLY the analog picture by reconstructing the active window from the raw
+-- hblank/hsync/vblank/vsync edges and trimming it by four signed edge offsets.
+-- It is an overscan/visible-area control, NOT a position control: on the
+-- analog wire it can only hide or reveal pixels, never translate them (the
+-- analog_positioner pan inside i_analog_pipeline moves the picture). Runs in
+-- the video (= core) clock domain. Feeds only i_analog_pipeline; ascal (via
+-- i_crop) and i_video_counters keep the raw blanking, so HDMI and the
+-- SYS_CORE geometry stay decoupled. Deliberate side effect: the analog OSM
+-- recovers its coordinates from the trimmed window, so cropping keeps the OSM
+-- inside the remaining visible area (pan then moves OSM and core together).
 signal vid_vga_hbl_l          : std_logic_vector(11 downto 0);   -- video-domain offsets
 signal vid_vga_hbl_r          : std_logic_vector(11 downto 0);
 signal vid_vga_vbl_t          : std_logic_vector(11 downto 0);
 signal vid_vga_vbl_b          : std_logic_vector(11 downto 0);
+signal vid_vga_pan_x          : std_logic_vector(11 downto 0);   -- analog position (pan)
+signal vid_vga_pan_y          : std_logic_vector(11 downto 0);
 signal sb_off_hl              : unsigned(11 downto 0) := (others => '0');  -- per-frame latched
 signal sb_off_hr              : unsigned(11 downto 0) := (others => '0');
 signal sb_off_vt              : unsigned(11 downto 0) := (others => '0');
@@ -265,6 +285,12 @@ signal sb_old_vbk             : std_logic := '0';
 signal sb_old_hbl             : std_logic := '0';
 signal sb_hblank              : std_logic;            -- generated soft blanks
 signal sb_vblank              : std_logic;
+signal sb_geo_cnt             : unsigned(1 downto 0) := (others => '0');  -- vblanks since reset
+signal sb_geo_ok              : std_logic := '0';    -- geometry acquired
+signal sb_t_hon               : unsigned(11 downto 0) := (others => '0'); -- clamped edge targets
+signal sb_t_hoff              : unsigned(11 downto 0) := (others => '0');
+signal sb_t_von               : unsigned(11 downto 0) := (others => '0');
+signal sb_t_voff              : unsigned(11 downto 0) := (others => '0');
 signal vga_vblank_r           : std_logic;           -- vblank incl. vsync (MiSTer vbl|~vs)
 signal vga_h_active           : std_logic;
 signal vga_v_active           : std_logic;
@@ -330,6 +356,22 @@ begin
    return tmp'length;
 end function first_nonzero_bit;
 
+-- M2M-UPSTREAM screen-center: clamp a signed edge target into [0, hi], so the
+-- soft-blank equality compares below stay reachable for ANY offset value (an
+-- out-of-raster target would otherwise never match and could leave a blank
+-- flag stuck = permanently dark picture; clamped requests degrade to the
+-- nearest achievable edge instead)
+pure function sb_clamp(v : signed(13 downto 0); hi : unsigned(11 downto 0)) return unsigned is
+begin
+   if v < 0 then
+      return to_unsigned(0, 12);
+   elsif v > signed("00" & hi) then
+      return hi;
+   else
+      return unsigned(v(11 downto 0));
+   end if;
+end function sb_clamp;
+
 begin
 
    ---------------------------------------------------------------------------------------------
@@ -339,7 +381,8 @@ begin
    -- Clock domain crossing: QNICE to VIDEO
    i_qnice2video: xpm_cdc_array_single
       generic map (
-         WIDTH => 142   -- M2M-UPSTREAM screen-center: +48 for the four VGA soft-blank offsets
+         WIDTH => 166   -- M2M-UPSTREAM screen-center: +48 for the four analog
+                        -- overscan offsets, +24 for the analog pan pair
       )
       port map (
          src_clk                 => qnice_clk_i,
@@ -359,6 +402,8 @@ begin
          src_in(117 downto 106)  => qnice_vga_hbl_r_i,
          src_in(129 downto 118)  => qnice_vga_vbl_t_i,
          src_in(141 downto 130)  => qnice_vga_vbl_b_i,
+         src_in(153 downto 142)  => qnice_vga_pan_x_i,   -- M2M-UPSTREAM screen-center
+         src_in(165 downto 154)  => qnice_vga_pan_y_i,
          dest_clk                => video_clk_i,
          dest_out(15 downto 0)   => video_osm_cfg_xy,
          dest_out(31 downto 16)  => video_osm_cfg_dxdy,
@@ -375,7 +420,9 @@ begin
          dest_out(105 downto 94) => vid_vga_hbl_l,       -- M2M-UPSTREAM screen-center
          dest_out(117 downto 106)=> vid_vga_hbl_r,
          dest_out(129 downto 118)=> vid_vga_vbl_t,
-         dest_out(141 downto 130)=> vid_vga_vbl_b
+         dest_out(141 downto 130)=> vid_vga_vbl_b,
+         dest_out(153 downto 142)=> vid_vga_pan_x,       -- M2M-UPSTREAM screen-center
+         dest_out(165 downto 154)=> vid_vga_pan_y
       ); -- i_qnice2video
 
    -- Clock domain crossing: QNICE to AUDIO
@@ -473,21 +520,28 @@ begin
       ); -- i_video_counters
 
    ---------------------------------------------------------------------------------------------
-   -- M2M-UPSTREAM screen-center: VGA soft-blank (core-agnostic)
+   -- M2M-UPSTREAM screen-center: analog overscan soft-blank (core-agnostic)
    --
    -- Port of MiSTer's Minimig.sv soft-blank (:755-840): reconstruct the active
-   -- window from the raw edges and shift it by four signed offsets, then feed
-   -- ONLY the analog pipeline. hcnt runs every video clock (like MiSTer's
-   -- clk_sys); framework syncs are ACTIVE-HIGH so MiSTer's ~hs == video_hs_i.
-   -- Interlace uses video_fl_i only: on a progressive core it is constant '0',
-   -- and ~lace|~field1 reduces to ~field1, so every frame is captured.
+   -- window from the raw edges and trim it by four signed offsets, then feed
+   -- ONLY the analog pipeline. This crops/reveals border material (overscan
+   -- control); it cannot pan the picture. hcnt runs every video clock (like
+   -- MiSTer's clk_sys), so the horizontal unit is one video clock; the
+   -- vertical unit is one core line. Framework syncs are ACTIVE-HIGH so
+   -- MiSTer's ~hs == video_hs_i. Interlace uses video_fl_i only: on a
+   -- progressive core it is constant '0', and ~lace|~field1 reduces to
+   -- ~field1, so every frame is captured. Outward offsets may reveal core
+   -- pixels beyond the raw active window, bounded by the 8-clock/2-line
+   -- force-blank sync guards. Hardened vs. the original port: explicit reset
+   -- and geometry acquisition (substitution starts only after a full frame
+   -- has been measured) and clamped edge targets (see sb_clamp).
    ---------------------------------------------------------------------------------------------
 
    sb_hblank    <= sb_fhbl or sb_shbl or video_hs_i;      -- MiSTer hbl = fhbl|shbl|~hs
    sb_vblank    <= sb_fvbl or sb_svbl;                    -- MiSTer ~vde = fvbl|svbl
    vga_vblank_r <= video_vblank_i or video_vs_i;          -- MiSTer vblank = vbl|~vs
-   vga_h_active <= '1' when (sb_off_hl /= 0 or sb_off_hr /= 0) else '0';
-   vga_v_active <= '1' when (sb_off_vt /= 0 or sb_off_vb /= 0) else '0';
+   vga_h_active <= '1' when sb_geo_ok = '1' and (sb_off_hl /= 0 or sb_off_hr /= 0) else '0';
+   vga_v_active <= '1' when sb_geo_ok = '1' and (sb_off_vt /= 0 or sb_off_vb /= 0) else '0';
 
    -- Per axis, all-zero offsets pass the RAW core blanking straight through, so
    -- a core that never pushes VGA offsets is bit-identical to no soft-blank and
@@ -496,7 +550,7 @@ begin
    analog_vblank <= sb_vblank when vga_v_active = '1' else video_vblank_i;
 
    p_vga_softblank : process (video_clk_i)
-      variable v_bot : unsigned(11 downto 0);
+      variable v_bot : signed(13 downto 0);
    begin
       if rising_edge(video_clk_i) then
          sb_old_hs  <= video_hs_i;
@@ -504,6 +558,22 @@ begin
          sb_old_vs  <= video_vs_i;
          sb_old_vbk <= vga_vblank_r;
          sb_old_hbl <= sb_hblank;
+
+         -- clamped edge targets: the same arithmetic as MiSTer for in-range
+         -- offsets, but a request beyond the measured raster degrades to the
+         -- nearest reachable edge instead of an unmatchable compare
+         sb_t_hon  <= sb_clamp(resize(signed(sb_off_hl), 14) + signed(resize(sb_hend, 14)) - 2,
+                               sb_hmax - 1);
+         sb_t_hoff <= sb_clamp(resize(signed(sb_off_hr), 14) + signed(resize(sb_hsta, 14)) - 2,
+                               sb_hmax - 1);
+         sb_t_von  <= sb_clamp(resize(signed(sb_off_vt), 14) + signed(resize(sb_vend, 14)),
+                               sb_vmax - 1);
+         if sb_off_vb(11) = '1' then  -- negative = relative to bottom
+            v_bot := signed(resize(sb_vmax, 14)) + resize(signed(sb_off_vb), 14);
+         else                         -- positive = absolute line (MiSTer legacy)
+            v_bot := resize(signed(sb_off_vb), 14);
+         end if;
+         sb_t_voff <= sb_clamp(v_bot, sb_vmax - 1);
 
          -- horizontal: hcnt resets during hsync; capture active start/end + line length
          sb_hcnt <= sb_hcnt + 1;
@@ -513,8 +583,8 @@ begin
          if sb_old_hbk = '1' and video_hblank_i = '0' then sb_hend <= sb_hcnt; end if;  -- active start
          if sb_old_hbk = '0' and video_hblank_i = '1' then sb_hsta <= sb_hcnt; end if;  -- active end
          if sb_old_hs  = '0' and video_hs_i     = '1' then sb_hmax <= sb_hcnt; end if;  -- next sync
-         if sb_hcnt = sb_hend + sb_off_hl - 2 then sb_shbl <= '0'; end if;
-         if sb_hcnt = sb_hsta + sb_off_hr - 2 then sb_shbl <= '1'; end if;
+         if sb_hcnt = sb_t_hon  then sb_shbl <= '0'; end if;
+         if sb_hcnt = sb_t_hoff then sb_shbl <= '1'; end if;
          if sb_hcnt = 8           then sb_fhbl <= '0'; end if;   -- force-blank sync guard
          if sb_hcnt = sb_hmax - 8 then sb_fhbl <= '1'; end if;
 
@@ -527,20 +597,54 @@ begin
             if sb_old_vbk = '0' and vga_vblank_r = '1' then sb_vmax  <= sb_vcnt; end if;  -- total lines
          end if;
          if (sb_old_hbl = '1' and sb_hblank = '0') or sb_vcnt = 0 then
-            if sb_vcnt = sb_vend + sb_off_vt then sb_svbl <= '0'; end if;
-            if sb_off_vb(11) = '1' then v_bot := sb_vmax + sb_off_vb;  -- negative = relative to bottom
-            else                        v_bot := sb_off_vb; end if;
-            if sb_vcnt = v_bot        then sb_svbl <= '1'; end if;
+            if sb_vcnt = sb_t_von     then sb_svbl <= '0'; end if;
+            if sb_vcnt = sb_t_voff    then sb_svbl <= '1'; end if;
             if sb_vcnt = sb_vmax - 1  then sb_fvbl <= '1'; end if;   -- force-blank sync guard
             if sb_vcnt = sb_vsend + 2 then sb_fvbl <= '0'; end if;
          end if;
 
-         -- latch the offsets once per frame to de-tear the incoherent gp_reg CDC
+         -- latch the offsets once per frame to de-tear the incoherent gp_reg
+         -- CDC, and count frames for the geometry-acquisition gate: only after
+         -- a complete frame between two vblank starts have hend/hsta/hmax/
+         -- vend/vsend/vmax all been measured
          if sb_old_vbk = '0' and vga_vblank_r = '1' then
             sb_off_hl <= unsigned(vid_vga_hbl_l);
             sb_off_hr <= unsigned(vid_vga_hbl_r);
             sb_off_vt <= unsigned(vid_vga_vbl_t);
             sb_off_vb <= unsigned(vid_vga_vbl_b);
+            if sb_geo_cnt /= 3 then
+               sb_geo_cnt <= sb_geo_cnt + 1;
+            else
+               sb_geo_ok  <= '1';
+            end if;
+         end if;
+
+         -- explicit reset/acquisition state: do not rely on power-up
+         -- initializers after a core/video reset
+         if video_rst_i = '1' then
+            sb_old_hs  <= video_hs_i;
+            sb_old_hbk <= video_hblank_i;
+            sb_old_vs  <= video_vs_i;
+            sb_old_vbk <= vga_vblank_r;
+            sb_old_hbl <= '0';
+            sb_hcnt    <= (others => '0');
+            sb_vcnt    <= (others => '0');
+            sb_hend    <= (others => '0');
+            sb_hsta    <= (others => '0');
+            sb_hmax    <= (others => '0');
+            sb_vend    <= (others => '0');
+            sb_vmax    <= (others => '0');
+            sb_vsend   <= (others => '0');
+            sb_shbl    <= '0';
+            sb_fhbl    <= '0';
+            sb_svbl    <= '0';
+            sb_fvbl    <= '0';
+            sb_off_hl  <= (others => '0');
+            sb_off_hr  <= (others => '0');
+            sb_off_vt  <= (others => '0');
+            sb_off_vb  <= (others => '0');
+            sb_geo_cnt <= (others => '0');
+            sb_geo_ok  <= '0';
          end if;
       end if;
    end process p_vga_softblank;
@@ -580,6 +684,10 @@ begin
 
          -- Configure 15 kHz mode: 0 =off/1=on
          video_retro15kHz_i      => video_retro15kHz,
+
+         -- M2M-UPSTREAM screen-center: analog picture position (pan)
+         video_pan_x_i           => vid_vga_pan_x,
+         video_pan_y_i           => vid_vga_pan_y,
 
          -- Analog output (VGA and audio jack)
          vga_red_o               => vga_red,
