@@ -41,7 +41,7 @@ Features
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a
   real Amiga
-* MEGA65 keyboard mapped to the Amiga keyboard
+* MEGA65 keyboard mapped to the Amiga keyboard and raw Amiga keyboard mode
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
@@ -118,10 +118,11 @@ So what works depends on what you plug in:
 | Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)         |
 
 (*) Note on the mouSTer: it emulates a real tank mouse so faithfully that it
-inherits the exact same limitation. Therefore you need to download firmware version
-`3.23.5313` or newer, for example [here](https://github.com/user-attachments/files/29939061/mouSTer.fw.3.23.5313.zip).
-With new firmware, mouSTer supports a new setting in the `[mouse]` section: `activeplotlines=true`.
-With that, you can use the right button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
+inherits the exact same limitation. Therefore you need to
+[download firmware version `3.23.5313`](https://github.com/willyvmm/mouSTer/releases/tag/3.23.5313)
+or newer. With new firmware, mouSTer supports a new setting in the
+`[mouse]` section: `activeplotlines=true`. With that, you can use the right
+button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
 Here is an example of a known-to-work [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
 **A simple DIY adapter makes the right button work**, even with an original

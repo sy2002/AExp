@@ -13,12 +13,11 @@ offers convenient features.
 * Cycle accurate 68000 CPU
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in total
 * One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
-  via the on-screen-menu, read and write (changes are saved back to the SD
-  card in the background)
+  via the on-screen-menu, read and write
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a
   real Amiga
-* MEGA65 keyboard mapped to the Amiga keyboard
+* MEGA65 keyboard mapped to the Amiga keyboard and raw Amiga keyboard mode
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
