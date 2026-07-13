@@ -313,33 +313,3 @@ or broken picture from a reload.
 > output is completely independent**, so the menu stays visible on HDMI the
 > whole time, which makes it easy to recover. (Pan values cannot cause this —
 > they are limited in hardware.)
-
----
-
-## File versions: v3 and v4
-
-Older AExp releases used a version-3 settings file (68 bytes, no position
-fields). The current format is version 4 (84 bytes: HDMI crop, analog
-overscan and analog position per mode).
-
-- The **core** reads both: a v3 file keeps working exactly as before, with
-  the analog position simply at zero.
-- The **tool** reads both and always saves v4. When it loads a v3 file it
-  keeps your HDMI and overscan values and tells you it upgraded the format.
-- Careful in the other direction: cores **older than WIP-V1-A9 ignore a v4
-  file completely** (you lose your HDMI centering there). If you still run an
-  older core, keep a copy of your old v3 file around until you upgrade.
-
----
-
-## A note on this alpha version
-
-The "edit a file, copy it over, reload" method described here is a **temporary
-solution for the alpha releases.** It works well and is completely safe, but it
-is admittedly a bit fiddly.
-
-A future release will most likely add a far more convenient, **MiSTer-style**
-approach on top: nudge the picture **live** with the keyboard, watch it move,
-and save when it looks right — no separate tool, no copying files back and
-forth. Until then, the method in this guide covers HDMI framing, analog
-position and analog overscan for every Amiga screen mode.
