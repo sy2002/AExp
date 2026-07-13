@@ -1,8 +1,14 @@
-# Mouse support: findings, root cause, device/board matrix, fix concept
+# Mouse support: findings, compatibility, and implementation notes
 
-Status of this document: findings below are marked **[proven]** (verified against schematics, code or bench measurements) or **[assumption]** (plausible, still to be verified). Last updated 2026-07-04.
+Status of this document: findings below are marked **[proven]** (verified against schematics, code or bench measurements) or **[assumption]** (plausible, still to be verified). Last updated 2026-07-13.
 
 TL;DR: Movement and the left button of a real Amiga mouse work natively and smoothly. The right (and middle) button of a *passive* Amiga mouse is **electrically invisible to every MEGA65 board revision (R3 through R6)**, because the buttons short the POT pins to GND and nothing on the MEGA65 can pull those pins high; on a real Amiga, Paula itself drives them high. This is a board-level limitation, proven from the Trenz schematics, and the R4/R5/R6 "bidirectional joystick ports" do **not** help, because they cover only the five digital lines, not the POT pins. Active adapters (mouSTer style) that *drive* pin 9 can be supported on **all** revisions through the existing paddle sampler, once the core reads the line with Amiga-true polarity plus a device-presence latch. The RUN/STOP substitute stays as the universal fallback for passive tank mice.
+
+**Current build status:** WIP-V1-A3 implements that polarity correction and
+device-presence latch for both right and middle buttons, plus a 30-second
+watchdog that releases a stuck button after an active adapter is unplugged.
+The keyboard right-button substitute is <kbd>Run/Stop</kbd> in MEGA65 keyboard
+mode and the <kbd>&uarr;</kbd> symbol key in Amiga keyboard mode.
 
 
 ## 1. Connector pinout and a naming trap
@@ -100,12 +106,12 @@ Covered here for completeness; the deep material is in the git history of `rtl/u
 - **Left button [proven]:** rides the fire line into CIA-A, nothing special.
 
 
-## 6. Right mouse button: current state (WIP-V1-A2) and its limits
+## 6. Right mouse button: historical WIP-V1-A2 state and its limits
 
-The A2 build maps the right button as `mouse_btn(1) <= RUN/STOP-held OR main_pot1_x_i(7)`:
+The A2 build mapped the right button as `mouse_btn(1) <= RUN/STOP-held OR main_pot1_x_i(7)`:
 
 - **RUN/STOP substitute [proven working]:** key 63 has no Amiga keycode, its held state is exported from the keyboard mirror (`keyboard.vhd`) and acts as the right button. Universal fallback, works on all boards with all mice. (Since the keyboard-mapping split, the *source* key is mode-dependent: RUN/STOP in MEGA65 mode, but the ARROW-UP symbol key — key 54 — in Amiga mode, where RUN/STOP is remapped to Esc. `mouse_rmb_o` picks the key from `keyboard_mode_i`; the mechanism here is unchanged. See `doc/keyboard.md`.)
-- **POT threshold [proven inert, wrong polarity]:** `main_pot1_x_i(7)` says "pressed" when the pin is *driven high*. With a tank mouse or an empty port the term never fires (reads 0x00, section 4), so it is harmless in practice. But it is **inverted with respect to real Amiga semantics** (pressed = line LOW, released = line HIGH). A spec-faithful active adapter that drives pin 9 high when released reads as *pressed when released and released when pressed* on the A2 build. Do not use an active mouse adapter with A2; the fix is the proposal in section 8. Note that with such an adapter plugged in, the RUN/STOP fallback is masked at idle (the OR term already asserts "held"), so A2 offers no clean workaround on the core side.
+- **POT threshold [proven inert, wrong polarity]:** `main_pot1_x_i(7)` says "pressed" when the pin is *driven high*. With a tank mouse or an empty port the term never fires (reads 0x00, section 4), so it is harmless in practice. But it is **inverted with respect to real Amiga semantics** (pressed = line LOW, released = line HIGH). A spec-faithful active adapter that drives pin 9 high when released reads as *pressed when released and released when pressed* on the A2 build. Do not use an active mouse adapter with A2; the implemented fix is described in section 8. Note that with such an adapter plugged in, the RUN/STOP fallback is masked at idle (the OR term already asserts "held"), so A2 offers no clean workaround on the core side.
 
 **Field confirmation [proven, 2026-07-04]:** an R6 user (NeonKnight, USB mouse adapter "MicroTom", no original Amiga mouse) reported that Workbench folder contents only load *while the right button is held* and stall when it is released. That is the textbook signature of the inversion: physically releasing the button makes the core report "RMB down", Intuition enters menu mode, and menu mode locks the screen's layers (standard Intuition behavior, also on real hardware: rendering blocks while menus are active), which stalls Workbench's read-icon/draw-icon loop; physically pressing ends menu mode and loading resumes. Joystick games were fine (digital lines, untouched path). The report simultaneously proves that this adapter class drives pin 9 to *both* levels through our sampler on R6, i.e. exactly the device class the section 8 latch serves; after the fix its right button is expected to work natively.
 
@@ -118,21 +124,22 @@ The A2 build maps the right button as `mouse_btn(1) <= RUN/STOP-held OR main_pot
 |-----------------------------|--------------------------|--------------------------|
 | Tank mouse: movement, LMB   | works                    | works (same circuit)     |
 | Tank mouse: RMB/MMB         | impossible on pins 9/5, RUN/STOP substitute | identical, RUN/STOP substitute |
-| Active adapter: RMB         | readable via paddle sampler, needs the polarity fix of section 8 | identical |
+| Active adapter: RMB         | works with the A3 polarity/presence logic in section 8 | identical |
 | Open-drain adapter: RMB     | invisible (same physics as tank mouse), RUN/STOP substitute | identical |
 | Empty port                  | must not phantom-click: guaranteed by the presence latch (section 8) | identical |
 
 The board revision does not appear in any row as a differentiator: **the mouse situation is identical on R3 through R6.** The R4+ bidirectional digital lines change nothing for mice.
 
 
-## 8. Fix concept (implemented 2026-07-04 in `main.vhd`, `pot_buttons` process; targeted for the WIP-V1-A3 build)
+## 8. WIP-V1-A3 fix (implemented 2026-07-04)
 
-One board-independent change in `CORE/vhdl/main.vhd`, no M2M changes, no XDC changes, no per-revision builds:
+The fix is one board-independent change in `CORE/vhdl/main.vhd`'s
+`pot_buttons` process, with no M2M changes, XDC changes, or per-revision builds:
 
 1. **Amiga-true polarity with a presence latch.**
-   - `rmb_capable` latch: set once `main_pot1_x_i(7) = '1'` is observed (the line was actively driven high at least once, so an adapter that can signal the button is present); cleared on core reset.
-   - `pot_rmb <= rmb_capable and not main_pot1_x_i(7);` (pressed = line low, exactly like POTINP on a real Amiga)
-   - `mouse_btn(1) <= run_stop_held or pot_rmb;`
+   - `rmb_capable` latch: set once `pot1_x_i(7) = '1'` is observed (the line was actively driven high at least once, so an adapter that can signal the button is present); cleared on core reset.
+   - `pot_rmb <= rmb_capable and not pot1_x_i(7);` (pressed = line low, exactly like POTINP on a real Amiga)
+   - `mouse_btn(1) <= kbd_mouse_rmb or pot_rmb;`
    - The latch is not an optional refinement, it is the load-bearing half
      of the fix: with Amiga-true polarity alone, an undriven line (tank
      mouse or empty port reads 0x00, section 4) would register as a
@@ -142,9 +149,12 @@ One board-independent change in `CORE/vhdl/main.vhd`, no M2M changes, no XDC cha
      substitutes it with observed evidence that the line can go high at
      all.
    - Tank mouse / empty port: line is never high, latch never sets, no phantom clicks, RUN/STOP does the job. Active adapter: RMB works natively, on every board revision.
-   - Unplug support (required): auto-clear the latch when "pressed" persists for an implausibly long time (order 30-60 s; value to be fixed at implementation, via a constant/generic). Unplugging an active adapter leaves the pin floating, which reads exactly like "pressed"; the timeout ends the phantom press. Worst case for a legitimate marathon menu-hold: the button releases once, one extra click re-opens the menu. Re-arming is automatic: as soon as an adapter drives the line high again (replug, button release), the latch sets again within one sampler cycle (~0.5 ms).
-2. **Middle button (optional, same pattern):** `mouse_btn(2)` from `main_pot1_y_i` (pin 5) with its own latch. Costs a handful of LUTs and makes 3-button adapters fully functional (`_mthird` feeds POTINP bit 8 in `userio.v`).
+   - Unplug support: auto-clear the latch after 30 seconds of a continuously reported press. Unplugging an active adapter leaves the pin floating, which reads exactly like "pressed"; the timeout ends the phantom press. Worst case for a legitimate marathon menu-hold: the button releases once, one extra click re-opens the menu. Re-arming is automatic: as soon as an adapter drives the line high again (replug, button release), the latch sets again within one sampler cycle (~0.5 ms).
+2. **Middle button (implemented with the same pattern):** `mouse_btn(2)` comes from `pot1_y_i` (pin 5) with its own presence latch and watchdog. This makes three-button active adapters functional (`_mthird` feeds POTINP bit 8 in `userio.v`).
 3. **Port 2 mouse buttons (out of scope for now):** `userio.v` wires the `mouse_btn` inputs to port 1's POTINP bits only; a second mouse in port 2 would need a small provenance-commented change there. Movement and LMB of a port 2 mouse already work.
+
+The following was the original validation plan; validation of both passive and
+actively-driving device classes is now complete, as recorded in section 10.
 
 Validation plan: bench-test with a real mouSTer (or any active adapter). Multimeter on its pin 9 against GND with the adapter powered: released should read high (3.3 V or 5 V), pressed low. If instead it floats when released (open-drain firmware), the adapter behaves like a tank mouse on MEGA65 hardware and only RUN/STOP can serve it; that is a firmware property of the adapter, not something the core can compensate.
 

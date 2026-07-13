@@ -83,11 +83,11 @@ light is still on.
 ### Mouse and joystick
 
 Plug the mouse into **port 1** and the joystick into **port 2**, exactly
-like on a real Amiga. The only officially supported mouse is the **original
-Amiga "tank mouse"** (or an adapter that behaves like one). Commodore C64
-mice do **not** work: neither the 1350 ("joystick mouse") nor the 1351
-(proportional mouse) speaks the Amiga's protocol. We may add support for
-them in a future version.
+like on a real Amiga. The **original Amiga "tank mouse"** is the directly
+supported passive mouse; compatible active adapters are listed below.
+Commodore C64 mice do **not** work: neither the 1350 ("joystick mouse") nor
+the 1351 (proportional mouse) speaks the Amiga's protocol. We may add support
+for them in a future version.
 
 The Amiga tank mouse works out of the box: movement and the **left button**
 behave just like on the original machine.
@@ -102,13 +102,14 @@ key** as a right mouse button (hold it while moving the mouse to open the
 Workbench menus). This works when your keyboard is in the MEGA65 mode.
 In the positional Amiga keyboard mode this substitute moves to the
 <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), because
-there <kbd>Run/Stop</kbd> is the Amiga's <kbd>Esc</kbd>.
+there <kbd>Run/Stop</kbd> is the Amiga's <kbd>Esc</kbd>. Both keyboard modes are
+summarized in the Keyboard section below.
 
 So what works depends on what you plug in:
 
-| What you use                                                        | Move + left button | Right (and middle) button          |
-|---------------------------------------------------------------------|--------------------|------------------------------------|
-| Original Amiga "tank" mouse                                         | Yes                | <kbd>Run/Stop</kbd> key            |
+| What you use                                                        | Move + left button | Right / middle buttons                    |
+|---------------------------------------------------------------------|--------------------|-------------------------------------------|
+| Original Amiga "tank" mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
 | Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                |
 | Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                |
 | Faithful Tank Mouse replica that *actively drives* the line         | Yes                | Yes                                |
@@ -136,6 +137,9 @@ One heads-up for actively-driving adapters: if you unplug one while the Amiga
 is running, the right button can stay "stuck" for up to half a minute
 (Workbench shows its menu bar and stops redrawing) before it clears on its
 own. Just give it a moment after swapping devices.
+
+For the electrical analysis and implementation details, see
+[doc/mouse.md](doc/mouse.md).
 
 #### No mouse? Drive the pointer from the keyboard
 
@@ -174,22 +178,22 @@ modes are available in the menu's **Keyboard** section:
 * **Amiga mode** — *positional*: each key sends the Amiga key in the same
   place on a real Amiga keyboard, so the shifted number row and a few
   punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory
-  and for certain games that might now like our MEGA65 mode such as Pinball
-  Dreams.
+  and for games such as Pinball Dreams that require the original Amiga
+  mapping.
 
 The most important keys (the meanings below are for the default MEGA65 mode;
 where Amiga keyboard mode differs from the MEGA65 keyboard mode is noted in the right column):
 
 | MEGA65 keyboard                                                       | Amiga                                         |
 |-----------------------------------------------------------------------|-----------------------------------------------|
-| <kbd>MEGA</kbd>                                                       | Left Amiga                                    |
+| <kbd>MEGA</kbd>                                                       | Left Amiga; in MEGA65 mode it also selects front-face symbols |
 | <kbd>CTRL</kbd> + <kbd>MEGA</kbd> + <kbd>RESTORE</kbd>                | Ctrl + Left Amiga + Right Amiga (reset)       |
 | <kbd>RESTORE</kbd>                                                    | Right Amiga · *Amiga mode:* Right Alt         |
 | <kbd>Run/Stop</kbd>                                                   | Right mouse button, hold · *Amiga mode:* Esc  |
 | <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9 *(MEGA65 mode)*            |
-| <kbd>Shift</kbd> + F-key                                              | F2, F4, F6, F8, F10 *(MEGA65 mode)*           |
-| <kbd>ESC</kbd> <kbd>ALT</kbd> `...` <kbd>F9</kbd> <kbd>F11</kbd>      | F1, F2, `...`, F9, F10 *(Amiga mode)*         |
-| <kbd>Help</kbd>                                                       | Opens and closes the core's menu (changeable) |
+| <kbd>Shift</kbd> + <kbd>F1</kbd>/<kbd>F3</kbd>/<kbd>F5</kbd>/<kbd>F7</kbd>/<kbd>F9</kbd> | F2, F4, F6, F8, F10 *(MEGA65 mode)* |
+| Top row from <kbd>Run/Stop</kbd> through <kbd>F11</kbd>               | Esc, F1–F10 *(Amiga mode)*                    |
+| <kbd>Help</kbd>                                                       | Amiga Help; default menu key                   |
 
 In the default **MEGA65 mode** <kbd>Esc</kbd>, <kbd>Tab</kbd> and
 <kbd>Caps Lock</kbd> work as expected. In **Amiga mode** the entire top row is
@@ -200,10 +204,13 @@ moves to the <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), and
 
 By default <kbd>Help</kbd> opens the menu, but you can reassign it — to
 <kbd>F11</kbd>, <kbd>F13</kbd> or <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd> — in the
-Keyboard menu, which frees <kbd>Help</kbd> for the Amiga.
+Keyboard menu, which reserves <kbd>Help</kbd> solely for the Amiga. In MEGA65
+mode, <kbd>F11</kbd> and <kbd>F13</kbd> are clean menu keys that send nothing to
+the Amiga. In Amiga mode they also send F10 and Left Alt respectively; see the
+guide for the effect of every menu-key choice.
 
-**The full keyboard guide — how to type every Amiga symbol, both modes side by
-side, and steering the mouse from the keyboard — is in
+**The full keyboard guide — complete per-mode tables for typing, special keys,
+menu keys, and steering the mouse from the keyboard — is in
 [doc/keyboard.md](doc/keyboard.md).**
 
 ### Video: HDMI
