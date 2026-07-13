@@ -260,6 +260,7 @@ and the right-mouse-button key — are covered in *Amiga mode in detail*, above.
 | <kbd>Esc</kbd>                                        | Esc · *Amiga mode:* F1                  |
 | <kbd>Caps Lock</kbd>                                  | Caps Lock · *Amiga mode:* F3            |
 | <kbd>Alt</kbd>                                        | Left Alt · *Amiga mode:* F2             |
+| <kbd>No Scroll</kbd>                                  | Right Alt · *Amiga mode:* F4            |
 
 The famous Amiga three-finger salute — the warm reboot — is
 <kbd>Ctrl</kbd>+<kbd>MEGA</kbd>+<kbd>RESTORE</kbd> here, which is exactly the
@@ -287,10 +288,12 @@ detail*, above.
 ### Amiga keys with no MEGA65 twin
 
 The MEGA65 keyboard is a little shorter than an Amiga's on the right-hand side,
-and it has no numeric keypad. In **MEGA65 mode** those Amiga-only keys simply
-cannot be typed. In **Amiga mode** the mapping is positional, so all four Amiga
-modifier keys become reachable: <kbd>MEGA</kbd> = Left Amiga, <kbd>=</kbd> = Right
-Amiga, <kbd>F13</kbd> = Left Alt, <kbd>RESTORE</kbd> = Right Alt.
+and it has no numeric keypad. In **MEGA65 mode** most of those Amiga-only keys
+cannot be typed — the exception is **Right Alt**, which is on <kbd>No Scroll</kbd>
+(<kbd>Alt</kbd> is Left Alt, and <kbd>No Scroll</kbd> sits just past it). In
+**Amiga mode** the mapping is positional, so all four Amiga modifier keys become
+reachable: <kbd>MEGA</kbd> = Left Amiga, <kbd>=</kbd> = Right Amiga, <kbd>F13</kbd>
+= Left Alt, <kbd>RESTORE</kbd> = Right Alt.
 
 ---
 

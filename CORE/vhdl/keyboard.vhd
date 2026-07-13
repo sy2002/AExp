@@ -195,7 +195,8 @@
 -- real R3 hardware, 2026-07-03).
 --
 -- Known limitations (by design): Amiga keys with no MEGA65 counterpart cannot be typed (in MEGA65
--- mode: Right Alt, the numeric pad except the borrowed '+'/'*', the international keys $2B/$30).
+-- mode: the numeric pad except the borrowed '+'/'*', the international keys $2B/$30; Right Alt is on
+-- NO SCROLL, and Left Amiga/Right Amiga/Left Alt map as usual).
 --
 -- CAPS LOCK: the MEGA65 keyboard CPLD exposes this key TWO ways - a LATCHED lock LEVEL at key 72
 -- (m65_capslock) and a RAW MOMENTARY press at key 78 (m65_capslock_mom). In MEGA65 mode key 72 -> Amiga
@@ -429,7 +430,9 @@ constant C_KEYMAP_MEGA65 : t_keymap := (
    m65_up_crsr       => x"4C",   -- Cursor Up
    m65_left_crsr     => x"4F",   -- Cursor Left
    m65_restore       => x"67",   -- Right Amiga
-   others            => C_NO_KEY -- RUN/STOP, NO SCRL, F11, F13 and keys 76..79: unmapped
+   m65_no_scrl       => x"65",   -- Right Alt (MEGA65 mode only; NO SCROLL sits just past ALT=Left
+                                 --   Alt, so it reads as the Right Alt. In Amiga mode it is F4.)
+   others            => C_NO_KEY -- RUN/STOP, F11, F13 and keys 76..79: unmapped
 );
 
 constant C_KEYMAP_AMIGA : t_keymap := (

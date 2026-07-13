@@ -13,7 +13,7 @@ The core is work in progress and not officially released yet. There are
 rough edges and missing features, but the basics work: Workbench 1.3 boots
 from a mounted ADF disk image and classic demos and games load and run.
 
-![Amiga500](doc/a500_ocs.jpg)
+![Amiga500](doc/assets/a500_ocs.jpg)
 
 Credits
 -------
