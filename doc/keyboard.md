@@ -14,17 +14,15 @@ If you only remember one sentence, make it this one:
 > **In the default mode, you get the character printed on the MEGA65 keycap.**
 > Press the key that shows `@`, and the Amiga receives `@`.
 
-Everything below is detail on top of that promise — including a handful of MEGA65
-caps whose character the *Amiga itself* has no way to show, which no keyboard
-mapping can conjure up.
-
 ---
 
 ## Two ways to map the keyboard
 
 AExp offers **two keyboard modes**, and you pick the one that matches how you
-think. You switch between them in the on-screen menu (press <kbd>Help</kbd>),
-under the **Keyboard** section.
+think or how the software you are working with expects the keyboard to react.
+Some games (for example Pinball Dreams) do not like our function key mapping.
+Switch to the Amiga mode and enjoy the game. You can switch between the keyboard
+modes in real-time.
 
 ### MEGA65 mode — "the cap is law" (default)
 
@@ -58,13 +56,15 @@ and so on. In Amiga mode you get those Amiga characters, because your fingers ar
 
 Choose this mode if you grew up on an Amiga and your muscle memory expects the
 Amiga layout, or if you are following instructions written for a real Amiga
-(some demos and old manuals assume the Amiga's own keymap).
+(some demos and old manuals assume the Amiga's own keymap) or if you run into
+trouble with the MEGA65 mode in some games (see above, example Pinball Dreams).
 
-The reference for Amiga mode is deft's "custom caps" layout, drawn from a British
-Amiga A600. A couple of its keys are *functions*, not letters — notably
-<kbd>CLR/HOME</kbd>, which is the Amiga <kbd>&larr;</kbd> (Backspace) key: it
-deletes to the left. The "←" printed on that reference cap is the Backspace
-symbol, not a character you can print.
+The reference for Amiga mode is
+[deft's "custom caps" layout (click here to see it)](assets/keyboard.png)
+drawn from a British Amiga A600. A couple of its keys are *functions*, not
+letters — notably <kbd>CLR/HOME</kbd>, which is the Amiga <kbd>&larr;</kbd>
+(Backspace) key: it deletes to the left. The "←" printed on that reference
+cap is the Backspace symbol, not a character you can print.
 
 The function-key row, the modifier keys, the right mouse button and Caps/Shift
 Lock all work differently in this mode — see **Amiga mode in detail**, below, for
