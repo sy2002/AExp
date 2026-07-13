@@ -291,11 +291,11 @@ an HDMI display and switch back there; both outputs share the same menu.
 ### Screen adjustment
 
 The Amiga's picture may not sit perfectly on your screen — an old quirk that
-every faithful Amiga recreation shares. AExp fixes it without re-flashing:
-drop a small `aexp_screen.cfg` file into `/amiga` and the core adjusts the
+every faithful Amiga recreation shares. AExp fixes it: drop a small 
+`aexp_screen.cfg` file into `/amiga` and the core adjusts the
 picture, automatically per Amiga screen mode. Three independent controls are
 available: **HDMI crop** re-frames the picture on HDMI; **analog position**
-moves the complete analog picture (menu included) left/right/up/down in all
+moves the complete analog picture (OSM included) left/right/up/down in all
 three VGA modes; **analog overscan** hides or reveals the Amiga border edges,
 which some demos fill with odd-looking material. Two ready-made files ship
 with the core (one for 16:9 displays, one tuned like a 4:3 monitor); pick the
