@@ -67,7 +67,7 @@ the Amiga writes to a disk — saving a file, formatting, storing a high
 score — the change is written back to the `*.adf` file on your SD card.
 
 To **eject** the disk, open the menu with <kbd>Help</kbd>, move the highlight
-to the `ADF:` item and press <kbd>Space</kbd> — exactly like the C64 core. On
+to the `ADF:` item and press <kbd>Space</kbd>. On
 an empty drive that same <kbd>Space</kbd> opens the file browser to mount a
 disk instead, so one key both mounts and ejects.
 
@@ -99,8 +99,9 @@ line, not drive it, so it cannot sense the right button of an original tank
 mouse. This is a hardware property, identical on every MEGA65 model from R3
 to R6. The built-in answer is always available: **hold the <kbd>Run/Stop</kbd>
 key** as a right mouse button (hold it while moving the mouse to open the
-Workbench menus). In the positional **Amiga keyboard mode** this substitute
-moves to the <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), because
+Workbench menus). This works when your keyboard is in the MEGA65 mode.
+In the positional Amiga keyboard mode this substitute moves to the
+<kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), because
 there <kbd>Run/Stop</kbd> is the Amiga's <kbd>Esc</kbd>.
 
 So what works depends on what you plug in:
@@ -129,8 +130,7 @@ straight-through DB9 male-to-female passthrough (all nine pins wired 1:1) and
 solder two resistors inside the shell, roughly 2 kΩ from pin 7 (+5V) to
 pin 9 (right button) and another 2 kΩ from pin 7 to pin 5 (middle button).
 With that adapter in line, the right (and middle) button of any faithful
-passive mouse works natively. A more detailed build tutorial is coming soon
-to the [doc](doc/) folder.
+passive mouse works natively.
 
 One heads-up for actively-driving adapters: if you unplug one while the Amiga
 is running, the right button can stay "stuck" for up to half a minute
@@ -161,11 +161,6 @@ moves to <kbd>F13</kbd>, so use <kbd>MEGA</kbd> + <kbd>F13</kbd> there.) The
 pointer keeps accelerating the longer you hold an arrow, so tap the keys for fine
 positioning and hold them to cross the screen.
 
-On a real Amiga the **right** button is *Right Amiga + Right Alt*, but the
-MEGA65 keyboard has no Right Alt key. That is no problem here: as described
-above, AExp maps <kbd>Run/Stop</kbd> straight to the right mouse button, so
-hold <kbd>Run/Stop</kbd> whenever you would right-click.
-
 ### Keyboard
 
 The MEGA65 keyboard drives the Amiga, and you choose **how**. Two mapping
@@ -178,20 +173,23 @@ modes are available in the menu's **Keyboard** section:
   you know.
 * **Amiga mode** — *positional*: each key sends the Amiga key in the same
   place on a real Amiga keyboard, so the shifted number row and a few
-  punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory.
+  punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory
+  and for certain games that might now like our MEGA65 mode such as Pinball
+  Dreams.
 
 The most important keys (the meanings below are for the default MEGA65 mode;
-where Amiga mode differs it is noted in the right column):
+where Amiga keyboard mode differs from the MEGA65 keyboard mode is noted in the right column):
 
-| MEGA65                                                | Amiga                                    |
-|-------------------------------------------------------|------------------------------------------|
-| <kbd>MEGA</kbd>                                       | Left Amiga                               |
-| <kbd>CTRL</kbd> + <kbd>MEGA</kbd> + <kbd>RESTORE</kbd> | Ctrl + Left Amiga + Right Amiga (reset) |
-| <kbd>RESTORE</kbd>                                    | Right Amiga · *Amiga mode:* Right Alt    |
-| <kbd>Run/Stop</kbd>                                   | Right mouse button, hold · *Amiga mode:* Esc |
-| <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9 *(MEGA65 mode)* |
-| <kbd>Shift</kbd> + F-key                              | F2, F4, F6, F8, F10 *(MEGA65 mode)*      |
-| <kbd>Help</kbd>                                       | Opens and closes the core's menu (changeable) |
+| MEGA65 keyboard                                                       | Amiga                                         |
+|-----------------------------------------------------------------------|-----------------------------------------------|
+| <kbd>MEGA</kbd>                                                       | Left Amiga                                    |
+| <kbd>CTRL</kbd> + <kbd>MEGA</kbd> + <kbd>RESTORE</kbd>                | Ctrl + Left Amiga + Right Amiga (reset)       |
+| <kbd>RESTORE</kbd>                                                    | Right Amiga · *Amiga mode:* Right Alt         |
+| <kbd>Run/Stop</kbd>                                                   | Right mouse button, hold · *Amiga mode:* Esc  |
+| <kbd>F1</kbd> <kbd>F3</kbd> <kbd>F5</kbd> <kbd>F7</kbd> <kbd>F9</kbd> | F1, F3, F5, F7, F9 *(MEGA65 mode)*            |
+| <kbd>Shift</kbd> + F-key                                              | F2, F4, F6, F8, F10 *(MEGA65 mode)*           |
+| <kbd>ESC</kbd> <kbd>ALT</kbd> `...` <kbd>F9</kbd> <kbd>F11</kbd>      | F1, F2, `...`, F9, F10 *(Amiga mode)*         |
+| <kbd>Help</kbd>                                                       | Opens and closes the core's menu (changeable) |
 
 In the default **MEGA65 mode** <kbd>Esc</kbd>, <kbd>Tab</kbd> and
 <kbd>Caps Lock</kbd> work as expected. In **Amiga mode** the entire top row is
