@@ -58,6 +58,9 @@ MARKDOWN_LINK_RE = re.compile(
 ALPHA_VERSION_RE = re.compile(
     r"^WIP-V(?P<major>\d+)-A(?P<alpha>\d+)(?:X(?P<iteration>[1-9]\d*))?$"
 )
+BETA_VERSION_RE = re.compile(
+    r"^WIP-V(?P<major>\d+)-B(?P<beta>\d+)(?:X(?P<iteration>[1-9]\d*))?$"
+)
 MAJOR_VERSION_RE = re.compile(r"^V(?P<major>\d+)$")
 MINOR_VERSION_RE = re.compile(r"^V(?P<major>\d+)\.(?P<minor>\d+)$")
 
@@ -78,6 +81,16 @@ def _release_notes_title(version, today):
             alpha += f"X{match.group('iteration')}"
         return (
             f"Alpha {alpha} for Version {match.group('major')} - "
+            f"{formatted_date}"
+        )
+
+    match = BETA_VERSION_RE.fullmatch(version)
+    if match:
+        beta = match.group("beta")
+        if match.group("iteration"):
+            beta += f"X{match.group('iteration')}"
+        return (
+            f"Beta {beta} for Version {match.group('major')} - "
             f"{formatted_date}"
         )
 
