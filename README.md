@@ -9,9 +9,9 @@ This core turns the MEGA65 into an Amiga 500 with the original OCS chipset
 expansion in the trapdoor slot (known as Slow RAM, this is what the classic
 Commodore A501 expansion did). The Amiga therefore has 1 MB of RAM in total.
 
-The core is work in progress and not officially released yet. There are
-rough edges and missing features, but the basics work: Workbench 1.3 boots
-from a mounted ADF disk image and classic demos and games load and run.
+The core is currently feature complete and in beta testing phase for the first
+official release version 1. As far as we can assess this at the moment: it is
+rock solid and runs 99.9% of all games and demos.
 
 ![Amiga500](doc/assets/a500_ocs.jpg)
 
@@ -45,6 +45,8 @@ Features
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
+* Adjustable picture, per Amiga screen mode: HDMI crop plus analog
+  position (pan) and analog overscan, via a config file and helper tool  
 * Battery-backed real-time clock
 
 ### Kickstart ROM
@@ -316,8 +318,11 @@ fixes, neither a fault of AExp). The full walkthrough is in
 Constraints and roadmap
 -----------------------
 
-At this moment the core is an alpha version. The largest known gaps:
+At this moment the core is in beta testing phase for the first official release
+version 1. It is feature complete, so - among other things - the following known
+gaps will remain in version 1:
 
+* Kickstart 1.3 (ROM size limited to 256kB)
 * Only one floppy drive (`df0:`)
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
