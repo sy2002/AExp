@@ -122,9 +122,6 @@ not in games or demos that take over the machine. Tap a cursor key for fine
 movement or hold it to accelerate across the screen. The right-button shortcut
 is provided directly by AExp.
 
-See [mouse.md](mouse.md) for real-mouse button support, active adapters, and the
-hardware details.
-
 ## Amiga mode
 
 Amiga mode is **positional**: each MEGA65 key sends the code of the key in the
@@ -241,9 +238,6 @@ combination is the Amiga operating system's built-in left-click shortcut.
 Pointer movement has the same Workbench-only caveat and acceleration behavior
 described for MEGA65 mode. AExp moves its direct right-button shortcut to the
 <kbd>&uarr;</kbd> symbol key because <kbd>Run/Stop</kbd> is Esc in this mode.
-
-See [mouse.md](mouse.md) for real-mouse button support, active adapters, and the
-hardware details.
 
 ## Opening the menu — and freeing the Help key
 

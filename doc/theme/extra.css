@@ -47,6 +47,10 @@ body {
   letter-spacing: -0.025em;
 }
 
+.md-header__title {
+  font-size: 0.95rem;
+}
+
 .md-header__button,
 .md-header__topic,
 .md-search__icon {
@@ -64,6 +68,10 @@ body {
   color: #454545;
 }
 
+.md-search__input {
+  font-size: 0.85rem;
+}
+
 .md-container {
   background: transparent;
 }
@@ -72,8 +80,19 @@ body {
   gap: 1.2rem;
 }
 
+@media screen and (min-width: 76.25em) {
+  .md-grid {
+    width: min(96vw, 100rem);
+    max-width: none;
+  }
+}
+
 .md-content {
   min-width: 0;
+}
+
+.md-typeset {
+  font-size: 0.86rem;
 }
 
 .md-content__inner {
@@ -104,6 +123,12 @@ body {
   margin-bottom: 1.2rem;
   color: var(--aexp-blue-dark);
   font-size: clamp(1.7rem, 4vw, 2.35rem);
+}
+
+/* The page URL already identifies the H1, so its permalink only adds layout
+   noise when a long title wraps. Section permalinks remain unchanged. */
+.md-typeset h1 .headerlink {
+  display: none;
 }
 
 .md-typeset h2 {
@@ -142,6 +167,7 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   box-shadow: 4px 4px 0 rgb(0 0 0 / 18%);
+  font-size: 0.7rem;
 }
 
 .md-typeset table:not([class]) th {
@@ -198,6 +224,7 @@ body {
 
 .md-nav {
   padding: 0.25rem;
+  font-size: 0.75rem;
 }
 
 .md-nav__link--active,

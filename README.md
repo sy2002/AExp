@@ -139,9 +139,6 @@ is running, the right button can stay "stuck" for up to half a minute
 (Workbench shows its menu bar and stops redrawing) before it clears on its
 own. Just give it a moment after swapping devices.
 
-For the electrical analysis and implementation details, see
-[doc/mouse.md](doc/mouse.md).
-
 #### No mouse? Drive the pointer from the keyboard
 
 Have no Amiga mouse or adapter at hand? You can still operate Workbench. The
@@ -248,8 +245,7 @@ job the A3000's "Amber" chip or an Indivision does on real hardware. This
 runs automatically; there is no menu entry for it. Demos that flicker *on
 purpose* (alternating two images at 50 Hz to fake extra colors, transparency
 or glowing lights) keep flickering: that is the intended look, and only a CRT
-softens it. If you want the full story about Amiga video modes and flicker,
-read [doc/video_modes.md](doc/video_modes.md).
+softens it.
 
 #### Flicker-free: smooth motion (menu entry)
 
