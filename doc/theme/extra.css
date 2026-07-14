@@ -188,16 +188,17 @@ body {
 
 .md-typeset kbd {
   display: inline-block;
-  min-width: 1.5em;
-  padding: 0.12em 0.38em;
+  min-width: 1.3em;
+  padding: 0.04em 0.26em;
   border: 1px solid var(--aexp-ink);
   border-radius: 0;
   background: #f7f3df;
-  box-shadow: 2px 2px 0 #8e8a7a;
+  box-shadow: 1px 1px 0 #8e8a7a;
   color: var(--aexp-ink);
   font-family: inherit;
-  font-size: 0.9em;
+  font-size: 0.85em;
   font-weight: 700;
+  line-height: 1.25;
   text-align: center;
 }
 
