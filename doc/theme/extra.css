@@ -167,7 +167,7 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   box-shadow: 4px 4px 0 rgb(0 0 0 / 18%);
-  font-size: 0.7rem;
+  font-size: 0.78rem;
 }
 
 .md-typeset table:not([class]) th {
@@ -196,7 +196,7 @@ body {
   box-shadow: 2px 2px 0 #8e8a7a;
   color: var(--aexp-ink);
   font-family: inherit;
-  font-size: 0.82em;
+  font-size: 0.9em;
   font-weight: 700;
   text-align: center;
 }
@@ -204,6 +204,7 @@ body {
 .md-typeset code {
   border: 1px solid rgb(0 0 0 / 16%);
   border-radius: 0;
+  font-size: 0.92em;
 }
 
 .md-typeset pre > code {
