@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">AExp</title>
+  <rect width="64" height="64" fill="#fffef7"/>
+  <path fill="#111318" d="M8 8h48v48H8z"/>
+  <path fill="#0754a5" d="M12 12h40v40H12z"/>
+  <path fill="#fffef7" d="M18 43 29 18h8l11 25h-8l-2-6H27l-2 6zm12-13h6l-3-8z"/>
+  <path fill="#f59b2a" d="M12 47h40v5H12z"/>
+</svg>
