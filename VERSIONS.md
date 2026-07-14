@@ -28,6 +28,7 @@ offers convenient features.
 As this is a "Version 1" there are many large and small features missing. Here
 are some of the larger features that are not there yet:
 
+* Kickstart 1.3 (ROM size limited to 256kB)
 * Only one floppy drive (`df0:`)
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM

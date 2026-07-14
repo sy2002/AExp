@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-A10";
+constant CORE_VERSION : string := "WIP-V1-B1";
 
 constant SCR_WELCOME : string :=
 
@@ -93,7 +93,9 @@ constant SCR_WELCOME : string :=
 constant HELP_1 : string :=
 
    "\n Amiga 500 for MEGA65 " & CORE_VERSION & "\n" &
-   " MiSTer Minimig-AGA port, by sy2002 in 2026\n\n" &
+   " MiSTer Minimig port, by sy2002 in 2026\n\n" &
+   
+   " Go to https://a500.mega65.org\n\n" &
 
    " THE MACHINE\n\n" &
 
@@ -102,17 +104,19 @@ constant HELP_1 : string :=
    " 512 KB Chip RAM + 512 KB Slow RAM\n" &
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
-   " Audio: Paula via HDMI and 3.5 mm jack\n" &
+   " Audio: via HDMI and 3.5 mm jack\n" &
    " Battery-backed real-time clock\n\n" &
+   
+   " Mouse: port 1\n" &
+   " Joystick: port 2\n\n" &  
 
    " One read/write floppy drive: df0:\n" &
    " Standard 880 KB ADF disk images\n\n" &
 
-   " Not emulated:\n" &
+   " Not implemented, yet:\n" &
+   " More disk drives (df1:), hard disks\n" &
+   " Kickstart newer than 1.3\n" &
    " ECS/AGA, NTSC, Fast RAM, hard disks\n\n" &
-
-   " Mouse: port 1\n" &
-   " Joystick: port 2\n\n" &
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";
@@ -122,7 +126,7 @@ constant HELP_2 : string :=
    "\n KEYBOARD\n\n" &
 
    " MEGA65 mode (default):\n" &
-   " type what is printed on the keycaps.\n" &
+   " Type what is printed on the keycaps.\n" &
    " MEGA + key types front-face symbols.\n" &
    " Esc, Tab and Caps Lock work normally.\n\n" &
 
@@ -133,7 +137,7 @@ constant HELP_2 : string :=
    " Shift + F-key     Even Amiga F-keys\n\n" &
 
    " Amiga mode:\n" &
-   " keys use original Amiga positions.\n" &
+   " Keys use original Amiga positions.\n" &
    " Some games need this mode.\n" &
    " The top row from Run/Stop through F11\n" &
    " becomes Esc and F1-F10.\n" &
@@ -153,7 +157,7 @@ constant HELP_3 : string :=
    " Select ADF: in the menu.\n\n" &
 
    " Empty drive + Space: open file browser\n" &
-   " Mounted disk + Space: eject\n" &
+   " Mounted disk + Space: eject disk\n" &
    " Browser Up/Down: select file\n" &
    " Browser Left/Right: previous/next page\n" &
    " Browser Return: mount selected file\n" &
