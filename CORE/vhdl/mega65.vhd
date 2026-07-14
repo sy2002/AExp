@@ -399,21 +399,25 @@ constant C_MENU_VGA_STD       : natural := 31;   -- VGA: Standard (scandoubled 3
 constant C_MENU_VGA_15KHZHSVS : natural := 35;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
 constant C_MENU_VGA_15KHZCS   : natural := 36;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
+-- OSM Scaling follows the C64 layout: line 43 (100%, default) maps to bit 0,
+-- while line 51 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
+subtype C_MENU_OSM_SCALING is natural range 51 downto 43;
+
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 44 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 58 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 43;
+constant C_MENU_KBD_AMIGA     : natural := 57;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 48 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 62 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 48;
-constant C_MENU_OSMKEY_F11    : natural := 49;
-constant C_MENU_OSMKEY_F13    : natural := 50;
-constant C_MENU_OSMKEY_COMBO  : natural := 51;
+constant C_MENU_OSMKEY_HELP   : natural := 62;
+constant C_MENU_OSMKEY_F11    : natural := 63;
+constant C_MENU_OSMKEY_F13    : natural := 64;
+constant C_MENU_OSMKEY_COMBO  : natural := 65;
 
 begin
 
@@ -683,7 +687,7 @@ begin
    qnice_audio_filter_o       <= '0';                                         -- raw Paula output; "Audio improvements"
                                                                               -- menu item removed for now
    qnice_zoom_crop_o          <= '0';                                         -- no zoom/crop menu item in milestone 1
-   qnice_osm_cfg_scaling_o    <= (others => '1');
+   qnice_osm_cfg_scaling_o    <= qnice_osm_control_i(C_MENU_OSM_SCALING);
 
    -- ascal mode: with ASCAL_USAGE=1 (AUSE_CUSTOM) in config.vhd these inputs to
    -- the QNICE co-processor are ignored (the CSR ascal-autosync bit is cleared);
