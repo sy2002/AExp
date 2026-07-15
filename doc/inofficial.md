@@ -18,3 +18,4 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V1-A7     | 07/12/26 | 3963a84 | Configurable keyboard mapping (issue #6). OSM invocation via another key than "Help" (issue #8). Make "Load Screen Config" less confusing (issue #19).
 | WIP-V1-A8     | 07/13/26 | 2725ae1 | Fine-tune Amiga and MEGA65 keyboard mapping (issue #6)
 | WIP-V1-A9     | 07/13/26 | 2bbb36c | True analog picture position: pan_x/pan_y move the complete analog picture in Standard and both 15 kHz modes by shifting the sync phase (issue #5). User-friendlier aexp_screen_cfg.py.
+| WIP-V1-A10    | 07/14/26 | 6ee1dc5 | OSM Scaling

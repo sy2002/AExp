@@ -1815,9 +1815,21 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The On-Screen-Menu uses the heap for several data structures. This heap
 ; is located before the main system heap in memory.
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
-; Example: If your HEAP_SIZE would be 29696, then you write 29696-1024=28672
-; instead, but when doing the sanity check calculations, you use 29696
-MENU_HEAP_SIZE  .EQU 1024
+; Example: If your HEAP_SIZE would be 30208, then you write 30208-1152=29056
+; instead, but when doing the sanity check calculations, you use 30208
+;
+; WIP-V1-A10 increased OPTM_SIZE from 58 to 72 and added a fifth submenu.
+; The former 1024-word reservation left the dynamically calculated OPTM_HEAP
+; 0x72 words short on hardware: the 72 items, 726-character string, 19-word
+; structure and three per-item arrays use 963 words, leaving 61; five submenus,
+; one manual ROM and one scratch buffer need 7 x (OPTM_DX + 2) = 7 x 25 = 175;
+; 175 - 61 = 114 = 0x72. Total demand is 1138 words, so round up to the next
+; 128-word boundary: 1152 words, leaving 14 words headroom. Do not reserve a
+; large safety margin here: every word is taken directly from the file-browser
+; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/manual-ROM
+; counts grow, recalculate both budgets and rebalance the HEAP_SIZE constants
+; below by the same delta.
+MENU_HEAP_SIZE  .EQU 1152
 
 #ifndef RELEASE
 
@@ -1825,14 +1837,13 @@ MENU_HEAP_SIZE  .EQU 1024
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 6144                       ; 7168 - 1024 = 6144
+HEAP_SIZE       .EQU 6016                       ; 7168 - 1152 = 6016
 HEAP            .BLOCK 1
 
-; in RELEASE mode: 28k of heap which leads to a better user experience when
-; it comes to folders with a lot of files
+; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 28672                      ; 29696 - 1024 = 28672
+HEAP_SIZE       .EQU 29056                      ; 30208 - 1152 = 29056
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract
@@ -1840,10 +1851,10 @@ HEAP            .BLOCK 1
 ; can use as RAM: 0xFEE0
 ; The stack starts at 0xFEE0 (search var VAR$STACK_START in osm_rom.lis to
 ; calculate the address). To see, if there is enough room for the stack
-; given the HEAP_SIZE do this calculation: Add 29696 words to HEAP which
-; is currently 0xXXXX and subtract the result from 0xFEE0. This yields
-; currently a stack size of more than 1.5k words, which is sufficient
-; for this program.
+; given the HEAP_SIZE do this calculation: Add 30208 words to HEAP which
+; is currently 0x8220 and subtract the result from 0xFEE0. This yields
+; 1728 stack words, 192 more than STACK_SIZE. check_menu_heap.py verifies
+; these assembled addresses after every ROM build.
 
                 .ORG    0xFEE0                  ; TODO: automate calculation
 #endif
