@@ -6,7 +6,8 @@
 -- On MiSTer, the ARM HPS configures Minimig at boot time through an SPI-like bus that ends up at
 -- minimig.v's host port (IO_UIO, IO_STROBE, IO_DIN, IO_WAIT). The MEGA65 has no HPS, so this small
 -- FSM replays the configuration sequence after every M2M reset, leaving rtl/userio.v completely
--- UNTOUCHED. It configures: A500 OCS PAL chipset, 68000 CPU, 512KB Chip + 512KB Slow + 0 Fast RAM,
+-- UNTOUCHED. It configures: A500 OCS PAL chipset, 68000 CPU, 512KB Chip + 512KB Slow (the slow
+-- RAM is OSM-selectable via slow_ram_i, see the 0xF5 notes below) + 0 Fast RAM,
 -- bootloader video defaults, 1 floppy drive, no IDE, Amiga-authentic joystick/mouse port mapping
 -- (joy_swap, see sequence entry 7), default audio mix - and finally releases the CPU so that the
 -- 68000 boots from the (M2M-preloaded) Kickstart ROM.
@@ -57,11 +58,21 @@
 --   CC = chip RAM size, memory_config[1:0]: minimig_bankmapper.v:33-37 -> 00 = 0.5M CHIP,
 --        01 = 1.0M, 10 = 1.5M, 11 = 2.0M. We need CC=00 (512KB chip).
 --   SS = slow RAM size, memory_config[3:2]: gary.v:166-168 -> SS=01 enables only sel_slow[0]
---        ($C00000-$C7FFFF = 512KB); bit3 would add $C80000-$CFFFFF etc. We need SS=01.
+--        ($C00000-$C7FFFF = 512KB); bit3 would add $C80000-$CFFFFF etc. SS[0] is driven by
+--        slow_ram_i (OSM item "Slow RAM (A501)", issue #20): '1' -> SS=01 (the classic A501
+--        trapdoor expansion is present), '0' -> SS=00 (chip-RAM-only A500). With SS=00 gary
+--        never selects the slow bank, so the slow BRAM lanes in mega65.vhd are simply never
+--        addressed, and $C00000-$D7FFFF falls through to sel_reg = the custom chip register
+--        mirror (gary.v:171) - exactly like a real A500 without the trapdoor RAM. Some
+--        programs (e.g. Rogue) require this configuration. The RTC at $DC0000 (sel_rtc)
+--        stays mapped either way; on real hardware it came with the A501, but minimig (like
+--        MiSTer) decodes it independent of the memory config.
 --   FF = fast RAM size, memory_config[5:4]: 00 = none.
 --   H  = HRTmon enable, memory_config[6]: 0.
---   => payload 0x0004. This is MANDATORY: the power-on default t_memory_config is
---   8'b0_0_00_01_01 (userio.v:391) which means 1MB chip + 512KB slow - NOT our hardware layout.
+--   => payload 0x0004 (0x0000 with slow RAM disabled; bit 2 is overridden at send time from
+--   the slow_ram_i sample). Sending this command is MANDATORY: the power-on default
+--   t_memory_config is 8'b0_0_00_01_01 (userio.v:391) which means 1MB chip + 512KB slow -
+--   NOT our hardware layout.
 --
 -- =======================================================================================================
 -- The reset/latching window - why the sequence below is guaranteed to take effect
@@ -142,6 +153,11 @@ entity amiga_config is
       clk_main_i       : in  std_logic;                     -- 28.375 MHz core clock (= minimig clk)
       reset_i          : in  std_logic;                     -- M2M core reset, active high, synchronous
 
+      -- '1' = 512KB Slow RAM at $C00000 (A501), '0' = none. Static OSM bit; sampled while
+      -- reset_i is active, so the whole sequence uses one consistent value and a change
+      -- takes effect on the next core reset (the firmware soft-resets on toggle).
+      slow_ram_i       : in  std_logic;
+
       -- Minimig host/userio port (minimig.v:214-218)
       io_uio_o         : out std_logic;                     -- minimig IO_UIO  (userio IO_ENA)
       io_strobe_o      : out std_logic;                     -- minimig IO_STROBE, 1 clk per word
@@ -169,7 +185,10 @@ architecture synthesis of amiga_config is
       1 => (cmd => x"F3", payload => x"0000"),  -- chipset "XXXGEANT" = 0: OCS, A500 (not A1000), PAL
       2 => (cmd => x"F4", payload => x"0000"),  -- cpu "XXXXKCTT" = 0: 68000, no cache, no fast-kick
       3 => (cmd => x"F5", payload => x"0004"),  -- memory "XHFFSSCC" = 0x04: 512K chip, 512K slow,
-                                                --   0 fast, no HRTmon (default 0x05 = 1M chip!)
+                                                --   0 fast, no HRTmon (default 0x05 = 1M chip!).
+                                                --   Bit 2 (SS[0], the 512K slow RAM) is
+                                                --   overridden at send time by slow_ram_q,
+                                                --   see C_IDX_MEMCFG below
       4 => (cmd => x"F6", payload => x"0000"),  -- video: blver=0 (Agnus hbl), ar=0, scanline=0
       5 => (cmd => x"F7", payload => x"0000"),  -- floppy: 1 drive (floppy_config[3:2]=00), normal speed
       6 => (cmd => x"F8", payload => x"0000"),  -- harddisk: no IDE controller, no master/slave HDD
@@ -204,9 +223,16 @@ architecture synthesis of amiga_config is
       end if;
    end function f_max;
 
+   -- index of the 0xF5 memory-config entry in C_SEQ: its payload bit 2 (SS[0] = 512KB
+   -- slow RAM) is not taken from the constant but from slow_ram_q (OSM toggle, issue #20)
+   constant C_IDX_MEMCFG : natural := 3;
+
    signal state : t_state := ST_RESET;
    signal idx   : natural range 0 to C_SEQ'high := 0;                         -- current transfer
    signal cnt   : natural range 0 to f_max(G_START_DELAY, G_STEP_DELAY) := 0; -- pacing down-counter
+
+   -- slow_ram_i sampled during ST_RESET: one consistent value for the whole sequence
+   signal slow_ram_q : std_logic := '1';
 
 begin
 
@@ -227,6 +253,7 @@ begin
                cpu_reset_done_o <= '0';
                idx              <= 0;
                cnt              <= G_START_DELAY;
+               slow_ram_q       <= slow_ram_i;    -- freezes when reset_i releases
                if reset_i = '0' then
                   state <= ST_START_WAIT;
                end if;
@@ -269,6 +296,9 @@ begin
             -- after the pacing delay issue the payload strobe (latched at bcnt=0, userio.v:456-468)
             when ST_PAYLOAD =>
                io_din_o <= C_SEQ(idx).payload;
+               if idx = C_IDX_MEMCFG then
+                  io_din_o(2) <= slow_ram_q;      -- SS[0]: '1' = 512KB slow RAM, '0' = none
+               end if;
                if cnt /= 0 then
                   cnt <= cnt - 1;
                elsif io_wait_i = '0' then

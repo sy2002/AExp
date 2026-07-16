@@ -108,6 +108,11 @@ entity main is
       -- (semantic "cap is law"; default). Static OSM bit, see keyboard.vhd.
       keyboard_mode_i         : in  std_logic;
 
+      -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present
+      -- (default), '0' = chip-RAM-only A500. Static OSM bit, sampled by amiga_config
+      -- while the Amiga is in reset and encoded in the replayed userio memory config.
+      slow_ram_i              : in  std_logic;
+
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
       joy_1_down_n_i          : in  std_logic;
@@ -523,14 +528,15 @@ begin
 
    ---------------------------------------------------------------------------
    -- Host configuration FSM: replays MiSTer's HPS startup configuration
-   -- (OCS-A500 PAL, 68000, 512KB chip + 512KB slow, 1 floppy, no IDE)
-   -- via minimig's userio protocol after every reset
+   -- (OCS-A500 PAL, 68000, 512KB chip + OSM-selectable 512KB slow, 1 floppy,
+   -- no IDE) via minimig's userio protocol after every reset
    ---------------------------------------------------------------------------
 
    i_amiga_config : entity work.amiga_config
       port map (
          clk_main_i       => clk_main_i,
          reset_i          => amiga_rst,
+         slow_ram_i       => slow_ram_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,

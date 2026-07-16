@@ -279,6 +279,33 @@ PREP_START      INCRB
                 DECRB
                 RET
 
+; RESET_CORE helper:
+;
+; Pulses M2M$CSR bit 0 ("Reset the MiSTer core") wide enough to be seen in
+; the core clock domain. A bare OR/AND pair would only be a few QNICE cycles
+; wide; after the 2-stage CDC in framework.vhd the pulse must still cover a
+; clk7_en tick of minimig_syscontrol.v, which samples the external reset at
+; 7 MHz. The delay loop widens the pulse into the microsecond range,
+; comfortably above that floor.
+;
+; Semantics: soft reset of the Amiga only (reset_soft_i OR-ed into amiga_rst
+; in main.vhd): minimig reboots and amiga_config.vhd replays the userio
+; config sequence, re-sampling the Slow RAM toggle. The AV pipeline, the
+; HyperRAM content and a mounted ADF stay untouched; the track engine
+; re-announces the mounted disk after the reset.
+;
+; Input:  none
+; Output: none (callers do their own R8/R9 = 0/0 if needed)
+RESET_CORE      INCRB
+                MOVE    M2M$CSR, R0
+                OR      M2M$CSR_RESET, @R0      ; assert soft reset
+                MOVE    64, R1                  ; widen the pulse
+_RC_DELAY       SUB     1, R1
+                RBRA    _RC_DELAY, !Z
+                AND     M2M$CSR_UN_RESET, @R0   ; release soft reset
+                DECRB
+                RET
+
 ; OSM_SEL_POST callback function:
 ;
 ; Called each time the user selects something in the on-screen-menu (OSM),
@@ -328,7 +355,7 @@ OSM_SEL_POST    INCRB
                 ; serves the menu synchronously -- then repaint the original
                 ; label with no "=" checkmark left behind.
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
-                RBRA    _OSM_SEL_POST_R, !Z
+                RBRA    _OSM_SP_SLOW, !Z
 
                 ; Paint the "loading" label. OPTM_CUR_SEL is the flat index of
                 ; the highlighted item; the menu is flat-indexed but on-screen
@@ -386,6 +413,18 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
                 MOVE    @R8, R8
                 MOVE    OPTM_SEL_SEL, R9
                 RSUB    OPTM_SELECT, 1
+                RBRA    _OSM_SEL_POST_R, 1
+
+                ; "Slow RAM (A501)" toggled (issue #20): the new memory layout
+                ; only becomes active when amiga_config.vhd replays the userio
+                ; memory config, and that replay runs after every core reset.
+                ; The framework has already written the new menu bit into
+                ; M2M$CFM_DATA before this callback runs, so an auto soft
+                ; reset makes the toggle take effect immediately - same UX as
+                ; the Kernal/REU switches of C64MEGA65.
+_OSM_SP_SLOW    CMP     AEXP_OPTM_G_SLOWRAM, R8
+                RBRA    _OSM_SEL_POST_R, !Z
+                RSUB    RESET_CORE, 1
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
@@ -1815,21 +1854,21 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The On-Screen-Menu uses the heap for several data structures. This heap
 ; is located before the main system heap in memory.
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
-; Example: If your HEAP_SIZE would be 30208, then you write 30208-1152=29056
+; Example: If your HEAP_SIZE would be 30208, then you write 30208-1280=28928
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
-; WIP-V1-A10 increased OPTM_SIZE from 58 to 72 and added a fifth submenu.
-; The former 1024-word reservation left the dynamically calculated OPTM_HEAP
-; 0x72 words short on hardware: the 72 items, 726-character string, 19-word
-; structure and three per-item arrays use 963 words, leaving 61; five submenus,
-; one manual ROM and one scratch buffer need 7 x (OPTM_DX + 2) = 7 x 25 = 175;
-; 175 - 61 = 114 = 0x72. Total demand is 1138 words, so round up to the next
-; 128-word boundary: 1152 words, leaving 14 words headroom. Do not reserve a
+; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
+; LOG_HEAP2): the 74 menu items are a 746-character string plus the 19-word
+; menu structure plus three per-item arrays = 19 + 746 + 1 + 3 x 74 + 1 =
+; 989 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; per submenu (5), manual ROM (1) and vdrive (0) plus one scratch buffer =
+; 7 x 25 = 175 words. Total demand is 1164 words, rounded up to the next
+; 128-word boundary: 1280 words, leaving 116 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
 ; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/manual-ROM
 ; counts grow, recalculate both budgets and rebalance the HEAP_SIZE constants
 ; below by the same delta.
-MENU_HEAP_SIZE  .EQU 1152
+MENU_HEAP_SIZE  .EQU 1280
 
 #ifndef RELEASE
 
@@ -1837,13 +1876,13 @@ MENU_HEAP_SIZE  .EQU 1152
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 6016                       ; 7168 - 1152 = 6016
+HEAP_SIZE       .EQU 5888                       ; 7168 - 1280 = 5888
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 29056                      ; 30208 - 1152 = 29056
+HEAP_SIZE       .EQU 28928                      ; 30208 - 1280 = 28928
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

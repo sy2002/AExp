@@ -82,7 +82,17 @@ the deep material lives in `doc/` (see "Key documents").
   cycle-exact)
 - 512 KB Chip RAM ($000000–$07FFFF) + 512 KB Slow RAM ($C00000–$C7FFFF,
   the "trapdoor" expansion) + 256 KB Kickstart 1.3 — **all in FPGA BRAM**,
-  no SDRAM involved (R3 has none; R4+ SDRAM is unused)
+  no SDRAM involved (R3 has none; R4+ SDRAM is unused). The Slow RAM is
+  OSM-switchable: "Slow RAM (A501)" toggle, default on (issue #20, for
+  programs like Rogue that break with expansion RAM; **implemented
+  2026-07-16, NOT yet synthesized/HW-tested**). The toggle drives
+  `slow_ram_i` → `amiga_config.vhd`, which sets userio 0xF5 payload bit 2
+  (SS[0]); the firmware auto-soft-resets on toggle (`RESET_CORE` in
+  `OSM_SEL_POST`) so the replayed config takes effect at once. With slow
+  RAM off, minimig decodes $C00000+ as the custom-register mirror
+  (authentic chip-only A500); the RTC at $DC0000 stays mapped (deliberate,
+  matches MiSTer). The slow BRAM stays instantiated either way (no BRAM
+  delta).
 - Kickstart is loaded from SD card at boot: `/amiga/kick.rom` (raw 256 KB
   dump, big-endian, no byte swapping), **mandatory** — missing file =
   fatal error screen, core never starts (`C_CRTROMTYPE_MANDATORY` in
@@ -254,15 +264,18 @@ the deep material lives in `doc/` (see "Key documents").
     every extra word directly reduces
     file-browser capacity (a file entry costs three list words plus its name,
     terminator and directory flag). Round the calculated demand only to the
-    next 128-word boundary, not to a large power of two. WIP-V1-A10 needs
-    exactly 1138 words after its 58→72 item, four→five submenu expansion
-    exposed a 0x72-word shortfall; it therefore uses 1152 words, only 128 more
-    than A9, with 14 words deterministic headroom. For release, AExp follows
-    the C64 total of 30208 words: with `HEAP=0x8220` and stack start `0xFEE0`,
-    1728 stack words remain versus 1536 required. This makes the A10
-    file-browser heap 29056 words, 384 more than A9 despite the larger menu.
-    Recheck both live heap budgets and the `HEAP`/`VAR$STACK_START` symbols in
-    `m2m-rom.lis` manually whenever the menu or firmware variables grow.
+    next 128-word boundary, not to a large power of two. The exact demand
+    formula (from `HELP_MENU` in `M2M/rom/options.asm`): 19 (menu struct) +
+    `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 3 ×
+    `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
+    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V1-A11 with the 74-item menu
+    (issue #20 added the Slow RAM toggle + one line, 72→74) needs exactly
+    1164 words and uses `MENU_HEAP_SIZE` 1280, headroom 116. For release,
+    AExp follows the C64 total of 30208 words: with `HEAP=0x8220` and stack
+    start `0xFEE0`, 1728 stack words remain versus 1536 required; the
+    file-browser heap is 28928 words. Recheck both live heap budgets and the
+    `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually whenever the
+    menu or firmware variables grow.
 
 ## Build & verification workflow
 

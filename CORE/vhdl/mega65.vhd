@@ -419,6 +419,13 @@ constant C_MENU_OSMKEY_F11    : natural := 63;
 constant C_MENU_OSMKEY_F13    : natural := 64;
 constant C_MENU_OSMKEY_COMBO  : natural := 65;
 
+-- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
+-- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
+-- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
+-- config (command 0xF5) replayed after every core reset; the firmware auto-soft-
+-- resets on toggle (OSM_SEL_POST in m2m-rom.asm) so a change takes effect at once.
+constant C_MENU_SLOWRAM       : natural := 69;
+
 begin
 
    -- hr_core_* is driven by the 2-master HyperRAM arbiter at the bottom of this
@@ -605,6 +612,11 @@ begin
          -- Static OSM bit in the core clock domain, wired straight through to keyboard.vhd
          -- (like video_retro15khz_i above).
          keyboard_mode_i      => main_osm_control_i(C_MENU_KBD_AMIGA),
+
+         -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present.
+         -- Sampled by amiga_config.vhd while the core is in reset, so it takes effect on
+         -- the next core reset (the firmware auto-soft-resets when the item is toggled).
+         slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
