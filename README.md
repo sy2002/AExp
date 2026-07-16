@@ -35,7 +35,9 @@ Features
 
 * Amiga 500, OCS chipset, PAL
 * Cycle accurate 68000 CPU
-* 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in total
+* 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
+  total; the Slow RAM can be switched off in the menu for the few games
+  that need a chip-RAM-only A500
 * One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
   via the on-screen-menu, read and write
 * Kickstart 1.3
@@ -60,6 +62,21 @@ as a raw dump of exactly 256 KB (262,144 bytes), no byte swapping. Without
 this file the core stops with an error message. Kickstart is copyrighted
 software, so it is not part of this repository or of any release; you need
 to obtain a legal copy yourself, for example from Cloanto's Amiga Forever.
+
+### Slow RAM (A501)
+
+A small number of programs — typically early games — do not work correctly
+on an Amiga that has expansion RAM: they place their graphics in the
+expansion memory, which the Amiga's custom chips cannot display. **Rogue**
+is a well-known example: with Slow RAM switched on it fails to draw the
+dungeon and the player. On a real A500 the fix was to pull the trapdoor
+card out of the machine; here it is a menu item. Open the menu with
+<kbd>Help</kbd> and deselect **Slow RAM (A501)**: the Amiga automatically
+reboots as a 512 KB chip-RAM-only A500, authentic down to the detail that
+the expansion memory area behaves exactly like on a machine without the
+trapdoor card. The setting is remembered, so switch it back on for
+software that wants the full 1 MB. The battery-backed real-time clock —
+on real hardware a part of the A501 — stays available either way.
 
 ### Floppy disks
 
@@ -281,6 +298,15 @@ On a 15 kHz CRT you get the most authentic Amiga picture possible:
 interlace is displayed natively by the tube (no flicker fixer needed) and
 the intentional flicker effects of demos melt on the phosphor exactly as
 their authors intended.
+
+For how to connect real CRT monitors — BNC, SCART and DB9 RGB, including
+important safety cautions — see [doc/retrotubes.md](doc/retrotubes.md).
+
+The on-screen menu is oversized in both raw 15 kHz modes. Open the
+**`OSM: 100%`** menu entry (the percentage changes with your selection) and
+choose a smaller size, down to 50%, until the menu fits your display
+comfortably. This changes only the menu, not the Amiga picture. The setting
+is global, so it also changes the menu size on HDMI and in Standard VGA mode.
 
 Careful: a regular VGA monitor shows **no picture at all** in the 15 kHz
 modes — including the on-screen-menu. If you locked yourself out, connect

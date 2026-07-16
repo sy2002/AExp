@@ -55,6 +55,7 @@ PREFERRED_NAVIGATION = (
             ("Mouse and joystick", "doc/mouse.md"),
             ("Keyboard mappings", "doc/keyboard.md"),
             ("Video modes", "doc/video_modes.md"),
+            ("Retro CRT monitors", "doc/retrotubes.md"),
             ("Screen adjustment", "doc/screen_adjust.md"),
             ("Real-time clock", "doc/RTC.md"),
         ),
