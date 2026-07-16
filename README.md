@@ -112,12 +112,13 @@ So what works depends on what you plug in:
 | What you use                                                        | Move + left button | Right / middle buttons                    |
 |---------------------------------------------------------------------|--------------------|-------------------------------------------|
 | Original Amiga "tank" mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
-| Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                |
-| Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                |
-| Faithful Tank Mouse replica that *actively drives* the line         | Yes                | Yes                                |
-| mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                             |
-| Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)         |
-| Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)         |
+| Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                       |
+| Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                       |
+| Alfa Data MegaMouse 400                                             | Yes                | Yes                                       |
+| Faithful Tank Mouse replica that *actively drives* the line         | Yes                | Yes                                       |
+| mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                                    |
+| Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)                |
+| Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)                |
 
 (*) Note on the mouSTer: it emulates a real tank mouse so faithfully that it
 inherits the exact same limitation. Therefore you need to
