@@ -67,7 +67,8 @@ architecture synthesis of vga_osm is
    -- ceil(2^15 * 256 / (16-S)).  With |delta| <= 2047 the multiply/shift below
    -- is exactly equal to trunc(delta * 256 / (16-S)), including all character
    -- boundaries, while retaining four fractional source-pixel bits.
-   type reciprocal_t is array (0 to 8) of integer;
+   subtype reciprocal_value_t is integer range 0 to 1048576;
+   type reciprocal_t is array (0 to 8) of reciprocal_value_t;
    constant C_RECIP_Q15 : reciprocal_t := (
       524288,  -- 16 pixels = 100%
       559241,  -- 15 pixels =  94%
@@ -80,56 +81,62 @@ architecture synthesis of vga_osm is
      1048576   --  8 pixels =  50%
    );
 
+   constant C_PRODUCT_MAX : integer := 2047 * 1048576;
+
    type stage_t is record
-      vga_col             : integer range 0 to 2047;
-      vga_row             : integer range 0 to 2047;
-      vga_osm_cfg_scaling : integer range 0 to 8;
-      vga_osm_cfg_r15kHz  : std_logic;
-      vga_osm_x1          : integer range 0 to 127;
-      vga_osm_x2          : integer range 0 to 127;
-      vga_osm_y1          : integer range 0 to 127;
-      vga_osm_y2          : integer range 0 to 127;
-      vga_pivot_x         : integer range 0 to 2047;
-      vga_pivot_y         : integer range 0 to 2047;
-      vga_col_q4          : integer range 0 to 32767;
-      vga_row_q4          : integer range 0 to 32767;
-      vga_coord_valid     : std_logic;
-      vga_char_x          : integer range 0 to 127;
-      vga_char_y          : integer range 0 to 127;
-      vga_native_x        : integer range 0 to 7;
-      vga_native_y        : integer range 0 to 7;
-      vga_frac_x          : integer range 0 to 15;
-      vga_frac_y          : integer range 0 to 15;
-      vga_osm_vram_addr   : std_logic_vector(15 downto 0);
-      vga_osm_vram_attr   : std_logic_vector( 7 downto 0);
-      vga_osm_on          : std_logic;
-      vga_osm_rgb         : std_logic_vector(23 downto 0);
+      vga_osm_cfg_scaling  : integer range 0 to 8;
+      vga_osm_cfg_r15kHz   : std_logic;
+      vga_osm_x1           : integer range 0 to 127;
+      vga_osm_x2           : integer range 0 to 127;
+      vga_osm_y1           : integer range 0 to 127;
+      vga_osm_y2           : integer range 0 to 127;
+      vga_pivot_x          : integer range 0 to 2047;
+      vga_pivot_y          : integer range 0 to 2047;
+      vga_delta_x_negative  : std_logic;
+      vga_delta_y_negative  : std_logic;
+      vga_delta_x_magnitude : integer range 0 to 2047;
+      vga_delta_y_magnitude : integer range 0 to 2047;
+      vga_scaled_x_product  : integer range 0 to C_PRODUCT_MAX;
+      vga_scaled_y_product  : integer range 0 to C_PRODUCT_MAX;
+      vga_coord_valid      : std_logic;
+      vga_char_x           : integer range 0 to 127;
+      vga_char_y           : integer range 0 to 127;
+      vga_native_x         : integer range 0 to 7;
+      vga_native_y         : integer range 0 to 7;
+      vga_frac_x           : integer range 0 to 15;
+      vga_frac_y           : integer range 0 to 15;
+      vga_osm_vram_addr    : std_logic_vector(15 downto 0);
+      vga_osm_vram_attr    : std_logic_vector( 7 downto 0);
+      vga_osm_on           : std_logic;
+      vga_osm_rgb          : std_logic_vector(23 downto 0);
    end record stage_t;
 
    constant STATE_INIT : stage_t := (
-      vga_col             => 0,
-      vga_row             => 0,
-      vga_osm_cfg_scaling => 0,
-      vga_osm_cfg_r15kHz  => '0',
-      vga_osm_x1          => 0,
-      vga_osm_x2          => 0,
-      vga_osm_y1          => 0,
-      vga_osm_y2          => 0,
-      vga_pivot_x         => 0,
-      vga_pivot_y         => 0,
-      vga_col_q4          => 0,
-      vga_row_q4          => 0,
-      vga_coord_valid     => '0',
-      vga_char_x          => 0,
-      vga_char_y          => 0,
-      vga_native_x        => 0,
-      vga_native_y        => 0,
-      vga_frac_x          => 0,
-      vga_frac_y          => 0,
-      vga_osm_vram_addr   => X"0000",
-      vga_osm_vram_attr   => X"00",
-      vga_osm_on          => '0',
-      vga_osm_rgb         => X"000000"
+      vga_osm_cfg_scaling  => 0,
+      vga_osm_cfg_r15kHz   => '0',
+      vga_osm_x1           => 0,
+      vga_osm_x2           => 0,
+      vga_osm_y1           => 0,
+      vga_osm_y2           => 0,
+      vga_pivot_x          => 0,
+      vga_pivot_y          => 0,
+      vga_delta_x_negative  => '0',
+      vga_delta_y_negative  => '0',
+      vga_delta_x_magnitude => 0,
+      vga_delta_y_magnitude => 0,
+      vga_scaled_x_product  => 0,
+      vga_scaled_y_product  => 0,
+      vga_coord_valid      => '0',
+      vga_char_x           => 0,
+      vga_char_y           => 0,
+      vga_native_x         => 0,
+      vga_native_y         => 0,
+      vga_frac_x           => 0,
+      vga_frac_y           => 0,
+      vga_osm_vram_addr    => X"0000",
+      vga_osm_vram_attr    => X"00",
+      vga_osm_on           => '0',
+      vga_osm_rgb          => X"000000"
    );
 
    signal stage1 : stage_t := STATE_INIT;
@@ -145,34 +152,6 @@ architecture synthesis of vga_osm is
    signal stage5_vga_osm_vram_attr   : std_logic_vector(7 downto 0);
    signal stage6_vga_osm_font_data_a : std_logic_vector(C_NATIVE_FONT_DX-1 downto 0);
    signal stage6_vga_osm_font_data_b : std_logic_vector(C_NATIVE_FONT_DX-1 downto 0);
-
-   -- Return the source coordinate in Q4 legacy-16x16 pixel units.  The old
-   -- scaling pivot (window width/height divided by two, independent of XY) is
-   -- deliberately retained, so only the nine scale ratios change.
-   pure function scale_coordinate_q4(coord: integer;
-                                     pivot: integer;
-                                     scaling: integer) return integer is
-      variable delta     : integer;
-      variable magnitude : integer;
-      variable quotient  : integer;
-   begin
-      if scaling = 0 then
-         return coord * 16;
-      end if;
-
-      delta     := coord - pivot;
-      if delta < 0 then
-         magnitude := -delta;
-      else
-         magnitude := delta;
-      end if;
-      quotient  := (magnitude * C_RECIP_Q15(scaling)) / 32768;
-      if delta < 0 then
-         return pivot * 16 - quotient;
-      else
-         return pivot * 16 + quotient;
-      end if;
-   end function scale_coordinate_q4;
 
    pure function clamp_q4(value: integer; limit: integer) return integer is
    begin
@@ -258,7 +237,7 @@ begin
       severity failure;
 
    -----------
-   -- Stage 1: Capture window geometry and the legacy scaling pivot.
+   -- Stage 1: Capture geometry and register distance from the scaling pivot.
    -----------
 
    p_stage1 : process (clk_i)
@@ -266,70 +245,110 @@ begin
       variable vga_osm_y  : integer range 0 to 127;
       variable vga_osm_dx : integer range 0 to 127;
       variable vga_osm_dy : integer range 0 to 127;
+      variable pivot_x    : integer range 0 to 2047;
+      variable pivot_y    : integer range 0 to 2047;
+      variable delta_x    : integer range -2047 to 2047;
+      variable delta_y    : integer range -2047 to 2047;
    begin
       if rising_edge(clk_i) then
          vga_osm_x  := to_integer(vga_osm_cfg_xy_i(15 downto 8));
          vga_osm_y  := to_integer(vga_osm_cfg_xy_i(7 downto 0));
          vga_osm_dx := to_integer(vga_osm_cfg_dxdy_i(15 downto 8));
          vga_osm_dy := to_integer(vga_osm_cfg_dxdy_i(7 downto 0));
+         pivot_x    := vga_osm_dx * G_FONT_DX / 2;
+         pivot_y    := vga_osm_dy * G_FONT_DY / 2;
+         delta_x    := vga_col_i - pivot_x;
+         delta_y    := vga_row_i - pivot_y;
 
          stage1.vga_osm_x1          <= vga_osm_x;
          stage1.vga_osm_y1          <= vga_osm_y;
          stage1.vga_osm_x2          <= vga_osm_x + vga_osm_dx;
          stage1.vga_osm_y2          <= vga_osm_y + vga_osm_dy;
-         stage1.vga_col             <= vga_col_i;
-         stage1.vga_row             <= vga_row_i;
-         stage1.vga_pivot_x         <= vga_osm_dx * G_FONT_DX / 2;
-         stage1.vga_pivot_y         <= vga_osm_dy * G_FONT_DY / 2;
+         stage1.vga_pivot_x         <= pivot_x;
+         stage1.vga_pivot_y         <= pivot_y;
          stage1.vga_osm_cfg_scaling <= vga_osm_cfg_scaling_i;
          stage1.vga_osm_cfg_r15kHz  <= vga_osm_cfg_r15kHz_i;
+
+         if delta_x < 0 then
+            stage1.vga_delta_x_negative  <= '1';
+            stage1.vga_delta_x_magnitude <= -delta_x;
+         else
+            stage1.vga_delta_x_negative  <= '0';
+            stage1.vga_delta_x_magnitude <= delta_x;
+         end if;
+
+         if delta_y < 0 then
+            stage1.vga_delta_y_negative  <= '1';
+            stage1.vga_delta_y_magnitude <= -delta_y;
+         else
+            stage1.vga_delta_y_negative  <= '0';
+            stage1.vga_delta_y_magnitude <= delta_y;
+         end if;
       end if;
    end process p_stage1;
 
    -----------
-   -- Stage 2: Scale into the legacy 16x16 canvas, retaining Q4 phase.
+   -- Stage 2: Registered 11x21-bit reciprocal products.  Keeping the DSP
+   -- multiply alone in this stage is required for the 74.25 MHz HDMI path.
    -----------
 
    p_stage2 : process (clk_i)
-      variable col_q4 : integer;
-      variable row_q4 : integer;
    begin
       if rising_edge(clk_i) then
          stage2 <= stage1;
-         col_q4 := scale_coordinate_q4(stage1.vga_col, stage1.vga_pivot_x,
-                                       stage1.vga_osm_cfg_scaling);
-         row_q4 := scale_coordinate_q4(stage1.vga_row, stage1.vga_pivot_y,
-                                       stage1.vga_osm_cfg_scaling);
-
-         stage2.vga_col_q4      <= clamp_q4(col_q4, C_Q4_X_MAX);
-         stage2.vga_row_q4      <= clamp_q4(row_q4, C_Q4_Y_MAX);
-         stage2.vga_coord_valid <= '0';
-         if col_q4 >= 0 and col_q4 <= C_Q4_X_MAX and
-            row_q4 >= 0 and row_q4 <= C_Q4_Y_MAX
-         then
-            stage2.vga_coord_valid <= '1';
-         end if;
+         stage2.vga_scaled_x_product <=
+            stage1.vga_delta_x_magnitude * C_RECIP_Q15(stage1.vga_osm_cfg_scaling);
+         stage2.vga_scaled_y_product <=
+            stage1.vga_delta_y_magnitude * C_RECIP_Q15(stage1.vga_osm_cfg_scaling);
       end if;
    end process p_stage2;
 
    -----------
-   -- Stage 3: Decode character, native glyph pixel and fractional phase.
+   -- Stage 3: Restore sign/pivot, clamp, and decode character/native phase.
    -----------
 
    p_stage3 : process (clk_i)
-      variable local_x_q4 : integer range 0 to 255;
-      variable local_y_q4 : integer range 0 to 255;
+      variable quotient_x   : integer range 0 to 65535;
+      variable quotient_y   : integer range 0 to 65535;
+      variable col_q4       : integer;
+      variable row_q4       : integer;
+      variable clamped_x    : integer range 0 to C_Q4_X_MAX;
+      variable clamped_y    : integer range 0 to C_Q4_Y_MAX;
+      variable local_x_q4   : integer range 0 to 255;
+      variable local_y_q4   : integer range 0 to 255;
       variable native_x_q4 : integer range 0 to 127;
       variable native_y_q4 : integer range 0 to 127;
    begin
       if rising_edge(clk_i) then
          stage3 <= stage2;
 
-         stage3.vga_char_x <= stage2.vga_col_q4 / 256;
-         stage3.vga_char_y <= stage2.vga_row_q4 / 256;
+         quotient_x := stage2.vga_scaled_x_product / 32768;
+         quotient_y := stage2.vga_scaled_y_product / 32768;
+         if stage2.vga_delta_x_negative = '1' then
+            col_q4 := stage2.vga_pivot_x * 16 - quotient_x;
+         else
+            col_q4 := stage2.vga_pivot_x * 16 + quotient_x;
+         end if;
+         if stage2.vga_delta_y_negative = '1' then
+            row_q4 := stage2.vga_pivot_y * 16 - quotient_y;
+         else
+            row_q4 := stage2.vga_pivot_y * 16 + quotient_y;
+         end if;
 
-         local_x_q4  := stage2.vga_col_q4 mod 256;
-         local_y_q4  := stage2.vga_row_q4 mod 256;
+         clamped_x := clamp_q4(col_q4, C_Q4_X_MAX);
+         clamped_y := clamp_q4(row_q4, C_Q4_Y_MAX);
+         stage3.vga_coord_valid <= '0';
+         if col_q4 >= 0 and col_q4 <= C_Q4_X_MAX and
+            row_q4 >= 0 and row_q4 <= C_Q4_Y_MAX
+         then
+            stage3.vga_coord_valid <= '1';
+         end if;
+
+         stage3.vga_char_x <= clamped_x / 256;
+         stage3.vga_char_y <= clamped_y / 256;
+
+         local_x_q4  := clamped_x mod 256;
+         local_y_q4  := clamped_y mod 256;
          native_x_q4 := local_x_q4 / 2;
          native_y_q4 := local_y_q4 / 2;
 
