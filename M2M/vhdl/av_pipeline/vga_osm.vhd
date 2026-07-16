@@ -197,28 +197,53 @@ architecture synthesis of vga_osm is
       end if;
    end function ink_value;
 
-   -- Both foreground and background use the same bright/dim attribute bit, so
-   -- a channel is either zero or one common brightness.  Keeping those cases
-   -- explicit lets synthesis turn the only products (x127/x255) into shifts
-   -- and subtracts instead of general RGB multipliers.
+   -- A horizontal two-tap row has only four possible ink patterns.  Expressing
+   -- them directly avoids building two conditional adders in the final stage.
+   pure function row_coverage(left_ink: integer;
+                              right_ink: integer;
+                              weight: integer) return integer is
+   begin
+      if left_ink = right_ink then
+         if left_ink = 1 then
+            return 16;
+         else
+            return 0;
+         end if;
+      elsif left_ink = 1 then
+         return 16 - weight;
+      else
+         return weight;
+      end if;
+   end function row_coverage;
+
+   type coverage_lut_t is array (0 to 16) of std_logic_vector(7 downto 0);
+
+   -- Exact values of round(brightness * coverage / 16).  A lookup removes the
+   -- x127/x255 shift/subtract carry chains from the font-to-RGB timing path.
+   constant C_COVERAGE_BRIGHT : coverage_lut_t := (
+      x"00", x"10", x"20", x"30", x"40", x"50", x"60", x"70", x"80",
+      x"8F", x"9F", x"AF", x"BF", x"CF", x"DF", x"EF", x"FF"
+   );
+   constant C_COVERAGE_DIM : coverage_lut_t := (
+      x"00", x"08", x"10", x"18", x"20", x"28", x"30", x"38", x"40",
+      x"47", x"4F", x"57", x"5F", x"67", x"6F", x"77", x"7F"
+   );
+
    pure function blend_channel(fg_on: std_logic;
                                bg_on: std_logic;
                                dim: std_logic;
-                               alpha: integer) return integer is
-      variable brightness : integer;
-      variable amount     : integer;
+                               alpha: integer) return std_logic_vector is
+      variable amount : integer range 0 to 16;
    begin
-      if dim = '0' then
-         brightness := 255;
-      else
-         brightness := 127;
-      end if;
-
       if fg_on = bg_on then
          if fg_on = '1' then
-            return brightness;
+            if dim = '0' then
+               return x"FF";
+            else
+               return x"7F";
+            end if;
          else
-            return 0;
+            return x"00";
          end if;
       end if;
 
@@ -227,7 +252,12 @@ architecture synthesis of vga_osm is
       else
          amount := 16 - alpha;
       end if;
-      return (brightness * amount + 8) / 16;
+
+      if dim = '0' then
+         return C_COVERAGE_BRIGHT(amount);
+      else
+         return C_COVERAGE_DIM(amount);
+      end if;
    end function blend_channel;
 
 begin
@@ -471,9 +501,9 @@ begin
       variable row_alpha_1  : integer range 0 to 16;
       variable alpha_sum    : integer range 0 to 256;
       variable alpha        : integer range 0 to 16;
-      variable red          : integer range 0 to 255;
-      variable green        : integer range 0 to 255;
-      variable blue         : integer range 0 to 255;
+      variable red          : std_logic_vector(7 downto 0);
+      variable green        : std_logic_vector(7 downto 0);
+      variable blue         : std_logic_vector(7 downto 0);
 
    begin
       if rising_edge(clk_i) then
@@ -516,12 +546,8 @@ begin
                             stage6.vga_osm_cfg_scaling * 8 + 4) / 8;
             end if;
 
-            row_alpha_0 := 0;
-            row_alpha_1 := 0;
-            if ink_00 = 1 then row_alpha_0 := row_alpha_0 + 16 - weight_x; end if;
-            if ink_10 = 1 then row_alpha_0 := row_alpha_0 + weight_x; end if;
-            if ink_01 = 1 then row_alpha_1 := row_alpha_1 + 16 - weight_x; end if;
-            if ink_11 = 1 then row_alpha_1 := row_alpha_1 + weight_x; end if;
+            row_alpha_0 := row_coverage(ink_00, ink_10, weight_x);
+            row_alpha_1 := row_coverage(ink_01, ink_11, weight_x);
 
             alpha_sum := row_alpha_0 * (16 - weight_y) + row_alpha_1 * weight_y;
             alpha     := (alpha_sum + 8) / 16;
@@ -535,9 +561,7 @@ begin
             blue  := blend_channel(stage6.vga_osm_vram_attr(0),
                                    stage6.vga_osm_vram_attr(3),
                                    stage6.vga_osm_vram_attr(6), alpha);
-            stage7.vga_osm_rgb <= std_logic_vector(to_unsigned(red, 8)) &
-                                  std_logic_vector(to_unsigned(green, 8)) &
-                                  std_logic_vector(to_unsigned(blue, 8));
+            stage7.vga_osm_rgb <= red & green & blue;
          end if;
 
          stage7.vga_osm_on <= '0';
