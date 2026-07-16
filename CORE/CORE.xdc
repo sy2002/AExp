@@ -39,8 +39,9 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_fast/CLKOUT0]
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here
 ## because M2M/common.xdc must not be modified - candidate for upstreaming).
 ##
-## ascal's input and output double buffers (ascal.vhd:344/449, LUTRAM with
-## ramstyle "no_rw_check") are ping-pong CDC FIFOs: i_dpram is written on
+## ascal's input and output double buffers (i_dpram/o_dpram, explicitly kept
+## in LUTRAM with ram_style="distributed") are ping-pong CDC FIFOs: i_dpram
+## is written on
 ## i_clk (= main_clk) and read on avl_clk (= hr_clk); o_dpram is written on
 ## avl_clk and read on o_clk (= hdmi_clk). The handshake registers are already
 ## cut by the false_path patterns in M2M/common.xdc:113-117, but those match

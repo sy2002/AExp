@@ -306,6 +306,7 @@ ARCHITECTURE rtl OF ascal IS
   TYPE arr_pix IS ARRAY (natural RANGE <>) OF type_pix;
   TYPE arr_pixq IS ARRAY(natural RANGE <>) OF arr_pix(0 TO 3);
   ATTRIBUTE ramstyle : string;
+  ATTRIBUTE ram_style : string;
   
   SUBTYPE uint12 IS natural RANGE 0 TO 4095;
   SUBTYPE uint13 IS natural RANGE 0 TO 8191;
@@ -350,6 +351,11 @@ ARCHITECTURE rtl OF ascal IS
   SIGNAL i_acpt : natural RANGE 0 TO 15;
   SIGNAL i_dpram : arr_dw(0 TO BLEN*2-1);
   ATTRIBUTE ramstyle OF i_dpram : SIGNAL IS "no_rw_check";
+  -- M2M-UPSTREAM osm-scale: These shallow asynchronous ping-pong buffers
+  -- must remain LUTRAM.  If Vivado's resource heuristic maps them to BRAM, it
+  -- consumes four precious RAMB36s and absorbs avl_dr into the BRAM output,
+  -- invalidating the CDC max-delay endpoints used by MEGA65 cores.
+  ATTRIBUTE ram_style OF i_dpram : SIGNAL IS "distributed";
   SIGNAL i_endframe0,i_endframe1,i_vss : std_logic;
   SIGNAL i_wad : natural RANGE  0 TO BLEN*2-1;
   SIGNAL i_dw : unsigned(N_DW-1 DOWNTO 0);
@@ -455,6 +461,7 @@ ARCHITECTURE rtl OF ascal IS
   SIGNAL o_reset_na : std_logic;
   SIGNAL o_dpram : arr_dw(0 TO BLEN*2-1);
   ATTRIBUTE ramstyle OF o_dpram : SIGNAL IS "no_rw_check";
+  ATTRIBUTE ram_style OF o_dpram : SIGNAL IS "distributed";
   SIGNAL o_line0,o_line1,o_line2,o_line3 : arr_pix(0 TO OHRES-1);
   ATTRIBUTE ramstyle OF o_line0 : SIGNAL IS "no_rw_check";
   ATTRIBUTE ramstyle OF o_line1 : SIGNAL IS "no_rw_check";

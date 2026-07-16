@@ -11,7 +11,8 @@ entity tdp_ram is
       DATA_WIDTH   : positive;
       ROM_PRELOAD  : boolean := false;
       ROM_FILE     : string  := "";
-      ROM_FILE_HEX : boolean := false
+      ROM_FILE_HEX : boolean := false;
+      RAM_STYLE_SELECT : string := "auto"
    );
    port (
       clock_a   : in  std_logic;
@@ -70,6 +71,12 @@ architecture synthesis of tdp_ram is
    signal ram           : t_ram := InitRAM(ROM_FILE);
    signal address_a_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
    signal address_b_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
+
+   -- M2M-UPSTREAM osm-scale: Allow a caller with known memory geometry to
+   -- override Vivado's global resource-pressure heuristic.  "auto" retains
+   -- the established behaviour for every existing caller.
+   attribute ram_style : string;
+   attribute ram_style of ram : signal is RAM_STYLE_SELECT;
 
 begin
 

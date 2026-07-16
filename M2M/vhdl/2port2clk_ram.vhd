@@ -18,6 +18,7 @@ entity dualport_2clk_ram is
        ROM_PRELOAD    : boolean := false;        -- Preload a ROM
        ROM_FILE       : string  := "";
        ROM_FILE_HEX   : boolean := false;        -- hexadecimal format (using hread) instead of binary format (using read)
+       RAM_STYLE_SELECT : string := "auto";      -- Vivado: "auto", "block" or "distributed"
        LATCH_ADDR_A   : boolean := false;        -- latch address a when "do_latch_addr_a" = '1'
        LATCH_ADDR_B   : boolean := false;        -- ditto address b
        FALLING_A      : boolean := false;        -- read/write on falling edge for clock a
@@ -106,7 +107,8 @@ begin
          DATA_WIDTH   => DATA_WIDTH,
          ROM_PRELOAD  => ROM_PRELOAD,
          ROM_FILE     => ROM_FILE,
-         ROM_FILE_HEX => ROM_FILE_HEX
+         ROM_FILE_HEX => ROM_FILE_HEX,
+         RAM_STYLE_SELECT => RAM_STYLE_SELECT
       )
       port map (
          clock_a   => clock_a xor to_stdlogic(FALLING_A),

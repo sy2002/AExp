@@ -394,7 +394,8 @@ begin
          DATA_WIDTH   => C_NATIVE_FONT_DX,
          ROM_PRELOAD  => true,
          ROM_FILE     => G_FONT_FILE,
-         ROM_FILE_HEX => false
+         ROM_FILE_HEX => false,
+         RAM_STYLE_SELECT => "block"
       )
       port map (
          clock_a         => clk_i,
