@@ -28,20 +28,29 @@ SCREEN_CONFIG_GLOB = "aexp_screen.cfg*"
 # The tool users run to create/edit those config files. Always required.
 SCREEN_TOOL = Path("aexp_screen_cfg.py")
 
-# Documentation included in a release. Keys are paths in the repository and
-# values are their paths in the release folder. Keeping this as one map lets
-# the Markdown link rewriter decide whether a relative link can stay local or
-# must point at the develop branch on GitHub.
+# Documentation copied into a release by this hook. Keys are paths in the
+# repository and values are their paths in the release folder. Keeping this as
+# one map lets the Markdown link rewriter decide whether a relative link can
+# stay local or must point at the develop branch on GitHub. Documentation
+# copied by make_release.py itself is added to that map separately below.
 RELEASE_DOCUMENTS = {
     Path("README.md"): Path("README.md"),
     Path("doc/keyboard.md"): Path("doc/keyboard.md"),
-    Path("doc/RTC.md"): Path("doc/RTC.md"),
+    Path("doc/retrotubes.md"): Path("doc/retrotubes.md"),
     Path("doc/screen_adjust.md"): Path("doc/screen_adjust.md"),
+    Path("doc/RTC.md"): Path("doc/RTC.md"),
+    Path("doc/developers.md"): Path("doc/developers.md"),
 }
 
 RELEASE_ASSETS = {
     Path("doc/assets/a500_ocs.jpg"): Path("doc/a500_ocs.jpg"),
     Path("doc/assets/keyboard.png"): Path("doc/keyboard.png"),
+    Path("doc/assets/vga-to-bnc.jpg"): Path("doc/vga-to-bnc.jpg"),
+    Path("doc/assets/bnc-connect.jpg"): Path("doc/bnc-connect.jpg"),
+    Path("doc/assets/vga-connect.jpg"): Path("doc/vga-connect.jpg"),
+    Path("doc/assets/bnc-example.jpg"): Path("doc/bnc-example.jpg"),
+    Path("doc/assets/vga-to-scart.jpg"): Path("doc/vga-to-scart.jpg"),
+    Path("doc/assets/db9-rgb-input.jpg"): Path("doc/db9-rgb-input.jpg"),
 }
 
 GITHUB_DEVELOP_BLOB = "https://github.com/sy2002/AExp/blob/develop/"
@@ -208,6 +217,13 @@ def after_package(ctx):
         source.as_posix(): destination.as_posix()
         for source, destination in (RELEASE_DOCUMENTS | RELEASE_ASSETS).items()
     }
+
+    # make_release.py already puts doc/inofficial.md at the release root for
+    # alpha and beta packages. Let README.md link to that copy when present;
+    # for stable releases, the normal GitHub-link fallback remains in effect.
+    inofficial = ctx.out / "inofficial.md"
+    if inofficial.is_file():
+        local_files["doc/inofficial.md"] = "inofficial.md"
 
     # make_release.py has already copied VERSIONS.md according to release.toml.
     # Rewrite it here so the packaged copy has a release-specific heading and
