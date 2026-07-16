@@ -114,8 +114,7 @@ So what works depends on what you plug in:
 | Original Amiga "tank" mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
 | Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                       |
 | Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                       |
-| Alfa Data MegaMouse 400                                             | Yes                | Yes                                       |
-| Faithful Tank Mouse replica that *actively drives* the line         | Yes                | Yes                                       |
+| Faithful Tank Mouse replica that *actively drives* the line (e.g. Alfa Data MegaMouse 400, Amitech Amiga Mouse, Amigakit Mouse)      | Yes                | Yes                                       |
 | mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                                    |
 | Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)                |
 | Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)                |
