@@ -1853,8 +1853,8 @@ HEAP            .BLOCK 1
 ; calculate the address). To see, if there is enough room for the stack
 ; given the HEAP_SIZE do this calculation: Add 30208 words to HEAP which
 ; is currently 0x8220 and subtract the result from 0xFEE0. This yields
-; 1728 stack words, 192 more than STACK_SIZE. check_menu_heap.py verifies
-; these assembled addresses after every ROM build.
+; 1728 stack words, 192 more than STACK_SIZE. Recheck the HEAP and
+; VAR$STACK_START addresses in m2m-rom.lis whenever variables are added.
 
                 .ORG    0xFEE0                  ; TODO: automate calculation
 #endif

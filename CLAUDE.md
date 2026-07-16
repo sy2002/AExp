@@ -257,14 +257,12 @@ the deep material lives in `doc/` (see "Key documents").
     next 128-word boundary, not to a large power of two. WIP-V1-A10 needs
     exactly 1138 words after its 58→72 item, four→five submenu expansion
     exposed a 0x72-word shortfall; it therefore uses 1152 words, only 128 more
-    than A9, with 14 words deterministic headroom. `make_rom.sh` runs
-    `check_menu_heap.py` to enforce both budgets, tight rounding, and the
-    matching debug/release `HEAP_SIZE` split before assembly. For release,
-    AExp follows the C64 total of 30208 words: with `HEAP=0x8220` and stack
-    start `0xFEE0`, 1728 stack words remain versus 1536 required. This makes
-    the A10 file-browser heap 29056 words, 384 more than A9 despite the larger
-    menu. A post-assembly check reads the actual listing addresses and fails
-    the ROM build if later variables erode the stack boundary.
+    than A9, with 14 words deterministic headroom. For release, AExp follows
+    the C64 total of 30208 words: with `HEAP=0x8220` and stack start `0xFEE0`,
+    1728 stack words remain versus 1536 required. This makes the A10
+    file-browser heap 29056 words, 384 more than A9 despite the larger menu.
+    Recheck both live heap budgets and the `HEAP`/`VAR$STACK_START` symbols in
+    `m2m-rom.lis` manually whenever the menu or firmware variables grow.
 
 ## Build & verification workflow
 
@@ -286,6 +284,15 @@ the deep material lives in `doc/` (see "Key documents").
   m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
   m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
   produce a `.def`-identical ROM vs the VM build).
+- **Headless QNICE menu regression**: `M2M/rom/menu_percent_test.asm` runs
+  the real `OPTM_SHOW` scanner and guards the C64 `%`-at-end-of-label fix.
+  The QNICE snapshot pinned here predates multi-image `-b` mode, even when
+  rebuilt; use a current batch-capable QNICE emulator externally (the C64
+  repository has one) without importing that emulator feature. Assemble the
+  test with the native/VM assembler, then run `$QNICE_HEADLESS -b 0x8000
+  M2M/QNICE/monitor/monitor.out M2M/rom/menu_percent_test.out`. Expected:
+  `PASS: percentage labels preserve later %s indices`. Run this after every
+  change to `M2M/rom/menu.asm` or percentage-bearing `OPTM_ITEMS` labels.
 - **Local static checks before any Vivado round-trip** (installed:
   nvc 1.21, ghdl 5.1, iverilog): analyze all CORE VHDL with
   `nvc --std=2008` in dependency order (M2M packages first: tools.vhd,
