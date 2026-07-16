@@ -22,9 +22,36 @@ Workflow: How to generate a font
    `psf2inc` and copy/paste the beginning and end of `Anikki-16x16-m2m.h` to
    your own `*.h` file.
 
-6. Copy, rename and modify `Anikki-16x16-m2m.c` to fit the needs of your font.
+6. Copy, rename and modify `Anikki-8x8-m2m.c` to fit the needs of your font.
 
 7. Compile and run your C file to generate a `.rom` file.
+
+Native 8x8 storage and exact 100% rendering
+-------------------------------------------
+
+The M2M character grid still uses 16x16-pixel cells, but the standard Anikki
+font is an exact nearest-neighbour 2x enlargement of an 8x8 font: every 2x2
+block contains four identical bits.  Since M2M V2.1.0 the font ROM stores this
+native 8x8 strike and the OSM renderer expands or interpolates it to the
+selected cell size.
+
+`Anikki-16x16-m2m.h` contains the 16x16 source strike.  The distinctly named
+`Anikki-8x8-m2m.c` generator collapses it into `Anikki-8x8-m2m.rom`, which
+contains 256 glyphs x 8 rows x 8 bits.  Before writing the ROM, the generator
+verifies every 2x2 source block and exits with an error if the four bits
+differ.  This invariant guarantees that nearest-neighbour 2x expansion at
+100% reproduces the former 16x16 ROM bit-for-bit.
+
+Generate the ROM from this directory with:
+
+```sh
+cc -std=c99 -Wall -Wextra -Werror -o Anikki-8x8-m2m Anikki-8x8-m2m.c
+./Anikki-8x8-m2m
+```
+
+The expected success message reports 256 glyphs, 2048 rows and 8 bits per
+row.  Do not bypass the uniform-2x validation when replacing or editing the
+font: a source font that fails it cannot preserve the exact legacy 100% OSM.
 
 Potential for a future optimized workflow
 -----------------------------------------

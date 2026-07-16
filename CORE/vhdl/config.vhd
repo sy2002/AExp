@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-A10";
+constant CORE_VERSION : string := "WIP-V1-B1";
 
 constant SCR_WELCOME : string :=
 
@@ -564,13 +564,13 @@ constant OPTM_ITEMS        : string :=
    " OSM Scaling\n"         &    -- 41: headline (inside submenu)
    "\n"                     &    -- 42: line
    " 100%\n"                &    -- 43: full size; default
-   " 89%\n"                 &    -- 44
-   " 80%\n"                 &    -- 45
-   " 73%\n"                 &    -- 46
-   " 67%\n"                 &    -- 47
-   " 62%\n"                 &    -- 48
-   " 57%\n"                 &    -- 49
-   " 53%\n"                 &    -- 50
+   " 94%\n"                 &    -- 44
+   " 88%\n"                 &    -- 45
+   " 81%\n"                 &    -- 46
+   " 75%\n"                 &    -- 47
+   " 69%\n"                 &    -- 48
+   " 63%\n"                 &    -- 49
+   " 56%\n"                 &    -- 50
    " 50%\n"                 &    -- 51
    "\n"                     &    -- 52: line
    " Back to main menu\n"   &    -- 53: close submenu
@@ -673,13 +673,13 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 41: Headline "OSM Scaling"
                                              OPTM_G_LINE,                              -- 42: Line
                                              OPTM_G_OSM_MODE + OPTM_G_STDSEL,           -- 43: 100% (default)
-                                             OPTM_G_OSM_MODE,                          -- 44: 89%
-                                             OPTM_G_OSM_MODE,                          -- 45: 80%
-                                             OPTM_G_OSM_MODE,                          -- 46: 73%
-                                             OPTM_G_OSM_MODE,                          -- 47: 67%
-                                             OPTM_G_OSM_MODE,                          -- 48: 62%
-                                             OPTM_G_OSM_MODE,                          -- 49: 57%
-                                             OPTM_G_OSM_MODE,                          -- 50: 53%
+                                             OPTM_G_OSM_MODE,                          -- 44: 94%
+                                             OPTM_G_OSM_MODE,                          -- 45: 88%
+                                             OPTM_G_OSM_MODE,                          -- 46: 81%
+                                             OPTM_G_OSM_MODE,                          -- 47: 75%
+                                             OPTM_G_OSM_MODE,                          -- 48: 69%
+                                             OPTM_G_OSM_MODE,                          -- 49: 63%
+                                             OPTM_G_OSM_MODE,                          -- 50: 56%
                                              OPTM_G_OSM_MODE,                          -- 51: 50%
                                              OPTM_G_LINE,                              -- 52: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 53: Close submenu / back to main menu

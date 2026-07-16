@@ -122,6 +122,7 @@ begin
          vga_col_i             => stage1.vga_col,
          vga_row_i             => stage1.vga_row,
          vga_osm_cfg_scaling_i => vga_cfg_scaling_i,
+         vga_osm_cfg_r15kHz_i  => vga_cfg_r15kHz_i,
          vga_osm_cfg_xy_i      => vga_cfg_xy_i,
          vga_osm_cfg_dxdy_i    => vga_cfg_dxdy_i,
          vga_osm_cfg_enable_i  => vga_cfg_enable_i,
