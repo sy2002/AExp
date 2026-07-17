@@ -280,6 +280,18 @@ signal main_slow_q_l          : std_logic_vector(7 downto 0);
 signal main_kick_q_u          : std_logic_vector(7 downto 0);
 signal main_kick_q_l          : std_logic_vector(7 downto 0);
 
+-- Amiga-local cold boot for memory-topology changes (Slow RAM / A501). The
+-- controller resets only Minimig and uses a short override of Chip RAM port A
+-- to invalidate the warm-boot SysBase pointer at $000004-$000007.
+signal amiga_cold_reset       : std_logic;
+signal amiga_chip_scrub       : std_logic;
+signal amiga_chip_scrub_addr  : std_logic_vector(17 downto 0);
+signal main_chip_addr         : std_logic_vector(17 downto 0);
+signal main_chip_data_u       : std_logic_vector(7 downto 0);
+signal main_chip_data_l       : std_logic_vector(7 downto 0);
+signal main_chip_wren_u       : std_logic;
+signal main_chip_wren_l       : std_logic;
+
 -- LEDs of the emulated Amiga
 signal main_pwr_led           : std_logic;
 signal main_fdd_led           : std_logic;
@@ -422,8 +434,8 @@ constant C_MENU_OSMKEY_COMBO  : natural := 65;
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
--- config (command 0xF5) replayed after every core reset; the firmware auto-soft-
--- resets on toggle (OSM_SEL_POST in m2m-rom.asm) so a change takes effect at once.
+-- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
+-- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
 constant C_MENU_SLOWRAM       : natural := 69;
 
 begin
@@ -532,6 +544,18 @@ begin
    osm_key_b_o <= 63 when main_osm_control_i(C_MENU_OSMKEY_COMBO) = '1' else 67;
    osm_combo_o <= main_osm_control_i(C_MENU_OSMKEY_COMBO);
 
+   -- Memory topology is guest state, so changing it must be a cold boot from
+   -- Kickstart's perspective. This local controller deliberately does not drive
+   -- either M2M reset: the menu, QNICE and the framework remain alive.
+   i_amiga_cold_boot : entity work.amiga_cold_boot
+      port map (
+         clk_i             => main_clk,
+         slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
+         amiga_reset_o     => amiga_cold_reset,
+         chip_scrub_o      => amiga_chip_scrub,
+         chip_scrub_addr_o => amiga_chip_scrub_addr
+      ); -- i_amiga_cold_boot
+
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
       generic map (
@@ -540,7 +564,7 @@ begin
       )
       port map (
          clk_main_i           => main_clk,
-         reset_soft_i         => main_reset_core_i,
+         reset_soft_i         => main_reset_core_i or amiga_cold_reset,
          reset_hard_i         => main_reset_m2m_i,
          pause_i              => main_pause_core_i,
 
@@ -614,8 +638,8 @@ begin
          keyboard_mode_i      => main_osm_control_i(C_MENU_KBD_AMIGA),
 
          -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present.
-         -- Sampled by amiga_config.vhd while the core is in reset, so it takes effect on
-         -- the next core reset (the firmware auto-soft-resets when the item is toggled).
+         -- Sampled by amiga_config.vhd during the Amiga-local cold boot above, so the new
+         -- topology is installed before Kickstart rebuilds its memory list.
          slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
@@ -771,6 +795,17 @@ begin
    -- Chip and Slow RAM: single-ported from the QNICE perspective (port B
    -- completely tied off, so no QNICE-domain routing reaches these 256 BRAM
    -- tiles - see the timing note at the qnice signal declarations).
+   -- During an Amiga-local cold boot only, the existing Chip RAM port is
+   -- overridden for two clocks to clear $000004-$000007. Both byte lanes are
+   -- written together; the 68000 and chipset are held in reset throughout.
+   main_chip_addr   <= amiga_chip_scrub_addr when amiga_chip_scrub = '1' else main_ram_addr(18 downto 1);
+   main_chip_data_u <= (others => '0') when amiga_chip_scrub = '1' else main_ram_wrdata(15 downto 8);
+   main_chip_data_l <= (others => '0') when amiga_chip_scrub = '1' else main_ram_wrdata(7 downto 0);
+   main_chip_wren_u <= '1' when amiga_chip_scrub = '1' else
+                       main_chip_sel and not main_ram_we_n and not main_ram_bhe_n;
+   main_chip_wren_l <= '1' when amiga_chip_scrub = '1' else
+                       main_chip_sel and not main_ram_we_n and not main_ram_ble_n;
+
    chip_ram_u : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH => 18,
@@ -778,9 +813,9 @@ begin
       )
       port map (
          clock_a   => main_clk,
-         address_a => main_ram_addr(18 downto 1),
-         data_a    => main_ram_wrdata(15 downto 8),
-         wren_a    => main_chip_sel and not main_ram_we_n and not main_ram_bhe_n,
+         address_a => main_chip_addr,
+         data_a    => main_chip_data_u,
+         wren_a    => main_chip_wren_u,
          q_a       => main_chip_q_u,
 
          clock_b   => '0',
@@ -797,9 +832,9 @@ begin
       )
       port map (
          clock_a   => main_clk,
-         address_a => main_ram_addr(18 downto 1),
-         data_a    => main_ram_wrdata(7 downto 0),
-         wren_a    => main_chip_sel and not main_ram_we_n and not main_ram_ble_n,
+         address_a => main_chip_addr,
+         data_a    => main_chip_data_l,
+         wren_a    => main_chip_wren_l,
          q_a       => main_chip_q_l,
 
          clock_b   => '0',

@@ -279,33 +279,6 @@ PREP_START      INCRB
                 DECRB
                 RET
 
-; RESET_CORE helper:
-;
-; Pulses M2M$CSR bit 0 ("Reset the MiSTer core") wide enough to be seen in
-; the core clock domain. A bare OR/AND pair would only be a few QNICE cycles
-; wide; after the 2-stage CDC in framework.vhd the pulse must still cover a
-; clk7_en tick of minimig_syscontrol.v, which samples the external reset at
-; 7 MHz. The delay loop widens the pulse into the microsecond range,
-; comfortably above that floor.
-;
-; Semantics: soft reset of the Amiga only (reset_soft_i OR-ed into amiga_rst
-; in main.vhd): minimig reboots and amiga_config.vhd replays the userio
-; config sequence, re-sampling the Slow RAM toggle. The AV pipeline, the
-; HyperRAM content and a mounted ADF stay untouched; the track engine
-; re-announces the mounted disk after the reset.
-;
-; Input:  none
-; Output: none (callers do their own R8/R9 = 0/0 if needed)
-RESET_CORE      INCRB
-                MOVE    M2M$CSR, R0
-                OR      M2M$CSR_RESET, @R0      ; assert soft reset
-                MOVE    64, R1                  ; widen the pulse
-_RC_DELAY       SUB     1, R1
-                RBRA    _RC_DELAY, !Z
-                AND     M2M$CSR_UN_RESET, @R0   ; release soft reset
-                DECRB
-                RET
-
 ; OSM_SEL_POST callback function:
 ;
 ; Called each time the user selects something in the on-screen-menu (OSM),
@@ -355,7 +328,7 @@ OSM_SEL_POST    INCRB
                 ; serves the menu synchronously -- then repaint the original
                 ; label with no "=" checkmark left behind.
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
-                RBRA    _OSM_SP_SLOW, !Z
+                RBRA    _OSM_SEL_POST_R, !Z
 
                 ; Paint the "loading" label. OPTM_CUR_SEL is the flat index of
                 ; the highlighted item; the menu is flat-indexed but on-screen
@@ -414,17 +387,6 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
                 MOVE    OPTM_SEL_SEL, R9
                 RSUB    OPTM_SELECT, 1
                 RBRA    _OSM_SEL_POST_R, 1
-
-                ; "Slow RAM (A501)" toggled (issue #20): the new memory layout
-                ; only becomes active when amiga_config.vhd replays the userio
-                ; memory config, and that replay runs after every core reset.
-                ; The framework has already written the new menu bit into
-                ; M2M$CFM_DATA before this callback runs, so an auto soft
-                ; reset makes the toggle take effect immediately - same UX as
-                ; the Kernal/REU switches of C64MEGA65.
-_OSM_SP_SLOW    CMP     AEXP_OPTM_G_SLOWRAM, R8
-                RBRA    _OSM_SEL_POST_R, !Z
-                RSUB    RESET_CORE, 1
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9

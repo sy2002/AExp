@@ -508,8 +508,8 @@ constant OPTM_DY           : natural := 24;
 --                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
 --   line 69: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
 --            removes the 512 KB at $C00000 from the Amiga memory map (issue #20).
---            The firmware auto-soft-resets on toggle (OSM_SEL_POST in m2m-rom.asm)
---            so that amiga_config.vhd replays the userio memory config.
+--            The HDL cold-boots only the emulated Amiga on a change, so that
+--            amiga_config.vhd replays the userio config while QNICE keeps running.
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 -- Lines 17..24 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
@@ -620,7 +620,7 @@ constant OPTM_G_HDMIFF     : integer := 7;   -- HDMI flicker-free toggle (issue 
 constant OPTM_G_KBD        : integer := 8;   -- keyboard mapping mode radio (issue #6): Amiga / MEGA65; read in HDL (mega65.vhd)
 constant OPTM_G_OSMKEY     : integer := 9;   -- OSM-open key radio (issue #8): Help / F11 / F13 / MEGA+Run-Stop; read in HDL (mega65.vhd)
 constant OPTM_G_OSM_MODE   : integer := 10;  -- OSM Scaling radio; read in HDL (mega65.vhd)
-constant OPTM_G_SLOWRAM    : integer := 11;  -- Slow RAM (A501) toggle (issue #20); read in HDL (mega65.vhd), auto-reset in m2m-rom.asm
+constant OPTM_G_SLOWRAM    : integer := 11;  -- Slow RAM (A501) toggle (issues #20/#21); read and locally cold-booted in mega65.vhd
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;

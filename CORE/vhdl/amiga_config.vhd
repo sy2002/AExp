@@ -155,7 +155,7 @@ entity amiga_config is
 
       -- '1' = 512KB Slow RAM at $C00000 (A501), '0' = none. Static OSM bit; sampled while
       -- reset_i is active, so the whole sequence uses one consistent value and a change
-      -- takes effect on the next core reset (the firmware soft-resets on toggle).
+      -- takes effect during the Amiga-local cold boot requested by amiga_cold_boot.vhd.
       slow_ram_i       : in  std_logic;
 
       -- Minimig host/userio port (minimig.v:214-218)
