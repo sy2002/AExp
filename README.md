@@ -280,6 +280,18 @@ dislike. (With it on, the machine also runs about 0.16 % fast, so software
 clocks gain a few seconds per hour — turn it off if you need authentic
 timing.)
 
+#### Latency on the Checkmate Retro Monitor
+
+Because the Checkmate is a popular choice, it deserves a note of its own.
+The monitor appears to use a native 60 Hz panel and introduces considerable
+latency when displaying the 50 Hz output of our PAL AExp core, although
+scrolling remains smooth with Flicker-free enabled. We suspect that the
+latency comes from the internal conversion required to display a 50 Hz
+signal on a 60 Hz panel. Deft recorded 
+[several videos demonstrating the effect (click here)](https://github.com/sy2002/MiSTer2MEGA65/issues/72),
+comparing the Checkmate with a 15 kHz analog monitor and a Samsung HDMI
+monitor in Gaming Mode, which adds almost no HDMI latency.
+
 ### Video: VGA port (analog RGB)
 
 The VGA connector always carries the picture in parallel to HDMI. The
