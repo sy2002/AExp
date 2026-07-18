@@ -102,20 +102,20 @@ light is still on.
 ### Mouse and joystick
 
 Plug the mouse into **port 1** and the joystick into **port 2**, exactly
-like on a real Amiga. The **original Amiga "tank mouse"** is the directly
+like on a real Amiga. The **original Amiga "Tank Mouse"** is the directly
 supported passive mouse; compatible active adapters are listed below.
 Commodore C64 mice do **not** work: neither the 1350 ("joystick mouse") nor
 the 1351 (proportional mouse) speaks the Amiga's protocol. We may add support
 for them in a future version.
 
-The Amiga tank mouse works out of the box: movement and the **left button**
+The Amiga Tank Mouse works out of the box: movement and the **left button**
 behave just like on the original machine.
 
 The **right mouse button** (in Workbench it pulls down the menu bar) is the
 tricky one. On a real Amiga the mouse signals it on a special line that the
 Amiga's Paula chip actively drives high. The MEGA65 can only *read* that
-line, not drive it, so it cannot sense the right button of an original tank
-mouse. This is a hardware property, identical on every MEGA65 model from R3
+line, not drive it, so it cannot sense the right button of an original Tank
+Mouse. This is a hardware property, identical on every MEGA65 model from R3
 to R6. The built-in answer is always available: **hold the <kbd>Run/Stop</kbd>
 key** as a right mouse button (hold it while moving the mouse to open the
 Workbench menus). This works when your keyboard is in the MEGA65 mode.
@@ -128,8 +128,8 @@ So what works depends on what you plug in:
 
 | What you use                                                        | Move + left button | Right / middle buttons                    |
 |---------------------------------------------------------------------|--------------------|-------------------------------------------|
-| Original Amiga "tank" mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
-| Original Amiga "tank" mouse with DIY adapter (see below)            | Yes                | Yes                                       |
+| Original Amiga "Tank" Mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
+| Original Amiga "Tank" Mouse with DIY adapter (see below)            | Yes                | Yes                                       |
 | Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                       |
 | Faithful Tank Mouse replica that *actively drives* the line (e.g. Alfa Data MegaMouse 400, Amitech Amiga Mouse, Amigakit Mouse)      | Yes                | Yes                                       |
 | mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                                    |
@@ -145,7 +145,7 @@ button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
 Here is an example of a known-to-work [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
 **A simple DIY adapter makes the right button work**, even with an original
-tank mouse or a mouSTer. The only missing piece is the pull-up that a real
+Tank Mouse. The only missing piece is the pull-up that a real
 Amiga's Paula chip provides, and you can add it externally: build a
 straight-through DB9 male-to-female passthrough (all nine pins wired 1:1) and
 solder two resistors inside the shell, roughly 2 kΩ from pin 7 (+5V) to
