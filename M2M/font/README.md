@@ -37,10 +37,15 @@ selected cell size.
 
 `Anikki-16x16-m2m.h` contains the 16x16 source strike.  The distinctly named
 `Anikki-8x8-m2m.c` generator collapses it into `Anikki-8x8-m2m.rom`, which
-contains 256 glyphs x 8 rows x 8 bits.  Before writing the ROM, the generator
-verifies every 2x2 source block and exits with an error if the four bits
-differ.  This invariant guarantees that nearest-neighbour 2x expansion at
-100% reproduces the former 16x16 ROM bit-for-bit.
+contains 256 words x 64 bits.  Each word is one complete 8x8 glyph, with rows
+0 through 7 concatenated from left to right.  This shallow, packed layout lets
+the OSM renderer fetch a glyph once and register it before selecting rows and
+pixels, instead of performing two deep row-ROM lookups in the filtering path.
+
+Before writing the ROM, the generator verifies every 2x2 source block and
+exits with an error if the four bits differ.  This invariant guarantees that
+nearest-neighbour 2x expansion at 100% reproduces the former 16x16 ROM
+bit-for-bit; changing the storage layout does not change any glyph bit.
 
 Generate the ROM from this directory with:
 
@@ -49,9 +54,9 @@ cc -std=c99 -Wall -Wextra -Werror -o Anikki-8x8-m2m Anikki-8x8-m2m.c
 ./Anikki-8x8-m2m
 ```
 
-The expected success message reports 256 glyphs, 2048 rows and 8 bits per
-row.  Do not bypass the uniform-2x validation when replacing or editing the
-font: a source font that fails it cannot preserve the exact legacy 100% OSM.
+The expected success message reports 256 glyphs and 64 bits per glyph.  Do not
+bypass the uniform-2x validation when replacing or editing the font: a source
+font that fails it cannot preserve the exact legacy 100% OSM.
 
 Potential for a future optimized workflow
 -----------------------------------------

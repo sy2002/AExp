@@ -12,7 +12,7 @@
 -- coverage.  In raw 15 kHz mode the vertical kernel widens towards a two-row
 -- box at 50%, because the output visits only every second logical OSM row.
 --
--- The signals vga_osm_on_o and vga_osm_rgb_o are delayed seven clock cycles
+-- The signals vga_osm_on_o and vga_osm_rgb_o are delayed nine clock cycles
 -- after vga_col_i and vga_row_i.
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2021 and licensed under GPL v3
@@ -58,9 +58,37 @@ architecture synthesis of vga_osm is
    constant CHARS_DY          : integer := G_VGA_DY / G_FONT_DY;
    constant C_NATIVE_FONT_DX  : integer := 8;
    constant C_NATIVE_FONT_DY  : integer := 8;
-   constant C_NATIVE_ADDR_W   : integer := 11; -- 256 glyphs x 8 rows
+   constant C_NATIVE_ADDR_W   : integer := 8;  -- 256 packed glyphs
+   constant C_NATIVE_GLYPH_W  : integer := C_NATIVE_FONT_DX * C_NATIVE_FONT_DY;
    constant C_Q4_X_MAX        : integer := G_VGA_DX * 16 - 1;
    constant C_Q4_Y_MAX        : integer := G_VGA_DY * 16 - 1;
+
+   subtype weight_t is integer range 0 to 16;
+   type weight_phase_lut_t is array (0 to 15) of weight_t;
+   type vertical_weight_lut_t is array (0 to 8) of weight_phase_lut_t;
+
+   -- Cubic sharp-bilinear phase curve, quantized to 1/16 coverage.  It is the
+   -- small-font equivalent of ascal's sharp-bilinear phase remapping.
+   constant C_SHARP_WEIGHT : weight_phase_lut_t := (
+      0, 0, 0, 0, 1, 2, 3, 5, 8, 11, 13, 14, 15, 16, 16, 16
+   );
+
+   -- Exact expansion of
+   --   ((8-scale) * C_SHARP_WEIGHT(phase) + scale * 8 + 4) / 8
+   -- for raw 15 kHz.  Looking the final weight up several stages before the
+   -- filter removes that arithmetic from the glyph-to-coverage path without
+   -- changing a single rounded result.
+   constant C_15KHZ_WEIGHT : vertical_weight_lut_t := (
+      (0, 0, 0, 0, 1, 2, 3, 5, 8, 11, 13, 14, 15, 16, 16, 16),
+      (1, 1, 1, 1, 2, 3, 4, 5, 8, 11, 12, 13, 14, 15, 15, 15),
+      (2, 2, 2, 2, 3, 4, 4, 6, 8, 10, 12, 13, 13, 14, 14, 14),
+      (3, 3, 3, 3, 4, 4, 5, 6, 8, 10, 11, 12, 12, 13, 13, 13),
+      (4, 4, 4, 4, 5, 5, 6, 7, 8, 10, 11, 11, 12, 12, 12, 12),
+      (5, 5, 5, 5, 5, 6, 6, 7, 8, 9, 10, 10, 11, 11, 11, 11),
+      (6, 6, 6, 6, 6, 7, 7, 7, 8, 9, 9, 10, 10, 10, 10, 10),
+      (7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 9, 9, 9),
+      (8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8)
+   );
 
    -- scale-coordinate reciprocal table.  For scale index S the displayed
    -- cell is 16-S pixels wide/high.  Each value is
@@ -105,8 +133,12 @@ architecture synthesis of vga_osm is
       vga_native_y         : integer range 0 to 7;
       vga_frac_x           : integer range 0 to 15;
       vga_frac_y           : integer range 0 to 15;
+      vga_weight_x         : weight_t;
+      vga_weight_y         : weight_t;
       vga_osm_vram_addr    : std_logic_vector(15 downto 0);
       vga_osm_vram_attr    : std_logic_vector( 7 downto 0);
+      vga_alpha            : weight_t;
+      vga_legacy_ink       : std_logic;
       vga_osm_on           : std_logic;
       vga_osm_rgb          : std_logic_vector(23 downto 0);
    end record stage_t;
@@ -133,8 +165,12 @@ architecture synthesis of vga_osm is
       vga_native_y         => 0,
       vga_frac_x           => 0,
       vga_frac_y           => 0,
+      vga_weight_x         => 0,
+      vga_weight_y         => 0,
       vga_osm_vram_addr    => X"0000",
       vga_osm_vram_attr    => X"00",
+      vga_alpha            => 0,
+      vga_legacy_ink       => '0',
       vga_osm_on           => '0',
       vga_osm_rgb          => X"000000"
    );
@@ -146,12 +182,16 @@ architecture synthesis of vga_osm is
    signal stage5 : stage_t := STATE_INIT;
    signal stage6 : stage_t := STATE_INIT;
    signal stage7 : stage_t := STATE_INIT;
+   signal stage8 : stage_t := STATE_INIT;
+   signal stage9 : stage_t := STATE_INIT;
 
-   signal stage5_vga_osm_font_addr_a : std_logic_vector(C_NATIVE_ADDR_W-1 downto 0);
-   signal stage5_vga_osm_font_addr_b : std_logic_vector(C_NATIVE_ADDR_W-1 downto 0);
-   signal stage5_vga_osm_vram_attr   : std_logic_vector(7 downto 0);
-   signal stage6_vga_osm_font_data_a : std_logic_vector(C_NATIVE_FONT_DX-1 downto 0);
-   signal stage6_vga_osm_font_data_b : std_logic_vector(C_NATIVE_FONT_DX-1 downto 0);
+   subtype glyph_t is std_logic_vector(C_NATIVE_GLYPH_W-1 downto 0);
+   subtype font_row_t is std_logic_vector(C_NATIVE_FONT_DX-1 downto 0);
+
+   signal stage5_vga_osm_font_addr : std_logic_vector(C_NATIVE_ADDR_W-1 downto 0);
+   signal stage5_vga_osm_vram_attr : std_logic_vector(7 downto 0);
+   signal stage6_vga_osm_font_data : glyph_t;
+   signal stage7_vga_osm_font_data : glyph_t := (others => '0');
 
    pure function clamp_q4(value: integer; limit: integer) return integer is
    begin
@@ -164,29 +204,19 @@ architecture synthesis of vga_osm is
       end if;
    end function clamp_q4;
 
-   -- Cubic sharp-bilinear phase curve, quantized to 1/16 coverage.  It is the
-   -- small-font equivalent of ascal's sharp-bilinear phase remapping.
-   pure function sharp_weight(frac: integer) return integer is
+   pure function glyph_row(glyph: glyph_t; row: integer) return font_row_t is
    begin
-      case frac is
-         when  0 => return  0;
-         when  1 => return  0;
-         when  2 => return  0;
-         when  3 => return  0;
-         when  4 => return  1;
-         when  5 => return  2;
-         when  6 => return  3;
-         when  7 => return  5;
-         when  8 => return  8;
-         when  9 => return 11;
-         when 10 => return 13;
-         when 11 => return 14;
-         when 12 => return 15;
-         when 13 => return 16;
-         when 14 => return 16;
-         when others => return 16;
+      case row is
+         when 0      => return glyph(63 downto 56);
+         when 1      => return glyph(55 downto 48);
+         when 2      => return glyph(47 downto 40);
+         when 3      => return glyph(39 downto 32);
+         when 4      => return glyph(31 downto 24);
+         when 5      => return glyph(23 downto 16);
+         when 6      => return glyph(15 downto  8);
+         when others => return glyph( 7 downto  0);
       end case;
-   end function sharp_weight;
+   end function glyph_row;
 
    pure function ink_value(pixel: std_logic; inverse: std_logic) return integer is
    begin
@@ -229,36 +259,37 @@ architecture synthesis of vga_osm is
       x"47", x"4F", x"57", x"5F", x"67", x"6F", x"77", x"7F"
    );
 
-   pure function blend_channel(fg_on: std_logic;
-                               bg_on: std_logic;
-                               dim: std_logic;
-                               alpha: integer) return std_logic_vector is
-      variable amount : integer range 0 to 16;
+   pure function coverage_level(dim: std_logic;
+                                amount: weight_t) return std_logic_vector is
    begin
-      if fg_on = bg_on then
-         if fg_on = '1' then
-            if dim = '0' then
-               return x"FF";
-            else
-               return x"7F";
-            end if;
-         else
-            return x"00";
-         end if;
-      end if;
-
-      if fg_on = '1' then
-         amount := alpha;
-      else
-         amount := 16 - alpha;
-      end if;
-
       if dim = '0' then
          return C_COVERAGE_BRIGHT(amount);
       else
          return C_COVERAGE_DIM(amount);
       end if;
-   end function blend_channel;
+   end function coverage_level;
+
+   pure function select_channel(fg_on: std_logic;
+                                bg_on: std_logic;
+                                full_level: std_logic_vector(7 downto 0);
+                                fg_level: std_logic_vector(7 downto 0);
+                                bg_level: std_logic_vector(7 downto 0))
+                                return std_logic_vector is
+   begin
+      if fg_on = '1' then
+         if bg_on = '1' then
+            return full_level;
+         else
+            return fg_level;
+         end if;
+      else
+         if bg_on = '1' then
+            return bg_level;
+         else
+            return x"00";
+         end if;
+      end if;
+   end function select_channel;
 
 begin
 
@@ -390,7 +421,8 @@ begin
    end process p_stage3;
 
    -----------
-   -- Stage 4: Address character/attribute VRAM.
+   -- Stage 4: Address character/attribute VRAM and register the exact filter
+   -- weights well before they are consumed.
    -----------
 
    p_stage4 : process (clk_i)
@@ -399,6 +431,13 @@ begin
          stage4 <= stage3;
          stage4.vga_osm_vram_addr <=
             to_stdlogicvector(stage3.vga_char_y * CHARS_DX + stage3.vga_char_x, 16);
+         stage4.vga_weight_x <= C_SHARP_WEIGHT(stage3.vga_frac_x);
+         if stage3.vga_osm_cfg_r15kHz = '1' then
+            stage4.vga_weight_y <=
+               C_15KHZ_WEIGHT(stage3.vga_osm_cfg_scaling)(stage3.vga_frac_y);
+         else
+            stage4.vga_weight_y <= C_SHARP_WEIGHT(stage3.vga_frac_y);
+         end if;
       end if;
    end process p_stage4;
 
@@ -416,49 +455,39 @@ begin
    end process p_stage5;
 
    -----------
-   -- Stage 6: Read two adjacent native font rows through one TDP ROM.
+   -- Stage 6: Read one complete native glyph.  Packing the 8 rows into a
+   -- 256x64 ROM replaces two independent 2048x8 lookups with one shallow
+   -- lookup and preserves exactly the same 16 Kibit of font information.
    -----------
 
    p_font_addresses : process (all)
-      variable glyph_base : integer range 0 to 2040;
-      variable row_b      : integer range 0 to 7;
    begin
-      glyph_base := to_integer(vga_osm_vram_data_i) * C_NATIVE_FONT_DY;
-      if stage5.vga_native_y < C_NATIVE_FONT_DY - 1 then
-         row_b := stage5.vga_native_y + 1;
-      else
-         row_b := stage5.vga_native_y;
-      end if;
-
-      stage5_vga_osm_font_addr_a <=
-         std_logic_vector(to_unsigned(glyph_base + stage5.vga_native_y, C_NATIVE_ADDR_W));
-      stage5_vga_osm_font_addr_b <=
-         std_logic_vector(to_unsigned(glyph_base + row_b, C_NATIVE_ADDR_W));
+      stage5_vga_osm_font_addr <= vga_osm_vram_data_i;
       stage5_vga_osm_vram_attr <= vga_osm_vram_attr_i;
    end process p_font_addresses;
 
    inst_font : entity work.dualport_2clk_ram
       generic map (
          ADDR_WIDTH   => C_NATIVE_ADDR_W,
-         DATA_WIDTH   => C_NATIVE_FONT_DX,
+         DATA_WIDTH   => C_NATIVE_GLYPH_W,
          ROM_PRELOAD  => true,
          ROM_FILE     => G_FONT_FILE,
          ROM_FILE_HEX => false,
-         RAM_STYLE_SELECT => "block"
+         RAM_STYLE_SELECT => "distributed"
       )
       port map (
          clock_a         => clk_i,
-         address_a       => stage5_vga_osm_font_addr_a,
+         address_a       => stage5_vga_osm_font_addr,
          do_latch_addr_a => '0',
          data_a          => (others => '0'),
          wren_a          => '0',
-         q_a             => stage6_vga_osm_font_data_a,
+         q_a             => stage6_vga_osm_font_data,
          clock_b         => clk_i,
-         address_b       => stage5_vga_osm_font_addr_b,
+         address_b       => (others => '0'),
          do_latch_addr_b => '0',
          data_b          => (others => '0'),
          wren_b          => '0',
-         q_b             => stage6_vga_osm_font_data_b
+         q_b             => open
       ); -- inst_font
 
    p_stage6 : process (clk_i)
@@ -470,10 +499,101 @@ begin
    end process p_stage6;
 
    -----------
-   -- Stage 7: Exact legacy selection at 100%; filtered coverage otherwise.
+   -- Stage 7: Register the packed ROM output.  Dynamic row/pixel selection
+   -- therefore starts at a register instead of at the ROM address register.
    -----------
 
    p_stage7 : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         stage7 <= stage6;
+         stage7_vga_osm_font_data <= stage6_vga_osm_font_data;
+      end if;
+   end process p_stage7;
+
+   -----------
+   -- Stage 8: Select the four native samples and calculate exact coverage.
+   -- The 100% case remains an explicit legacy nearest-neighbour bypass.
+   -----------
+
+   p_stage8 : process (clk_i)
+
+      variable font_row_a    : font_row_t;
+      variable font_row_b    : font_row_t;
+      variable lower_y       : integer range 0 to 7;
+      variable right_x       : integer range 0 to 7;
+      variable pixel_00      : std_logic;
+      variable pixel_10      : std_logic;
+      variable pixel_01      : std_logic;
+      variable pixel_11      : std_logic;
+      variable ink_00        : integer range 0 to 1;
+      variable ink_10        : integer range 0 to 1;
+      variable ink_01        : integer range 0 to 1;
+      variable ink_11        : integer range 0 to 1;
+      variable row_alpha_0   : weight_t;
+      variable row_alpha_1   : weight_t;
+      variable alpha_sum     : integer range 0 to 256;
+
+   begin
+      if rising_edge(clk_i) then
+         stage8 <= stage7;
+
+         if stage7.vga_native_y < C_NATIVE_FONT_DY - 1 then
+            lower_y := stage7.vga_native_y + 1;
+         else
+            lower_y := stage7.vga_native_y;
+         end if;
+         if stage7.vga_native_x < C_NATIVE_FONT_DX - 1 then
+            right_x := stage7.vga_native_x + 1;
+         else
+            right_x := stage7.vga_native_x;
+         end if;
+
+         font_row_a := glyph_row(stage7_vga_osm_font_data, stage7.vga_native_y);
+         font_row_b := glyph_row(stage7_vga_osm_font_data, lower_y);
+         pixel_00   := font_row_a(7 - stage7.vga_native_x);
+         pixel_10   := font_row_a(7 - right_x);
+         pixel_01   := font_row_b(7 - stage7.vga_native_x);
+         pixel_11   := font_row_b(7 - right_x);
+
+         stage8.vga_alpha      <= 0;
+         stage8.vga_legacy_ink <= '0';
+         if stage7.vga_osm_cfg_scaling = 0 then
+            -- The generator proves that this native bit is identical to all
+            -- four bits of the former 2x2 source block.
+            if pixel_00 = not stage7.vga_osm_vram_attr(7) then
+               stage8.vga_legacy_ink <= '1';
+            end if;
+         else
+            ink_00 := ink_value(pixel_00, stage7.vga_osm_vram_attr(7));
+            ink_10 := ink_value(pixel_10, stage7.vga_osm_vram_attr(7));
+            ink_01 := ink_value(pixel_01, stage7.vga_osm_vram_attr(7));
+            ink_11 := ink_value(pixel_11, stage7.vga_osm_vram_attr(7));
+
+            row_alpha_0 := row_coverage(ink_00, ink_10, stage7.vga_weight_x);
+            row_alpha_1 := row_coverage(ink_01, ink_11, stage7.vga_weight_x);
+            alpha_sum := row_alpha_0 * (16 - stage7.vga_weight_y) +
+                         row_alpha_1 * stage7.vga_weight_y;
+            stage8.vga_alpha <= (alpha_sum + 8) / 16;
+         end if;
+
+         stage8.vga_osm_on <= '0';
+         if stage7.vga_coord_valid = '1' and
+            stage7.vga_char_x >= stage7.vga_osm_x1 and stage7.vga_char_x < stage7.vga_osm_x2 and
+            stage7.vga_char_y >= stage7.vga_osm_y1 and stage7.vga_char_y < stage7.vga_osm_y2
+         then
+            stage8.vga_osm_on <= vga_osm_cfg_enable_i;
+         end if;
+      end if;
+   end process p_stage8;
+
+   -----------
+   -- Stage 9: Map coverage to RGB.  Foreground/background levels are looked
+   -- up once and shared by all three channels instead of repeating the same
+   -- coverage network for red, green and blue.
+   -----------
+
+   p_stage9 : process (clk_i)
 
       function attr2rgb(attr: in std_logic_vector(3 downto 0)) return std_logic_vector is
          variable r, g, b    : std_logic_vector(7 downto 0);
@@ -486,95 +606,50 @@ begin
          return r & g & b;
       end attr2rgb;
 
-      variable right_x      : integer range 0 to 7;
-      variable pixel_00     : std_logic;
-      variable pixel_10     : std_logic;
-      variable pixel_01     : std_logic;
-      variable pixel_11     : std_logic;
-      variable ink_00       : integer range 0 to 1;
-      variable ink_10       : integer range 0 to 1;
-      variable ink_01       : integer range 0 to 1;
-      variable ink_11       : integer range 0 to 1;
-      variable weight_x     : integer range 0 to 16;
-      variable weight_y     : integer range 0 to 16;
-      variable row_alpha_0  : integer range 0 to 16;
-      variable row_alpha_1  : integer range 0 to 16;
-      variable alpha_sum    : integer range 0 to 256;
-      variable alpha        : integer range 0 to 16;
+      variable full_level   : std_logic_vector(7 downto 0);
+      variable fg_level     : std_logic_vector(7 downto 0);
+      variable bg_level     : std_logic_vector(7 downto 0);
       variable red          : std_logic_vector(7 downto 0);
       variable green        : std_logic_vector(7 downto 0);
       variable blue         : std_logic_vector(7 downto 0);
 
    begin
       if rising_edge(clk_i) then
-         stage7 <= stage6;
+         stage9 <= stage8;
 
-         if stage6.vga_native_x < C_NATIVE_FONT_DX - 1 then
-            right_x := stage6.vga_native_x + 1;
-         else
-            right_x := stage6.vga_native_x;
-         end if;
-
-         pixel_00 := stage6_vga_osm_font_data_a(7 - stage6.vga_native_x);
-         pixel_10 := stage6_vga_osm_font_data_a(7 - right_x);
-         pixel_01 := stage6_vga_osm_font_data_b(7 - stage6.vga_native_x);
-         pixel_11 := stage6_vga_osm_font_data_b(7 - right_x);
-
-         if stage6.vga_osm_cfg_scaling = 0 then
-            -- Exact legacy renderer: the generated native bit is identical to
-            -- every bit in its former 2x2 source block.
-            if pixel_00 = not stage6.vga_osm_vram_attr(7) then
-               stage7.vga_osm_rgb <=
-                  attr2rgb(stage6.vga_osm_vram_attr(6) & stage6.vga_osm_vram_attr(2 downto 0));
+         if stage8.vga_osm_cfg_scaling = 0 then
+            -- Keep the legacy color selection separate from the filtered
+            -- path so 100% has no interpolation or coverage dependency.
+            if stage8.vga_legacy_ink = '1' then
+               stage9.vga_osm_rgb <=
+                  attr2rgb(stage8.vga_osm_vram_attr(6) & stage8.vga_osm_vram_attr(2 downto 0));
             else
-               stage7.vga_osm_rgb <= attr2rgb(stage6.vga_osm_vram_attr(6 downto 3));
+               stage9.vga_osm_rgb <= attr2rgb(stage8.vga_osm_vram_attr(6 downto 3));
             end if;
          else
-            ink_00 := ink_value(pixel_00, stage6.vga_osm_vram_attr(7));
-            ink_10 := ink_value(pixel_10, stage6.vga_osm_vram_attr(7));
-            ink_01 := ink_value(pixel_01, stage6.vga_osm_vram_attr(7));
-            ink_11 := ink_value(pixel_11, stage6.vga_osm_vram_attr(7));
-
-            weight_x := sharp_weight(stage6.vga_frac_x);
-            weight_y := sharp_weight(stage6.vga_frac_y);
-
-            -- Raw 15 kHz visits every second logical OSM row.  Gradually move
-            -- the vertical kernel towards a two-row box as the cell shrinks;
-            -- no scale choice is clamped or overridden.
-            if stage6.vga_osm_cfg_r15kHz = '1' then
-               weight_y := ((8 - stage6.vga_osm_cfg_scaling) * weight_y +
-                            stage6.vga_osm_cfg_scaling * 8 + 4) / 8;
+            if stage8.vga_osm_vram_attr(6) = '0' then
+               full_level := x"FF";
+            else
+               full_level := x"7F";
             end if;
+            fg_level := coverage_level(stage8.vga_osm_vram_attr(6), stage8.vga_alpha);
+            bg_level := coverage_level(stage8.vga_osm_vram_attr(6), 16 - stage8.vga_alpha);
 
-            row_alpha_0 := row_coverage(ink_00, ink_10, weight_x);
-            row_alpha_1 := row_coverage(ink_01, ink_11, weight_x);
-
-            alpha_sum := row_alpha_0 * (16 - weight_y) + row_alpha_1 * weight_y;
-            alpha     := (alpha_sum + 8) / 16;
-
-            red   := blend_channel(stage6.vga_osm_vram_attr(2),
-                                   stage6.vga_osm_vram_attr(5),
-                                   stage6.vga_osm_vram_attr(6), alpha);
-            green := blend_channel(stage6.vga_osm_vram_attr(1),
-                                   stage6.vga_osm_vram_attr(4),
-                                   stage6.vga_osm_vram_attr(6), alpha);
-            blue  := blend_channel(stage6.vga_osm_vram_attr(0),
-                                   stage6.vga_osm_vram_attr(3),
-                                   stage6.vga_osm_vram_attr(6), alpha);
-            stage7.vga_osm_rgb <= red & green & blue;
-         end if;
-
-         stage7.vga_osm_on <= '0';
-         if stage6.vga_coord_valid = '1' and
-            stage6.vga_char_x >= stage6.vga_osm_x1 and stage6.vga_char_x < stage6.vga_osm_x2 and
-            stage6.vga_char_y >= stage6.vga_osm_y1 and stage6.vga_char_y < stage6.vga_osm_y2
-         then
-            stage7.vga_osm_on <= vga_osm_cfg_enable_i;
+            red   := select_channel(stage8.vga_osm_vram_attr(2),
+                                    stage8.vga_osm_vram_attr(5),
+                                    full_level, fg_level, bg_level);
+            green := select_channel(stage8.vga_osm_vram_attr(1),
+                                    stage8.vga_osm_vram_attr(4),
+                                    full_level, fg_level, bg_level);
+            blue  := select_channel(stage8.vga_osm_vram_attr(0),
+                                    stage8.vga_osm_vram_attr(3),
+                                    full_level, fg_level, bg_level);
+            stage9.vga_osm_rgb <= red & green & blue;
          end if;
       end if;
-   end process p_stage7;
+   end process p_stage9;
 
-   vga_osm_rgb_o <= stage7.vga_osm_rgb;
-   vga_osm_on_o  <= stage7.vga_osm_on;
+   vga_osm_rgb_o <= stage9.vga_osm_rgb;
+   vga_osm_on_o  <= stage9.vga_osm_on;
 
 end architecture synthesis;
