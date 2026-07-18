@@ -20,4 +20,4 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V1-A9     | 07/13/26 | 2bbb36c | True analog picture position: pan_x/pan_y move the complete analog picture in Standard and both 15 kHz modes by shifting the sync phase (issue #5). User-friendlier aexp_screen_cfg.py.
 | WIP-V1-A10    | 07/14/26 | 6ee1dc5 | OSM Scaling
 | WIP-V1-A11    | 07/16/26 | 8039663 | Ability to toggle Slow RAM/A501 (issue #20). Beautified OSM Scaling.
-| WIP-V1-B1     | 07/18/26 | WIP     | Fix Slow RAM re-activation bug (issue #21)
+| WIP-V1-B1     | 07/18/26 | d4af43a | Fix Slow RAM re-activation bug (issue #21)
