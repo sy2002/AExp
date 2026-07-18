@@ -1,7 +1,7 @@
 Version 1 - MONTH, 2026
 =======================
 
-NOT-YET-RELEASED WORK-IN-PROGRESS
+BETA VERSION 2, RELEASE CANDIDATE
 
 See [doc/inofficial.md](doc/inofficial.md) for details.
 
