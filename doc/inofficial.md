@@ -21,3 +21,4 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V1-A10    | 07/14/26 | 6ee1dc5 | OSM Scaling
 | WIP-V1-A11    | 07/16/26 | 8039663 | Ability to toggle Slow RAM/A501 (issue #20). Beautified OSM Scaling.
 | WIP-V1-B1     | 07/18/26 | d4af43a | Fix Slow RAM re-activation bug (issue #21)
+| WIP-V1-B2     | <wip>    | <wip>   | Improved FPGA's timing headroom (general stability). Improved built-in help.

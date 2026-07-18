@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-B1";
+constant CORE_VERSION : string := "WIP-V1-B2";
 
 constant SCR_WELCOME : string :=
 
@@ -163,7 +163,8 @@ constant HELP_3 : string :=
    " Browser Up/Down: select file\n" &
    " Browser Left/Right: previous/next page\n" &
    " Browser Return: mount selected file\n" &
-   " Browser Run/Stop: cancel\n\n" &
+   " Browser Run/Stop: cancel\n" &
+   " Browser F1/F3: Switch between SD cards\n\n" &
 
    " Mounted disks boot automatically.\n\n" &
 
