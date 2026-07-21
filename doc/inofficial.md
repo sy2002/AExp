@@ -22,4 +22,4 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V1-A11    | 07/16/26 | 8039663 | Ability to toggle Slow RAM/A501 (issue #20). Beautified OSM Scaling.
 | WIP-V1-B1     | 07/18/26 | d4af43a | Fix Slow RAM re-activation bug (issue #21)
 | WIP-V1-B2     | 07/17/26 | 4dbd272 | Improved FPGA's timing headroom (general stability). Improved built-in help. RELEASE CANDIDATE 1.
-| WIP-V1-B3     | 07/21/26 | <todo>  | Improve Fix HyperRAM receive timing. RELEASE CANDIDATE 2.
+| WIP-V1-B3     | 07/21/26 | 31cb282 | Improve Fix HyperRAM receive timing. RELEASE CANDIDATE 2.
