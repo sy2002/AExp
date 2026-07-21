@@ -3,6 +3,8 @@ CORE/*.hw
 CORE/*.runs
 CORE/*.sim
 CORE/.Xil
+CORE/build_*.jou
+CORE/build_*.log
 CORE/vivado*.jou
 CORE/vivado*.log
 CORE/vivado_pid*
@@ -26,3 +28,4 @@ __pycache__
 /doc/.venv/
 /site/
 /_site/
+build_*.out

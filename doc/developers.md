@@ -74,6 +74,22 @@ Operating-system hints for the `bash` tool chain:
    to prepare. The bitstream ends up in
    `CORE/CORE-R3.runs/impl_1/mega65_r3.bit` (substitute your board).
 
+   To rebuild all four boards in batch mode, source the Vivado environment
+   and run the overnight-build helper instead:
+
+   ```bash
+   cd CORE
+   source /tools/Xilinx/Vivado/2022.2/settings64.sh  # adjust this path
+   nohup ./build_all.sh > build_all.out 2>&1 &
+   ```
+
+   Pass board names to build only a subset (for example,
+   `./build_all.sh R3 R6`). Set `JOBS=<n>` to choose how many parallel
+   workers Vivado may use during synthesis and implementation of each board,
+   for example `JOBS=8 ./build_all.sh R3 R6`. The selected boards themselves
+   are built one after another. Each run writes `build_R<n>.log` and ends
+   with a compact timing and sign-off summary.
+
 4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `coretool`, part of
    the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
 
@@ -123,4 +139,3 @@ the `CORE_VERSION` constant in `CORE/vhdl/config.vhd`.
   build environment in depth and explains the QNICE debug console — a
   real-time serial log and interactive monitor, available if you have a
   JTAG adaptor.
-  
