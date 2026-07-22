@@ -36,7 +36,7 @@
 -- byte-window QNICE<->HyperRAM bridge + avm_fifo CDC) and the qnice_csr arm of
 -- CORE/vhdl/sw_cartridge_csr.vhd, with the CRT parser replaced by the size validator.
 --
--- MiSTer2MEGA65 (AExp Amiga 500 port) done in July 2026 and licensed under GPL v3
+-- MiSTer2MEGA65 (AExp Amiga 500 port) done by sy2002 in July 2026 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
 
 library ieee;

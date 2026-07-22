@@ -37,7 +37,7 @@
 -- Runs entirely in the clk_main (28.375 MHz) domain - the same clock as minimig. No clk7_en
 -- needed: Paula's io_wait handshake encapsulates the clk7 pacing.
 --
--- MiSTer2MEGA65 (AExp Amiga 500 port) done in July 2026 and licensed under GPL v3
+-- MiSTer2MEGA65 (AExp Amiga 500 port) done by sy2002 in July 2026 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
 
 library ieee;

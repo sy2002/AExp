@@ -131,7 +131,7 @@
 --   * reset_i must be the same M2M core reset that drives minimig's rst_ext, so that the
 --     sequence reruns after every core reset.
 --
--- MiSTer2MEGA65 (AExp Amiga 500 port) done in June 2026 and licensed under GPL v3
+-- MiSTer2MEGA65 (AExp Amiga 500 port) done by sy2002 in June 2026 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
 
 library ieee;

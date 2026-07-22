@@ -5,7 +5,7 @@
 --
 -- Based on the MiSTer2MEGA65 framework template, done by sy2002 and MJoergen
 -- in 2023 and licensed under GPL v3.
--- Amiga 500 port (AExp) done in 2026.
+-- Amiga 500 port (AExp) done by sy2002 in 2026.
 ----------------------------------------------------------------------------------
 
 library ieee;
