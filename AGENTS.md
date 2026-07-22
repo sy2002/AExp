@@ -210,7 +210,8 @@ the deep material lives in `doc/` (see "Key documents").
   `doc/inofficial.md`).
 - `CORE/Minimig_MiSTerMEGA65/` — git submodule, upstream
   MiSTer-devel/Minimig-AGA_MiSTer. Branch **develop** carries all
-  Xilinx/MEGA65 changes; master mirrors upstream. Every change to
+  Xilinx/MEGA65 changes; **MiSTer** mirrors upstream; **master** is the
+  released state (= `develop` at each AExp release). Every change to
   original files has a dated provenance comment with original code kept
   commented out. `rtl/minimig_m65.v` is our VHDL-friendly rename shim
   (minimig.v has leading-underscore ports = illegal VHDL identifiers).
