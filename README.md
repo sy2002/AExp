@@ -9,9 +9,8 @@ This core turns the MEGA65 into an Amiga 500 with the original OCS chipset
 expansion in the trapdoor slot (known as Slow RAM, this is what the classic
 Commodore A501 expansion did). The Amiga therefore has 1 MB of RAM in total.
 
-The core is currently feature complete and in beta testing phase for the first
-official release version 1. As far as we can assess this at the moment: it is
-rock solid and runs 99.9% of all games and demos.
+This is Version 1, the first official release. The core is feature complete
+and, as far as we can assess, rock solid: it runs 99.9% of all games and demos.
 
 ![Amiga500](doc/assets/a500_ocs.jpg)
 
@@ -41,8 +40,9 @@ Features
 * One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
   via the on-screen-menu, read and write
 * Kickstart 1.3
-* Real Amiga mouse in port 1, joystick in port 2, exactly like on a
-  real Amiga
+* Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
+  Amiga — and either device works in either port, so dual-mouse and
+  two-player (two-joystick) setups work too
 * MEGA65 keyboard mapped to the Amiga keyboard and raw Amiga keyboard mode
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
@@ -90,19 +90,22 @@ to the `ADF:` item and press <kbd>Space</kbd>. On
 an empty drive that same <kbd>Space</kbd> opens the file browser to mount a
 disk instead, so one key both mounts and ejects.
 
-Saving happens in the background, so the Amiga never stalls. After a write,
-the MEGA65's drive LED turns **yellow** while the change is being saved and
-**green** again once it is safely on the SD card. Please **wait until the LED
-has stayed green for a few seconds** before you unmount a disk, swap disks,
-reset, or switch the machine off — the yellow light can briefly come back on
-as more data is flushed. Switching off while it is yellow loses the
-not-yet-saved changes, exactly like ejecting a real floppy while its drive
-light is still on.
+Saving happens in the background, so the Amiga never stalls. The MEGA65's
+drive LED lights **green** during disk access — reading or writing — just like
+the drive light on a real Amiga. After a write it turns **yellow** while the
+change is being written back to the `*.adf` file on the SD card, and goes
+**off** once everything is safely saved. Please **wait until the LED has stayed
+off for a few seconds** before you unmount a disk, swap disks, reset, or switch
+the machine off — the yellow light can briefly come back on as more data is
+flushed. Switching off while it is yellow loses the not-yet-saved changes,
+exactly like ejecting a real floppy while its drive light is still on.
 
 ### Mouse and joystick
 
-Plug the mouse into **port 1** and the joystick into **port 2**, exactly
-like on a real Amiga. The **original Amiga "Tank Mouse"** is the directly
+Plug the mouse into **port 1** and the joystick into **port 2** — the usual
+setup, exactly like on a real Amiga. Both ports accept either device, though,
+so a mouse in each port, or a joystick in each port for two-player games, works
+just as well. The **original Amiga "Tank Mouse"** is the directly
 supported passive mouse; compatible active adapters are listed below.
 Commodore C64 mice do **not** work: neither the 1350 ("joystick mouse") nor
 the 1351 (proportional mouse) speaks the Amiga's protocol. We may add support
@@ -356,22 +359,22 @@ fixes, neither a fault of AExp). The full walkthrough is in
 Constraints and roadmap
 -----------------------
 
-At this moment the core is in beta testing phase for the first official release
-version 1. It is feature complete, so - among other things - the following known
-gaps will remain in version 1:
+Version 1 is feature complete, so — among other things — the following known
+gaps remain in this release:
 
-* Kickstart 1.3 (ROM size limited to 256kB)
+* Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
 * Only one floppy drive (`df0:`)
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
 
-The list of work-in-progress builds lives in [doc/inofficial.md](doc/inofficial.md).
+The development history — all the alpha and beta work-in-progress builds — is
+documented in [doc/inofficial.md](doc/inofficial.md).
 
 Installation
 ------------
 
-There is no official release on the MEGA65 Filehost yet. If you have a
-`*.cor` or `*.bit` file of one of the work-in-progress builds:
+To install the core you need its `*.cor` file (or a `*.bit` file if you flash
+via JTAG). Then:
 
 1. Use a FAT32 formatted SD card with a maximum capacity of 32 GB. The card
    in the back slot has precedence over the card in the bottom slot.

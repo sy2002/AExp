@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V1-B3";
+constant CORE_VERSION : string := "V1";
 
 constant SCR_WELCOME : string :=
 
@@ -99,8 +99,7 @@ constant HELP_1 : string :=
 
    " THE MACHINE\n\n" &
 
-   " Amiga 500, OCS chipset, PAL only\n" &
-   " 68000 CPU\n" &
+   " Amiga 500, 68000 CPU, OCS, PAL only\n" &
    " 512 KB Chip RAM + 512 KB Slow RAM\n" &
    " (the A501 Slow RAM can be disabled\n" &
    " in the options menu)\n" &
@@ -109,8 +108,8 @@ constant HELP_1 : string :=
    " Audio: via HDMI and 3.5 mm jack\n" &
    " Battery-backed real-time clock\n\n" &
    
-   " Mouse: port 1\n" &
-   " Joystick: port 2\n\n" &  
+   " Mouse:    Port 1\n" &
+   " Joystick: Port 2\n\n" &  
 
    " One read/write floppy drive: df0:\n" &
    " Standard 880 KB ADF disk images\n\n" &
@@ -119,6 +118,7 @@ constant HELP_1 : string :=
    " More disk drives (df1:), hard disks\n" &
    " Kickstart newer than 1.3\n" &
    " ECS/AGA, NTSC, Fast RAM, hard disks\n\n" &
+   "\n\n\n" &  -- keep footer at bottom
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";
@@ -127,7 +127,7 @@ constant HELP_2 : string :=
 
    "\n KEYBOARD\n\n" &
 
-   " MEGA65 mode (default):\n" &
+   " MEGA65 mode (default):\n\n" &
    " Type what is printed on the keycaps.\n" &
    " MEGA + key types front-face symbols.\n" &
    " Esc, Tab and Caps Lock work normally.\n\n" &
@@ -138,7 +138,7 @@ constant HELP_2 : string :=
    " F1,F3,F5,F7,F9    Odd Amiga F-keys\n" &
    " Shift + F-key     Even Amiga F-keys\n\n" &
 
-   " Amiga mode:\n" &
+   " Amiga mode:\n\n" &
    " Keys use original Amiga positions.\n" &
    " Some games need this mode.\n" &
    " The top row from Run/Stop through F11\n" &
@@ -147,7 +147,9 @@ constant HELP_2 : string :=
    " Hold the up-arrow symbol left of\n" &
    " RESTORE for the right mouse button.\n\n" &
 
+   " Both modes:\n" &
    " Ctrl+MEGA+RESTORE = warm reset\n\n" &
+   "\n\n\n" &  -- keep footer at bottom
 
    " Crsr left/right: Prev/Next      (2/7)\n" &
    " Space or Run/Stop: Close";
@@ -159,12 +161,14 @@ constant HELP_3 : string :=
    " Select ADF: in the menu.\n\n" &
 
    " Empty drive + Space: open file browser\n" &
-   " Mounted disk + Space: eject disk\n" &
-   " Browser Up/Down: select file\n" &
-   " Browser Left/Right: previous/next page\n" &
-   " Browser Return: mount selected file\n" &
-   " Browser Run/Stop: cancel\n" &
-   " Browser F1/F3: Switch between SD cards\n\n" &
+   " Mounted disk + Space: eject disk\n\n" &
+
+   " File Browser:\n" &
+   " Up/Down: select file\n" &
+   " Left/Right: previous/next page\n" &
+   " Return: mount selected file\n" &
+   " Run/Stop: cancel\n" &
+   " F1/F3: Switch between SD cards\n\n" &
 
    " Mounted disks boot automatically.\n\n" &
 
@@ -174,11 +178,11 @@ constant HELP_3 : string :=
    " the Amiga keeps running normally.\n\n" &
 
    " Drive LED:\n" &
-   " yellow = changes are being saved\n" &
-   " green  = saved\n\n" &
+   " green  = disk access\n" &
+   " yellow = changes are being saved\n\n" &
 
    " Before eject, reset or power off:\n" &
-   " wait until the LED has stayed green\n" &
+   " wait until the LED has stayed off\n" &
    " for a few seconds. Yellow may return\n" &
    " briefly while data is still flushing.\n\n" &
 
@@ -189,13 +193,17 @@ constant HELP_4 : string :=
 
    "\n MOUSE AND JOYSTICK\n\n" &
 
-   " Amiga mouse: port 1\n" &
-   " Joystick:    port 2\n\n" &
+   " Amiga mouse: Port 1  Joystick: Port 2\n" &
+   " Dual mouse and dual joystick setups work\n\n" &
 
    " Original tank mouse:\n" &
-   " movement and left button work.\n" &
-   " Its right/middle buttons cannot be read\n" &
-   " by MEGA65 hardware.\n\n" &
+   " Movement and left button work.\n" &
+   " Right/middle buttons cannot be read.\n\n" &
+
+   " Active mice (e.g. Alfa Data, Amitech, and\n" &
+   " Amigakit) as well as active adapters (e.g.\n" &
+   " Micro Tom, mouSTer, USBAMI) support\n" &
+   " all buttons.\n\n" &
 
    " Keyboard right-button fallback:\n" &
    " MEGA65 mode: hold Run/Stop\n" &
@@ -204,16 +212,13 @@ constant HELP_4 : string :=
 
    " No mouse? In Workbench:\n" &
    " MEGA + cursor keys: move pointer\n" &
-   " add Shift: move faster\n" &
-   " MEGA + Alt: left button\n" &
-   " Amiga mode: MEGA + F13: left button\n" &
+   " Add Shift: move faster\n" &
+   " MEGA65 mode: MEGA + Alt: left button\n" &
+   " Amiga mode:  MEGA + F13: left button\n" &
    " Works in Workbench, not games/demos.\n\n" &
 
-   " Active adapters support all buttons.\n" &
-   " mouSTer needs firmware 3.23.5313+ and:\n" &
-   " activeplotlines=true\n\n" &
-
    " C64 1350/1351 mice do not work.\n\n" &
+   "\n\n" &  -- keep footer at bottom
 
    " Crsr left/right: Prev/Next      (4/7)\n" &
    " Space or Run/Stop: Close";
@@ -222,10 +227,10 @@ constant HELP_5 : string :=
 
    "\n VIDEO: HDMI AND ANALOG\n\n" &
 
-   " HDMI: PAL at 50 Hz only\n" &
-   " 720p 16:9 or 576p 4:3 / 5:4\n" &
-   " HDMI interlace fixing is automatic.\n" &
-   " Intentional demo flicker remains.\n\n" &
+   " HDMI: PAL Amiga, so 50 Hz modes only:\n" &
+   "       720p 16:9\n" &
+   "       576p 4:3 or 5:4\n" &
+   " HDMI interlace fixing is automatic.\n\n" &
 
    " IMPORTANT - HDMI: Flicker-free\n" &
    " ON for HDMI-only use\n" &
@@ -234,16 +239,16 @@ constant HELP_5 : string :=
    " The VGA connector always carries video:\n" &
    " Standard = 31 kHz, 50 Hz\n" &
    " 15 kHz HS/VS = separate sync\n" &
-   " 15 kHz CSYNC = CRT / RGB SCART\n\n" &
+   " 15 kHz CSYNC = CRT / RGB SCART\n" &
+   " https://a500.mega65.org/doc/retrotubes\n\n" &
 
-   " Standard remains 50 Hz; some monitors\n" &
-   " do not accept it.\n" &
    " VGA Standard does not fix interlace.\n" &
    " A 15 kHz CRT weaves it naturally.\n" &
    " HDMI stays active in every VGA mode.\n\n" &
 
    " Normal VGA displays cannot show 15 kHz\n" &
    " or its menu. Recover using HDMI.\n\n" &
+   "\n\n\n\n\n\n" &  -- keep footer at bottom
 
    " Crsr left/right: Prev/Next      (5/7)\n" &
    " Space or Run/Stop: Close";
@@ -253,33 +258,32 @@ constant HELP_6 : string :=
    "\n SCREEN ADJUSTMENT\n\n" &
 
    " Supplied presets:\n" &
-   " aexp_screen.cfg_16_9\n" &
-   " aexp_screen.cfg_4_3\n" &
-   " Rename one exactly:\n" &
-   " /amiga/aexp_screen.cfg\n\n" &
+   " aexp_screen.cfg_4_3 & aexp_screen.cfg_16_9\n" &
+   " Rename one & save: /amiga/aexp_screen.cfg\n\n" &
+
+   " Use python tool to configure screen:\n" &
+   " aexp_screen_cfg.py\n" &
+   " https://a500.mega65.org/doc/screen_adjust\n\n" &
 
    " Menu: Reload Screen Config\n" &
    " applies changes without a reboot.\n\n" &
 
    " HDMI crop:\n" &
-   " reframes and slightly zooms HDMI only.\n\n" &
+   " Reframes and slightly zooms HDMI only.\n\n" &
 
    " Analog position:\n" &
-   " moves the complete picture and menu\n" &
+   " Moves the complete picture and menu\n" &
    " in all three VGA modes.\n\n" &
 
    " Analog overscan:\n" &
-   " hides or reveals the border edges.\n\n" &
+   " Hides or reveals the border edges.\n\n" &
 
    " Settings switch for lores, hires and\n" &
    " their interlaced modes automatically.\n\n" &
 
    " Analog picture size cannot be changed;\n" &
    " use the monitor H/V size controls.\n\n" &
-
-   " If analog output goes black, remove the\n" &
-   " config file and reload.\n" &
-   " HDMI still works.\n\n" &
+   "\n" &  -- keep footer at bottom
 
    " Crsr left/right: Prev/Next      (6/7)\n" &
    " Space or Run/Stop: Close";
@@ -306,6 +310,7 @@ constant HELP_7 : string :=
 
    " The Amiga side can only read the clock;\n" &
    " do not use SetClock SAVE.\n\n" &
+   "\n\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
 
    " Crsr left: Previous             (7/7)\n" &
    " Space or Run/Stop: Close";

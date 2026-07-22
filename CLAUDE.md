@@ -118,7 +118,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with FOUR sanctioned
+- `M2M/` — the framework. **NEVER modify**, with SIX sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -145,7 +145,22 @@ the deep material lives in `doc/` (see "Key documents").
   reproduce the classic Help-only behaviour and leave the firmware ROM
   byte-identical, so every existing M2M core is unchanged. Issue #8,
   2026-07-11 — implemented, awaiting synthesis; **the 4th exception still
-  needs sy2002's explicit sign-off** (spec §8). All other framework fixes
+  needs sy2002's explicit sign-off** (spec §8).
+  (5) `osm-scale` — a RAM-inference override: `tdp_ram.vhd` gains a
+  `RAM_STYLE_SELECT` generic (default `"auto"` = every existing caller
+  unchanged) driving the block RAM's `ram_style`; `ascal.vhd` uses it to pin its
+  shallow async ping-pong buffers (`i_dpram`) to `"distributed"` LUTRAM.
+  Otherwise Vivado maps them to BRAM, burning 4 RAMB36s AND absorbing `avl_dr`
+  into the BRAM output, invalidating the ascal-FIFO CDC max-delay endpoints
+  (`CORE/CORE.xdc`) that MEGA65 cores depend on.
+  (6) `raw-joyports` — `M2M/vhdl/debouncer.vhd`: the ten `work.debounce`
+  instances (1 ms stable-time) replaced by plain 2-FF synchronizers, so the DB9
+  direction/fire (and mouse quadrature) lines reach the core raw — authentic (a
+  real Amiga has no DB9 debouncing) and mandatory for quadrature mice, whose fast
+  pulse trains the 1 ms filter swallowed (frozen-then-jumping pointer). Port-flip
+  + joy on/off gating kept; `CLK_FREQ`/`reset_n` now unused. Deep dive:
+  `doc/mouse.md`; sy2002-approved 2026-07-22, to become a framework option when
+  upstreamed. All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):

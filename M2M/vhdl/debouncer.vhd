@@ -51,6 +51,9 @@ end debouncer;
 
 architecture beh of debouncer is
 
+-- M2M-UPSTREAM raw-joyports: this framework joystick debouncer is reduced to
+-- plain 2-FF synchronizers (no stable-time filter) so the DB9 direction/fire
+-- and mouse quadrature lines pass through raw.
 -- MiSTer2MEGA65 (AExp Amiga 500 port), July 2026: debouncing removed, the ten
 -- work.debounce instances (stable_time 1 ms) are replaced by plain 2-FF
 -- synchronizers. A real Amiga has no debouncing on the DB9 lines: Denise counts
