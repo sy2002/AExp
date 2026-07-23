@@ -239,6 +239,42 @@ body {
   padding-left: 0.35rem;
 }
 
+/* Make the top-level "Home" entry read as a button so visitors do not mistake
+   it for a section child. Targets the visible link of the first primary-nav
+   item on every page. On the home page the item also carries a hidden
+   table-of-contents toggle label (Material hides it at desktop width); scoping
+   to a.md-nav__link keeps the styling on the single real link. */
+.md-nav--primary > .md-nav__list > .md-nav__item:first-child > a.md-nav__link {
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.15rem 0.1rem 0.7rem;
+  padding: 0.4rem 0.55rem;
+  color: var(--aexp-paper);
+  background: var(--aexp-blue);
+  border: 2px solid var(--aexp-ink);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--aexp-shadow);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-nav--primary > .md-nav__list > .md-nav__item:first-child > a.md-nav__link::before {
+  content: "";
+  width: 0.95em;
+  height: 0.95em;
+  flex: 0 0 auto;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.5 1.5 12H5v9.5h5.2V14h3.6v7.5H19V12h3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.5 1.5 12H5v9.5h5.2V14h3.6v7.5H19V12h3.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.md-nav--primary > .md-nav__list > .md-nav__item:first-child > a.md-nav__link:is(:hover, :focus) {
+  color: var(--aexp-paper);
+  background: var(--md-primary-fg-color--light);
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--aexp-shadow);
+}
+
 .md-footer {
   border-top: 3px solid var(--aexp-ink);
   background: var(--aexp-blue-dark);
