@@ -64,6 +64,22 @@ PREFERRED_NAVIGATION = (
     ("Development", (("Building from source", "doc/developers.md"),)),
 )
 
+# The "Releases" section lists the work-in-progress builds (doc/inofficial.md).
+# It belongs in the navigation only while the core is in an alpha/beta phase,
+# recognised by a WIP-* CORE_VERSION in config.vhd (e.g. "WIP-V1-A11").  For a
+# tagged release (V1, V1.1, V2, ...) the page is still built and reachable from
+# README.md and by direct URL, but hidden from the left-hand navigation: it is
+# added to the navigation's "included" set so the "More" fallback does not
+# resurface it, and listed in the MkDocs "not_in_nav" option so the strict build
+# accepts a built page that is absent from the navigation.
+WIP_BUILDS_SECTION = "Releases"
+WIP_BUILDS_PAGE = "doc/inofficial.md"
+
+CONFIG_VHD = REPO_ROOT / "CORE" / "vhdl" / "config.vhd"
+CORE_VERSION_RE = re.compile(
+    r'constant\s+CORE_VERSION\s*:\s*string\s*:=\s*"([^"]+)"\s*;'
+)
+
 
 class DocumentationError(RuntimeError):
     """A user-facing documentation build failure."""
@@ -241,12 +257,46 @@ def yaml_string(value: str | Path) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
+def core_version() -> str | None:
+    """Return the CORE_VERSION string from config.vhd, or None if unavailable."""
+    try:
+        text = CONFIG_VHD.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = CORE_VERSION_RE.search(text)
+    return match.group(1) if match else None
+
+
+def show_wip_builds() -> bool:
+    """Whether to list the work-in-progress builds in the navigation.
+
+    Alpha/beta cores carry a WIP-* version string (e.g. "WIP-V1-A11") and expose
+    the list; tagged releases (V1, V1.1, V2, ...) hide it.  When the version
+    cannot be read, default to hiding it, matching the tagged-release behaviour.
+    """
+    version = core_version()
+    return version is not None and version.startswith("WIP-")
+
+
+def report_wip_visibility() -> None:
+    """Log which navigation the current core version produces."""
+    version = core_version()
+    label = repr(version) if version is not None else "unknown (unreadable config.vhd)"
+    state = "shown in" if show_wip_builds() else "hidden from"
+    print(f"Core version {label}: work-in-progress build list {state} navigation")
+
+
 def navigation_yaml(graph: DocumentationGraph) -> str:
     discovered = {repo_relative(page).as_posix(): page for page in graph.pages}
+    wip = show_wip_builds()
     included: set[str] = {"README.md"}
+    if not wip:
+        included.add(WIP_BUILDS_PAGE)
     lines = ["nav:", '  - "Home": "index.md"']
 
     for section, entries in PREFERRED_NAVIGATION:
+        if section == WIP_BUILDS_SECTION and not wip:
+            continue
         available = [(label, path) for label, path in entries if path in discovered]
         if not available:
             continue
@@ -273,6 +323,16 @@ def navigation_yaml(graph: DocumentationGraph) -> str:
     return "\n".join(lines)
 
 
+def not_in_nav_yaml(graph: DocumentationGraph) -> str:
+    if show_wip_builds():
+        return ""
+    discovered = {repo_relative(page).as_posix(): page for page in graph.pages}
+    if WIP_BUILDS_PAGE not in discovered:
+        return ""
+    hidden = staged_relative(discovered[WIP_BUILDS_PAGE]).as_posix()
+    return f"not_in_nav: |\n  {hidden}\n"
+
+
 def mkdocs_configuration(graph: DocumentationGraph, docs_dir: Path, site_dir: Path) -> str:
     return f"""\
 site_name: "AExp Documentation"
@@ -285,6 +345,7 @@ site_dir: {yaml_string(site_dir)}
 use_directory_urls: true
 strict: true
 
+{not_in_nav_yaml(graph)}
 theme:
   name: material
   language: en
@@ -496,6 +557,7 @@ def print_graph(graph: DocumentationGraph) -> None:
 
 def command_check(_args: argparse.Namespace) -> int:
     print_graph(discover_documentation())
+    report_wip_visibility()
     return 0
 
 
@@ -516,6 +578,7 @@ def command_build(args: argparse.Namespace) -> int:
     (output / ".nojekyll").touch()
     validate_generated_site(output)
     print_graph(graph)
+    report_wip_visibility()
     print(f"Static site built in {output}")
     return 0
 
@@ -528,6 +591,7 @@ def command_serve(args: argparse.Namespace) -> int:
         staging = Path(temporary)
         config = prepare_staging(graph, staging, staging / "site")
         print_graph(graph)
+        report_wip_visibility()
         print(
             f"Previewing at http://{args.address}/AExp/ "
             "(restart after editing source documents)"
