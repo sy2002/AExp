@@ -21,6 +21,22 @@ The first build creates an ignored Python environment in `doc/.venv` and
 installs the versions pinned in `doc/requirements-doc.txt`. No manual MkDocs
 installation is necessary.
 
+## The work-in-progress build list
+
+The **Releases → Work-in-progress builds** navigation entry
+(`doc/inofficial.md`) is version-aware. `make_doc.py` reads the `CORE_VERSION`
+constant from `CORE/vhdl/config.vhd` and decides accordingly:
+
+- **Alpha/beta cores** — a `WIP-*` version such as `WIP-V1-A11` — show the entry
+  in the left-hand navigation.
+- **Tagged releases** — `V1`, `V1.1`, `V2`, and so on — hide it. The page is
+  still built, still reachable through the link in `README.md` and by direct
+  URL, and still indexed for search; only the navigation entry is removed.
+
+If the version cannot be read, the entry is hidden, matching a tagged release.
+Each `check`, `build`, and `serve` run reports the detected version and whether
+the list is shown.
+
 ## How to use it
 
 Run these commands from the repository root:
