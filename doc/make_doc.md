@@ -70,3 +70,17 @@ branch. Pull requests build the site for validation but do not deploy it.
 
 GitHub Pages must be configured once under **Settings → Pages → Source: GitHub
 Actions**. After that, documentation updates are published automatically.
+
+## Freezing publication
+
+Publication can be paused without changing any GitHub setting. When the file
+`doc/DOC_FROZEN` exists, the workflow still builds the site — so broken links and
+anchors are still caught on every push — but skips the deploy step, and GitHub
+Pages keeps serving the last deployed site. The Actions log records a notice
+explaining why nothing was published.
+
+This is useful while development of the next version continues on `develop` after
+a release: the live site stays at the released state, and the work-in-progress
+build list does not reappear even once `CORE_VERSION` becomes a `WIP-*` string
+again. Delete `doc/DOC_FROZEN` to resume automatic publishing; the next relevant
+push republishes as usual.

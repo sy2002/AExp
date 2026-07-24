@@ -1,0 +1,4 @@
+Documentation publishing is frozen: while this file exists the Pages workflow
+still builds the site (link and anchor validation) but skips the deploy step, so
+GitHub Pages keeps serving the last deployed site (V1). Intentional while V2 work
+continues on develop. Delete this file to resume automatic publishing.
