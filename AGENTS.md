@@ -114,6 +114,22 @@ the deep material lives in `doc/` (see "Key documents").
   invariant in §5a is load-bearing). Announced write-protected until
   the firmware arms WR_EN, on SD change, and while remounting.
   No df1..df3, no IDE. Keyboard + joysticks + mouse work.
+- Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
+  HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →
+  `CORE/vhdl/audio_filters.vhd` (bit-faithful Minimig.sv port reusing M2M's
+  `iir_filter.v`: A500 fixed 4400 Hz low-pass = OSM "A500 Filter", CIA-A-PA1
+  LED filter 3000+3400 Hz following `pwr_led` live = OSM "LED Filter", both
+  single-select default ON; MiSTer `aud_mix` crossfeed = OSM "Stereo: %s"
+  radio Full/Wide/Narrow/Mono, default Full) → master volume (Q15,
+  monitor-knob = last) → HDMI + analog alike. All HDL-read OSM bits
+  (`C_MENU_STEREO` 86..89, `C_MENU_A500FILT` 92, `C_MENU_LEDFILT` 93), zero
+  firmware logic, zero BRAM; both filters have intrinsic DC gain (+0.53 /
+  +1.11 dB, MiSTer-faithful incl. the IIR's 16-bit clamp). Everything-off =
+  bit-transparent raw Paula (the V1 sound). OPTM_SIZE 103→114, OPTM_DY
+  28→31, MENU_HEAP 1536→1664. The generic M2M "audio improvements" filter
+  stays tied off. End-user doc: `doc/audio.md`; details:
+  `doc/developers/audio.md`; TBs in `.research/` (tb_iir_amiga.v +
+  tb_audio_filters.vhd, all green).
 
 ## Repository map
 
@@ -282,12 +298,12 @@ the deep material lives in `doc/` (see "Key documents").
     formula (from `HELP_MENU` in `M2M/rom/options.asm`): 19 (menu struct) +
     `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 3 ×
     `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
-    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V1-A11 with the 74-item menu
-    (issue #20 added the Slow RAM toggle + one line, 72→74) needs exactly
-    1164 words and uses `MENU_HEAP_SIZE` 1280, headroom 116. For release,
+    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A1 with the 114-item menu
+    (volume 72→103, audio filters + stereo mix 103→114) needs exactly
+    1653 words and uses `MENU_HEAP_SIZE` 1664, headroom 11. For release,
     AExp follows the C64 total of 30208 words: with `HEAP=0x8220` and stack
     start `0xFEE0`, 1728 stack words remain versus 1536 required; the
-    file-browser heap is 28928 words. Recheck both live heap budgets and the
+    file-browser heap is 28544 words. Recheck both live heap budgets and the
     `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually whenever the
     menu or firmware variables grow.
 
@@ -398,6 +414,8 @@ User-facing docs (also the source for the a500.mega65.org website, built by
 - `doc/keyboard.md` — full keyboard mapping guide, both modes, per-key tables.
 - `doc/retrotubes.md` — connecting real 15 kHz CRTs (BNC / SCART / DB9 RGB) to
   the analog output, including the wiring-safety cautions.
+- `doc/audio.md` — end-user guide to volume, stereo mix and the A500/LED
+  filters (including the power-LED/filter story).
 - `doc/screen_adjust.md` — HDMI crop + analog position/overscan, the
   `aexp_screen.cfg` format and the `aexp_screen_cfg.py` tool.
 - `doc/RTC.md` — real-time clock setup and the Kickstart 1.3 quirks.

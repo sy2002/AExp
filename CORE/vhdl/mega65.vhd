@@ -299,6 +299,9 @@ signal main_fdd_led           : std_logic;
 -- Master volume: OSM "Volume" radio decoded into a step index (0 = mute .. 20 = 100%)
 signal main_volume            : natural range 0 to 20;
 
+-- Stereo crossfeed: OSM "Stereo" radio decoded into MiSTer's aud_mix encoding
+signal main_stereo_mix        : std_logic_vector(1 downto 0);
+
 -- ADF floppy: track engine's HyperRAM read port (main_clk side, post avm_cache
 -- in main.vhd) and the mount status CDC'd from the QNICE domain
 signal main_adf_avm_write         : std_logic;
@@ -424,28 +427,43 @@ subtype C_MENU_OSM_SCALING is natural range 51 downto 43;
 -- ahead of the framework's split into the HDMI and analog audio paths.
 subtype C_MENU_VOLUME is natural range 80 downto 60;
 
+-- Stereo crossfeed radio ("Stereo: %s" submenu): line 86 (Full Stereo, default)
+-- down to line 89 (Mono). Decoded below into main_stereo_mix using MiSTer's
+-- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
+-- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
+subtype C_MENU_STEREO is natural range 89 downto 86;
+
+-- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
+-- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
+-- low-pass behind Paula's DAC ('0' = brighter A1200-style output stage); LED
+-- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
+-- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
+-- wired straight into main.vhd like the keyboard/VGA bits.
+constant C_MENU_A500FILT      : natural := 92;
+constant C_MENU_LEDFILT       : natural := 93;
+
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 87 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 98 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 86;
+constant C_MENU_KBD_AMIGA     : natural := 97;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 91 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 102 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 91;
-constant C_MENU_OSMKEY_F11    : natural := 92;
-constant C_MENU_OSMKEY_F13    : natural := 93;
-constant C_MENU_OSMKEY_COMBO  : natural := 94;
+constant C_MENU_OSMKEY_HELP   : natural := 102;
+constant C_MENU_OSMKEY_F11    : natural := 103;
+constant C_MENU_OSMKEY_F13    : natural := 104;
+constant C_MENU_OSMKEY_COMBO  : natural := 105;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 98;
+constant C_MENU_SLOWRAM       : natural := 109;
 
 begin
 
@@ -571,6 +589,20 @@ begin
       end loop;
    end process volume_decode_proc;
 
+   -- Stereo crossfeed: the OSM "Stereo" radio (C_MENU_STEREO) is a 4-way one-hot
+   -- pick; translate it into MiSTer's aud_mix encoding (bit 86 -> 00 = Full
+   -- Stereo .. bit 89 -> 11 = Mono), defaulting to full separation when no bit
+   -- is set yet. Static combinational routing like the volume decode above.
+   stereo_decode_proc : process (main_osm_control_i)
+   begin
+      main_stereo_mix <= "00";                            -- default: Full Stereo
+      for b in C_MENU_STEREO'low to C_MENU_STEREO'high loop
+         if main_osm_control_i(b) = '1' then
+            main_stereo_mix <= std_logic_vector(to_unsigned(b - C_MENU_STEREO'low, 2));
+         end if;
+      end loop;
+   end process stereo_decode_proc;
+
    -- Memory topology is guest state, so changing it must be a cold boot from
    -- Kickstart's perspective. This local controller deliberately does not drive
    -- either M2M reset: the menu, QNICE and the framework remain alive.
@@ -622,6 +654,12 @@ begin
 
          -- Master volume (OSM "Volume" radio): 0..20 step index = mute..100%
          audio_volume_i       => main_volume,
+
+         -- Paula output filters + stereo crossfeed (OSM "Audio" section):
+         -- static bits, applied in main.vhd's audio_filters ahead of the volume
+         audio_a500_filter_i  => main_osm_control_i(C_MENU_A500FILT),
+         audio_led_filter_i   => main_osm_control_i(C_MENU_LEDFILT),
+         audio_stereo_mix_i   => main_stereo_mix,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,

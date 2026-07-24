@@ -1,21 +1,26 @@
 # AExp audio notes
 
-This note explains the AExp audio path, the MiSTer "Improve audio" style
-filter, and how this differs from the Amiga-specific filters in Minimig.
+This note explains the AExp audio path: Paula, the Amiga-specific output
+filters and the stereo crossfeed (both faithful ports from MiSTer's
+`Minimig.sv`), the OSM master volume, and how all of that differs from the
+generic MiSTer "audio improvements" filter that the M2M framework also
+carries (and which AExp keeps disabled).
 
 It is written for maintainers who know neither MiSTer nor the Amiga audio
 hardware in detail. The short version is:
 
-* AExp currently outputs raw Paula audio.
-* The OSM "Volume" control attenuates the final mix in `main.vhd`; at its
-  100% default it is bit-transparent, so raw Paula remains the default sound.
-* The `audio_*` constants in `CORE/vhdl/globals.vhd` are correct for the
-  generic MiSTer final audio filter.
-* That generic filter is not the Amiga A500 low-pass filter.
-* Enabling it affects both HDMI and the MEGA65 analog audio jack.
-* For the current alpha, keeping it disabled is the conservative default.
-  Porting Minimig's Amiga-specific filters is the more meaningful audio
-  improvement milestone.
+* The audio chain is: raw Paula -> A500 fixed low-pass (switchable) ->
+  LED filter (follows the emulated power LED) -> stereo crossfeed ->
+  OSM master volume -> both HDMI and analog output.
+* The filters and the crossfeed live in `CORE/vhdl/audio_filters.vhd` and are
+  bit-faithful to MiSTer `Minimig.sv`; the OSM defaults (A500 Filter on, LED
+  Filter on, Full Stereo, 100% volume) reproduce a real A500.
+* With both filters off and Full Stereo, the path is bit-transparent raw
+  Paula, exactly the pre-filter behavior.
+* The generic M2M `audio_out` filter is a different thing: MiSTer output
+  conditioning, not an Amiga model. AExp has the right coefficients for it in
+  `CORE/vhdl/globals.vhd` but keeps `qnice_audio_filter_o` tied to `'0'`.
+* The end-user description of all of this is `doc/audio.md`.
 
 ## 1. What is Paula?
 
@@ -25,32 +30,18 @@ right output. The Amiga software writes sample data into RAM, Paula fetches
 it at the programmed period, and the analog output circuitry turns the result
 into left/right audio.
 
-For our purposes, the important detail is that Minimig already models Paula
-and exposes a left and right digital sample stream:
+Minimig models Paula and exposes a left and right digital sample stream:
 
 ```verilog
 ldata[14:0]
 rdata[14:0]
 ```
 
-Those are 15-bit signed Paula samples. MiSTer widens them to 16-bit signed PCM
-by shifting left once:
-
-```verilog
-{ldata[14:0], 1'b0}
-{rdata[14:0], 1'b0}
-```
-
-AExp does the same widening in VHDL, as part of the master-volume stage
-(`audio_volume_proc` in `main.vhd`):
-
-```vhdl
-prod_l        := signed(aud_ldata & '0') * gain;
-audio_left_o  <= prod_l(30 downto 15);
-```
-
-That is the clean raw-Paula path. It is not obviously wrong; it is simply not
-the full analog output model of an A500.
+Those are 15-bit signed Paula samples (channels 0+3 summed to the left,
+1+2 to the right — the sum of two sign-extended 14-bit voice products, so it
+cannot overflow). MiSTer widens them to 16-bit signed PCM by shifting left
+once (`{ldata, 1'b0}`); AExp does the same widening at the input of
+`audio_filters.vhd`.
 
 ## 2. What MiSTer does
 
@@ -81,9 +72,9 @@ The upstream source is:
 The relevant stages are:
 
 * `lpf4400`: a first-order low-pass filter around 4.4 kHz. This models the
-  fixed A500 output RC filter.
-* `lpf3275`: a second filter described in the source as "LPF 3000Hz 1st +
-  3400Hz 1st". This models the extra Amiga LED filter behavior.
+  fixed A500 output RC filter (the A1200 dropped it).
+* `lpf3275`: a filter described in the source as "LPF 3000Hz 1st +
+  3400Hz 1st". This models the switchable Amiga LED filter.
 
 MiSTer controls those filters with these signals:
 
@@ -95,36 +86,26 @@ wire paula_pwm = status[50];
 
 In plain language:
 
-* `paula_pwm` selects an alternate PWM-volume Paula path.
-* `aud_1200` selects A1200-style audio behavior, bypassing the A500 fixed
-  low-pass stage.
-* `flt_en` controls the LED filter. In one mode it follows the Amiga power
-  LED state; in another mode it is forced by the menu.
+* `paula_pwm` selects an alternate PWM-volume Paula path (not ported).
+* `aud_1200` bypasses the A500 fixed low-pass stage.
+* `flt_en` controls the LED filter; the default "Auto(LED)" mode follows the
+  Amiga power LED state live.
 
-For an A500 OCS-focused port, these filters are the historically interesting
-ones. They are what make the audio more like a real A500 output chain. They
-also change the sound much more than the generic MiSTer output filter.
+`pwr_led` is CIA-A PRA bit 1 inverted (`minimig.v`: `pwr_led = ~_led`), i.e.
+`pwr_led = '1'` means "LED bright" means "filter engaged" — the classic
+Amiga power-LED/audio-filter coupling.
+
+MiSTer's stereo mix for Paula's hard-panned channels is a third piece: the
+userio command `0xF2` stores a 2-bit `aud_mix` value that minimig merely
+re-exports; the actual blending happens in MiSTer's framework
+(`sys/audio_out.sv`, module `aud_mix_top`).
 
 ### 2.2 The generic MiSTer final audio_out filter
 
 After the core has produced its final audio stream, MiSTer routes it through
-`audio_out`. In upstream Minimig this is wired in `sys/sys_top.v`.
-
-The local source is:
-
-* `CORE/Minimig_MiSTerMEGA65/sys/sys_top.v`
-
-The upstream source is:
-
-* <https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/blob/MiSTer/sys/sys_top.v>
-
-This final stage does several generic jobs:
-
-* It synchronizes the core audio into the MiSTer audio clock domain.
-* It can apply a configurable IIR filter.
-* It applies a DC blocker.
-* It supports attenuation and stereo-to-mono mixing.
-* It produces the samples used by the physical audio outputs.
+`audio_out` (wired in `sys/sys_top.v`). This final stage synchronizes audio
+into the output clock domain, can apply a configurable IIR filter, applies a
+DC blocker, and supports attenuation and stereo-to-mono mixing.
 
 The default coefficients in MiSTer Minimig are:
 
@@ -139,61 +120,94 @@ acy1      =  6143386
 acy2      = -2023767
 ```
 
-Those are generic MiSTer output-filter defaults. They are not specific to the
-Amiga. The same values appear in several MiSTer cores because this is part of
-the shared output path.
+Those are generic MiSTer output-filter defaults, not Amiga-specific: the
+same values appear in several MiSTer cores because this is part of the
+shared output path.
 
-## 3. What AExp currently does
-
-AExp ships the raw-Paula path, with the OSM master volume as the final stage
-(`audio_volume_proc` in `main.vhd`):
-
-```vhdl
-gain          := signed('0' & std_logic_vector(C_VOL_LUT(audio_volume_i)));
-prod_l        := signed(aud_ldata & '0') * gain;
-prod_r        := signed(aud_rdata & '0') * gain;
-audio_left_o  <= prod_l(30 downto 15);
-audio_right_o <= prod_r(30 downto 15);
-```
-
-The README documents this as:
+## 3. What AExp implements
 
 ```text
-Audio is available on HDMI and on the 3.5 mm jack, carrying Paula's
-output as-is. The options menu offers a master volume control in 5%
-steps: the percentages describe the audible volume, so 50% sounds half
-as loud as 100%. At the default of 100% the audio path is
-bit-transparent.
-```
-
-The generic MiSTer final filter is present in the M2M framework, and AExp has
-the right constants for it in `CORE/vhdl/globals.vhd`, but AExp disables it:
-
-```vhdl
-qnice_audio_filter_o <= '0';
-```
-
-So the current chain is:
-
-```text
-Minimig Paula
-  -> AExp main.vhd: widen 15-bit signed Paula to 16-bit signed PCM
-  -> AExp main.vhd: OSM master volume (Q15 multiply; 100% = bit-transparent)
-  -> M2M av_pipeline: select raw audio because qnice_audio_filter_o = '0'
+Minimig Paula (15-bit signed L/R)
+  -> audio_filters.vhd: widen to 16-bit signed ({data, 1'b0})
+  -> audio_filters.vhd: lpf4400 A500 fixed low-pass   [OSM "A500 Filter", default ON]
+  -> audio_filters.vhd: lpf3275 LED filter            [OSM "LED Filter" arms it; engaged = armed AND pwr_led]
+  -> audio_filters.vhd: stereo crossfeed              [OSM "Stereo: %s", default Full Stereo]
+  -> main.vhd audio_volume_proc: OSM master volume    [default 100% = bit-transparent]
+  -> M2M av_pipeline (raw path, qnice_audio_filter_o = '0')
   -> HDMI audio and MEGA65 analog audio jack
 ```
 
-The Amiga-specific `lpf4400` and `lpf3275` filters from MiSTer Minimig are
-not currently ported into AExp.
+`CORE/vhdl/audio_filters.vhd` is a faithful port of the `Minimig.sv` output
+stage between Paula and the MiSTer framework:
 
-### 3.1 The OSM master volume
+* The two IIR instances reuse M2M's copy of MiSTer's 3-tap stereo IIR
+  (`M2M/vhdl/controllers/MiSTer/iir_filter.v` — functionally identical to the
+  submodule's `sys/iir_filter.v`, only declaration order differs) with the
+  `Minimig.sv` coefficients verbatim; coefficient ports that `Minimig.sv`
+  leaves unconnected are tied to zero, which is what synthesis makes of an
+  unconnected input port.
+* `ce` is `clk7_en or clk7n_en` (14.19 MHz). The IIR time-multiplexes both
+  channels on it, so each channel updates at the 7.09 MHz rate the
+  coefficients are designed for — the same clocking as MiSTer after their
+  "Move filters to system clock" change.
+* The lpf4400 runs unconditionally so its state is warm when switched into
+  the path; the A500 Filter toggle only selects it. The lpf3275 is chained
+  behind the model select exactly as in `Minimig.sv` (with the A500 Filter
+  off it operates on the raw Paula mix).
+* LED filter engagement is `led_filter_i and pwr_led_i`: the OSM toggle arms
+  the mechanism, the emulated software controls it live (MiSTer "Auto(LED)"
+  semantics; there is no "force always on" mode).
+* MiSTer's `old_l0/old_l1` double-latch after the filter mux is their CDC
+  into `CLK_AUDIO`; AExp does not need it because the M2M framework's
+  `cdc_stable` handles the domain crossing downstream.
 
-The "Volume" control lives in the "Audio" section of the options menu: a
-21-position radio from 100% down to 0% in 5% steps. `mega65.vhd` decodes the
-one-hot selection into a step index (0 = mute, 20 = 100%, the default), and
-`main.vhd` turns the index into an amplitude gain via `C_VOL_LUT` and
-multiplies the final stereo mix with it (registered, so Vivado maps it to two
-DSP48 slices; one core-clock cycle of extra latency).
+### 3.1 Filter properties worth knowing
+
+Both filters have an intrinsic DC gain slightly above unity — a property of
+the MiSTer coefficient sets, verified in simulation and present on MiSTer
+hardware as well:
+
+* `lpf4400`: gain 17/16 = +0.53 dB
+* `lpf3275`: about x1.137 = +1.11 dB
+
+Full-scale material can therefore hit the IIR's internal 16-bit saturating
+clamp (`iir_filter.v`) with filters engaged. That is faithful MiSTer
+behavior: graceful saturation, same clamp, same coefficients. Apart from the
+gain, the measured responses match the analytic RC prototypes (4400 Hz
+1st-order; 3000 Hz + 3400 Hz cascade) to within about 2% across the audio
+band.
+
+### 3.2 The stereo crossfeed
+
+The crossfeed replicates MiSTer's `aud_mix_top` blends with identical
+floor-shift arithmetic. In `aud_mix_top`, `pre_in` is the halved opposite
+channel (`pre_out <= a2[16:1]`), so the effective blends are:
+
+| OSM setting   | aud_mix | own side  | opposite side |
+| ------------- | ------- | --------- | ------------- |
+| Full Stereo   | 00      | 100%      | 0%            |
+| Wide Stereo   | 01      | 87.5%     | 12.5%         |
+| Narrow Stereo | 10      | 75%       | 25%           |
+| Mono          | 11      | 50%       | 50%           |
+
+All three blends are energy-preserving (the weights sum to 1.0), so the
+crossfeed itself cannot clip; the MiSTer-style 17-bit clamp is kept as a
+guard anyway. AExp computes both channels in the same cycle instead of
+MiSTer's registered `pre_out` ping-pong — value-identical per sample, minus
+one sample of opposite-channel delay that only exists at 48 kHz in MiSTer.
+
+MiSTer configures the mix via userio command `0xF2`; in AExp that command is
+a no-op (minimig's `aud_mix` output is unconnected in `minimig_m65.v`) and
+`amiga_config.vhd` keeps sending `0xF2 = 0`. The OSM radio drives the
+crossfeed directly instead.
+
+### 3.3 The OSM master volume
+
+The "Volume" control is a 21-position radio from 100% down to 0% in 5%
+steps. `mega65.vhd` decodes the one-hot selection into a step index (0 =
+mute, 20 = 100%, the default), and `main.vhd` turns the index into an
+amplitude gain via `C_VOL_LUT` and multiplies the filtered stereo mix with
+it (registered, so Vivado maps it to two DSP48 slices).
 
 Design properties:
 
@@ -202,183 +216,72 @@ Design properties:
   as 100% (-10 dB) and 25% a quarter (-20 dB). The gain follows
   `(percent/100)^1.661`, stored as unsigned Q15. The LUT values are identical
   to C64MEGA65, so both cores sound alike at the same slider position.
-* 100% multiplies by Q15 `0x8000`, which is exactly transparent: the default
-  output is bit-identical to a core without the volume stage.
+* 100% multiplies by Q15 `0x8000`, which is exactly transparent.
 * The gain never exceeds 1.0, so the multiply can never clip; 0% is a true
   digital mute.
-* The gain is applied at the single point ahead of the M2M split into the
-  HDMI and analog paths, so both outputs track exactly.
-* Everything Amiga-side stays untouched upstream: Paula's per-channel 6-bit
-  volume registers, the 4-channel mix, and (once ported) the A500 filters.
-  The master volume models the volume knob on the monitor or amplifier, not
-  part of the emulated machine.
+* The volume is the last stage in `main.vhd`, after the filters and the
+  crossfeed: it models the volume knob on the monitor or amplifier, not part
+  of the emulated machine. Everything Amiga-side stays untouched upstream:
+  Paula's per-channel 6-bit volume registers, the 4-channel mix, and the
+  filters.
+* It is applied at the single point ahead of the M2M split into the HDMI and
+  analog paths, so both outputs track exactly.
 
-## 4. Where the M2M "Improve audio" switch sits
+### 3.4 Menu plumbing
 
-M2M always instantiates its `audio_out` block in:
+* `config.vhd`: "Stereo: %s" submenu (lines 83..91, radio group
+  `OPTM_G_STEREO`), "A500 Filter" (line 92, `OPTM_G_A500FILT`) and
+  "LED Filter" (line 93, `OPTM_G_LEDFILT`), both single-select with
+  `OPTM_G_STDSEL` = default ON. All three are HDL-read; no firmware logic is
+  involved.
+* `mega65.vhd`: `C_MENU_STEREO` (86..89) is decoded into MiSTer's 2-bit
+  `aud_mix` encoding; `C_MENU_A500FILT`/`C_MENU_LEDFILT` are wired straight
+  into `main.vhd`. All in the core clock domain from the static
+  `main_osm_control_i` vector, like the keyboard and VGA bits.
+* The menu growth (OPTM_SIZE 103 -> 114, OPTM_DY 28 -> 31) required the
+  usual QNICE menu-heap rebudget; the calculation lives next to
+  `MENU_HEAP_SIZE` in `CORE/m2m-rom/m2m-rom.asm`.
 
-```text
-M2M/vhdl/av_pipeline/av_pipeline.vhd
-```
+## 4. The generic M2M "audio improvements" filter stays off
 
-The important mux is conceptually this:
+M2M always instantiates its `audio_out` block
+(`M2M/vhdl/av_pipeline/av_pipeline.vhd`), a port of MiSTer's generic output
+conditioning: an IIR low-pass with its -3 dB point around 18-20 kHz plus a
+DC blocker. A mux selects raw versus filtered audio for both the analog and
+the HDMI path, controlled by `qnice_audio_filter_o` — which AExp ties to
+`'0'` in `mega65.vhd`.
 
-```vhdl
-if audio_filter = '0' then
-   audio_left  <= audio_left_i;
-   audio_right <= audio_right_i;
-else
-   audio_left  <= audio_filt_left;
-   audio_right <= audio_filt_right;
-end if;
-```
+The C64 and Game Boy MEGA65 cores expose exactly this switch as their
+"Audio improvements" menu item. For AExp it stays off:
 
-The selected audio stream is then passed to both output paths:
+* Its audible effect on Amiga material is marginal (about -0.4 dB at 15 kHz,
+  -2.6 dB at 20 kHz, plus DC removal).
+* With the real A500 filters in place it is redundant, and a second,
+  overlapping filter system in the menu would only confuse.
 
-* `analog_pipeline.vhd`, which feeds the MEGA65 analog audio jack.
-* `digital_pipeline.vhd`, which feeds HDMI audio.
+The `globals.vhd` coefficients for it are nevertheless correct and
+MiSTer-Minimig-faithful (`audio_cx1 = 3`; the M2M template and C64MEGA65
+carry a `cx1 = 2` typo worth roughly 0.4 dB), so enabling it later would be a
+one-line experiment.
 
-So this is not HDMI-only. If `qnice_audio_filter_o` is enabled in AExp, both
-HDMI and analog output hear the filtered version.
+## 5. Verification
 
-## 5. Are the AExp globals.vhd constants right?
+* `.research/tb_iir_amiga.v` (iverilog) drives both IIR instances exactly as
+  `audio_filters.vhd` instantiates them and checks the measured gains at DC,
+  1 kHz, 3.2 kHz, 4.4 kHz and 10 kHz against the analytic RC prototypes
+  scaled by the intrinsic DC gains, plus channel-separation of the
+  time-multiplexed stereo core (right channel silent while the left plays).
+* `.research/tb_audio_filters.vhd` (nvc, with the `+100`-offset IIR stub
+  `iir_stub_sim.vhd`) proves the glue: bit-transparent bypass with everything
+  off, the A500/LED mux decisions, LED gating (armed AND live `pwr_led`),
+  and all crossfeed blends against golden values computed by an independent
+  Python implementation of the `aud_mix_top` arithmetic.
 
-Yes. AExp currently has the right constants for the generic MiSTer final
-`audio_out` filter:
+## 6. Practical conclusion
 
-```vhdl
-constant audio_flt_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(7056000, 32));
-constant audio_cx       : std_logic_vector(39 downto 0) := std_logic_vector(to_signed(4258969, 40));
-constant audio_cx0      : std_logic_vector( 7 downto 0) := std_logic_vector(to_signed(3, 8));
-constant audio_cx1      : std_logic_vector( 7 downto 0) := std_logic_vector(to_signed(3, 8));
-constant audio_cx2      : std_logic_vector( 7 downto 0) := std_logic_vector(to_signed(1, 8));
-constant audio_cy0      : std_logic_vector(23 downto 0) := std_logic_vector(to_signed(-6216759, 24));
-constant audio_cy1      : std_logic_vector(23 downto 0) := std_logic_vector(to_signed( 6143386, 24));
-constant audio_cy2      : std_logic_vector(23 downto 0) := std_logic_vector(to_signed(-2023767, 24));
-constant audio_att      : std_logic_vector( 4 downto 0) := "00000";
-constant audio_mix      : std_logic_vector( 1 downto 0) := "00";
-```
-
-The notable value is `audio_cx1 = 3`.
-
-The M2M template and C64MEGA65 currently carry `audio_cx1 = 2`, but MiSTer
-Minimig's `sys_top.v` uses `acx1 = 3`. AExp follows MiSTer here, which is the
-right provenance for an Amiga port.
-
-## 6. What would enabling the generic filter sound like?
-
-Probably subtle.
-
-The generic MiSTer filter runs at a high internal rate, with `audio_flt_rate`
-set to 7.056 MHz. In the normal audible range it is mostly flat. Using the
-MiSTer default coefficients, the response is approximately:
-
-| Frequency | Approximate change |
-| --------- | ------------------ |
-| 100 Hz    | effectively flat   |
-| 1 kHz     | reference          |
-| 5 kHz     | effectively flat   |
-| 10 kHz    | effectively flat   |
-| 15 kHz    | about -0.4 dB      |
-| 20 kHz    | about -2.6 dB      |
-
-It also includes a DC blocker. That is useful housekeeping: it removes
-constant offset from the signal, which can help avoid clicks, bias, or wasted
-headroom. The DC blocker is not meant to change music in the normal audible
-band.
-
-This means the generic filter is best understood as final output conditioning.
-It is not the warm, obviously bandwidth-limited A500 output filter. The A500
-character comes from the `lpf4400` and `lpf3275` stages in `Minimig.sv`.
-
-## 7. Should AExp enable it by default now?
-
-Recommendation: keep the generic M2M filter disabled by default for the
-current alpha.
-
-Reasons:
-
-* The current README and implementation promise raw Paula output.
-* The current hardware-tested milestone had the audio-improvements menu item
-  removed and `qnice_audio_filter_o` tied to zero.
-* Enabling the generic filter is not the same as implementing Amiga-authentic
-  A500 filtering.
-* Any default-on audio change should be tested on both HDMI and analog output.
-
-If the goal is "closer to MiSTer's final output chain", then tying
-`qnice_audio_filter_o` to `'1'` is a reasonable low-risk experiment. It should
-not require new coefficients, and it should affect both HDMI and analog in the
-same way. But it should be described as generic MiSTer output conditioning,
-not as "A500 audio filtering".
-
-If the goal is "closer to a real A500", spend the effort on porting
-Minimig's `lpf4400` and `lpf3275` filters first.
-
-## 8. Suggested roadmap
-
-### Step 1: Keep alpha behavior explicit
-
-Leave the current raw-Paula path in place:
-
-```vhdl
-qnice_audio_filter_o <= '0';
-```
-
-Keep the README wording "Paula output as-is" accurate.
-
-### Step 2: Optional hidden A/B test
-
-For local testing only, tie:
-
-```vhdl
-qnice_audio_filter_o <= '1';
-```
-
-Then compare the same demos and Workbench sounds over:
-
-* HDMI audio
-* MEGA65 analog audio jack
-* headphones or a line-in recording, if available
-
-Listen for:
-
-* clicks or pops at reset and menu transitions
-* clipping
-* unexpected volume change
-* stereo imbalance
-* whether the difference is audible enough to justify changing the default
-
-### Step 3: Port the real Amiga filters
-
-For A500-style audio, port the two Minimig filters into AExp's `main.vhd`:
-
-* `lpf4400`: fixed A500 output low-pass
-* `lpf3275`: LED low-pass behavior
-
-Insert them between Paula and the master-volume stage: the volume control
-models the knob on the monitor, so it stays the last step in `main.vhd`.
-
-For an OCS A500 core, a simple first policy could be:
-
-* A500 fixed low-pass: default on
-* LED filter: follow the emulated Amiga power LED state if available
-* menu override: later, only if users need it
-
-After that, decide separately whether the generic M2M output filter should
-also be enabled to match MiSTer's final output stage.
-
-## 9. Practical conclusion
-
-AExp is not currently "wrong". It is currently simple:
-
-```text
-raw Paula -> master volume (100% = transparent) -> HDMI and analog
-```
-
-The `globals.vhd` constants are already correct for the generic MiSTer
-`audio_out` filter, but that filter is disabled. Enabling it by default is a
-reasonable experiment, not a necessary fix.
-
-For now, the recommended default remains raw Paula. The next meaningful audio
-quality step is to port the Amiga-specific Minimig filters, then make an
-intentional default decision based on A/B testing.
+The default sound of AExp is the sound of a real A500: fixed filter in,
+LED filter under software control, hard-panned stereo. The brightest possible
+configuration (both filters off) remains available in the menu and is
+bit-transparent raw Paula. The stereo crossfeed is a pure listening-comfort
+option with no authenticity cost while it is off. The generic M2M output
+filter remains a deliberate non-feature.

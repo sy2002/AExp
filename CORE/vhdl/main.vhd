@@ -60,6 +60,13 @@ entity main is
       -- Paula mix, so it affects the HDMI and analog audio outputs equally.
       audio_volume_i          : in  natural range 0 to 20;
 
+      -- Paula output filters + stereo crossfeed (OSM "Audio" section): static
+      -- bits from mega65.vhd, applied in audio_filters.vhd between Paula and
+      -- the master volume (see audio_filters.vhd for the semantics)
+      audio_a500_filter_i     : in  std_logic;
+      audio_led_filter_i      : in  std_logic;
+      audio_stereo_mix_i      : in  std_logic_vector(1 downto 0);
+
       -- Audio output (Signed PCM)
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
@@ -399,6 +406,13 @@ architecture synthesis of main is
    -- audio
    signal aud_ldata        : std_logic_vector(14 downto 0);
    signal aud_rdata        : std_logic_vector(14 downto 0);
+   signal aud_ce           : std_logic;                        -- 14.19 MHz filter enable
+   signal flt_audio_l      : signed(15 downto 0);              -- post filters + crossfeed
+   signal flt_audio_r      : signed(15 downto 0);
+
+   -- CIA-A PA1 (power LED / audio filter bit): consumed by audio_filters and
+   -- exported on pwr_led_o
+   signal pwr_led          : std_logic;
 
    -- Master-volume LUT (used by audio_volume_proc at the bottom of this file):
    -- perceptual, loudness-linear attenuation for the OSM "Volume" radio. Each 5%
@@ -801,7 +815,7 @@ begin
          kbd_mouse_data => kbd_mouse_data,
          kbd_ack        => kbd_ack,
 
-         pwr_led        => pwr_led_o,
+         pwr_led        => pwr_led,
          fdd_led        => fdd_led_o,
          hdd_led        => open,
          rtc            => rtc_i,
@@ -878,19 +892,41 @@ begin
    video_ce_ovl_o <= '1' when video_retro15khz_i = '0' else vid_ce_ovl_half;
 
    ---------------------------------------------------------------------------
-   -- Audio: Paula 15-bit signed -> 16-bit signed PCM (as MiSTer: {data, 1'b0}),
-   -- attenuated by the OSM master volume
+   -- Audio: Paula 15-bit signed -> A500/LED output filters + stereo crossfeed
+   -- (audio_filters.vhd, faithful to MiSTer's Minimig.sv output stage) ->
+   -- OSM master volume
    ---------------------------------------------------------------------------
 
-   -- Apply the OSM master-volume attenuation to the final Paula mix. Registered
-   -- on the main clock so Vivado maps the two 16x17 products to pipelined DSP48
-   -- slices; the one-cycle latency (~35 ns) is inaudible. At 100% (Q15 gain
-   -- 0x8000) the multiply is bit-transparent, and the gain is always <= 1.0 so
-   -- the result can never clip. This is the single point ahead of the
-   -- framework's split into the HDMI and analog audio paths, so the volume
-   -- affects both outputs equally. Paula's own per-channel volume registers and
-   -- the 4-channel mix stay untouched upstream: this stage is the volume knob
-   -- on the monitor, not part of the emulated machine.
+   pwr_led_o <= pwr_led;
+
+   -- Both channels are time-multiplexed through each IIR on this enable pair,
+   -- so every channel updates at the 7.09 MHz rate the coefficients expect
+   aud_ce <= clk7_en or clk7n_en;
+
+   i_audio_filters : entity work.audio_filters
+      port map (
+         clk_main_i    => clk_main_i,
+         reset_i       => amiga_rst,
+         ce_i          => aud_ce,
+         ldata_i       => aud_ldata,
+         rdata_i       => aud_rdata,
+         a500_filter_i => audio_a500_filter_i,
+         led_filter_i  => audio_led_filter_i,
+         stereo_mix_i  => audio_stereo_mix_i,
+         pwr_led_i     => pwr_led,
+         audio_left_o  => flt_audio_l,
+         audio_right_o => flt_audio_r
+      ); -- i_audio_filters
+
+   -- Apply the OSM master-volume attenuation to the filtered Paula mix.
+   -- Registered on the main clock so Vivado maps the two 16x17 products to
+   -- pipelined DSP48 slices; the one-cycle latency (~35 ns) is inaudible. At
+   -- 100% (Q15 gain 0x8000) the multiply is bit-transparent, and the gain is
+   -- always <= 1.0 so the result can never clip. This is the single point
+   -- ahead of the framework's split into the HDMI and analog audio paths, so
+   -- the volume affects both outputs equally. Paula's own per-channel volume
+   -- registers and the 4-channel mix stay untouched upstream: this stage is
+   -- the volume knob on the monitor, not part of the emulated machine.
    audio_volume_proc : process (clk_main_i)
       variable gain   : signed(16 downto 0);
       variable prod_l : signed(32 downto 0);
@@ -898,8 +934,8 @@ begin
    begin
       if rising_edge(clk_main_i) then
          gain          := signed('0' & std_logic_vector(C_VOL_LUT(audio_volume_i)));
-         prod_l        := signed(aud_ldata & '0') * gain;   -- signed(16) x signed(17) = signed(33)
-         prod_r        := signed(aud_rdata & '0') * gain;
+         prod_l        := flt_audio_l * gain;               -- signed(16) x signed(17) = signed(33)
+         prod_r        := flt_audio_r * gain;
          audio_left_o  <= prod_l(30 downto 15);             -- arithmetic >>15: back to signed(16)
          audio_right_o <= prod_r(30 downto 15);
       end if;

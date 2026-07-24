@@ -6,8 +6,9 @@
 #   source /tools/Xilinx/Vivado/2022.2/settings64.sh   # or wherever Vivado is
 #   nohup ./build_all.sh > build_all.out 2>&1 &
 #
-# Optional: pass a subset of boards (./build_all.sh R4 R6). JOBS=<n> sets the
-# number of parallel Vivado jobs per run (default 4).
+# Optional: pass a subset of boards (./build_all.sh R4 R6); board names are
+# case-insensitive. JOBS=<n> sets the number of parallel Vivado jobs per run
+# (default 4).
 
 set -u
 cd "$(dirname "$0")"
@@ -28,6 +29,21 @@ fi
 if [ "$#" -gt 0 ]; then boards=("$@"); else boards=(R3 R4 R5 R6); fi
 jobs="${JOBS:-4}"
 failed=0
+
+# Board names are case-insensitive on the command line ("R4", "r4" and "R4" all
+# work), but the Vivado project files CORE-R<n>.xpr are always upper case, so we
+# normalise them here. This also matters on the case-sensitive Linux build VM,
+# where "r4" would otherwise fail to open CORE-R4.xpr. Unknown boards are
+# rejected up front (checked against the actual .xpr files) instead of failing
+# deep inside Vivado.
+for i in "${!boards[@]}"; do
+    boards[$i]=$(printf '%s' "${boards[$i]}" | tr '[:lower:]' '[:upper:]')
+    if [ ! -f "CORE-${boards[$i]}.xpr" ]; then
+        echo "ERROR: unknown board '${boards[$i]}' - no CORE-${boards[$i]}.xpr in $(pwd)." >&2
+        echo "       Available: $(ls CORE-R*.xpr 2>/dev/null | sed 's/^CORE-\(.*\)\.xpr$/\1/' | tr '\n' ' ')" >&2
+        exit 1
+    fi
+done
 
 for board in "${boards[@]}"; do
     echo "=== ${board}: build started $(date) ==="

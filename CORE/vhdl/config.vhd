@@ -106,7 +106,7 @@ constant HELP_1 : string :=
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
-   " (volume adjustable in the menu)\n" &
+   " (volume and filters in the menu)\n" &
    " Battery-backed real-time clock\n\n" &
    
    " Mouse:    Port 1\n" &
@@ -489,7 +489,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 103; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 114; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -498,13 +498,13 @@ constant OPTM_SIZE         : natural := 103; -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 28 lines, HDMI Settings submenu view = 7 lines,
+-- Main menu view = 31 lines, HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
 -- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
--- OSM-open key submenu view = 8 lines.
+-- Stereo Mix submenu view = 8 lines, OSM-open key submenu view = 8 lines.
 -- The main view is the tallest, so OPTM_DY tracks it.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 28;
+constant OPTM_DY           : natural := 31;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   line  9: 720p 50 Hz 16:9  / 10: 576p 50 4:3  / 11: 576p 50 5:4
@@ -512,10 +512,16 @@ constant OPTM_DY           : natural := 28;
 --   line 31: VGA Standard / 35: VGA 15 kHz with HS/VS / 36: VGA 15 kHz with CSYNC
 --   lines 43..51: OSM Scaling radio (C_MENU_OSM_SCALING); 100% (43, default) down to 50% (51)
 --   lines 60..80: Volume radio (C_MENU_VOLUME); 100% (60, default) down to 0% (80)
---   line 86: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
---   lines 91..94: OSM-open key radio (C_MENU_OSMKEY_*); Help (91, default) / F11 /
+--   lines 86..89: Stereo crossfeed radio (C_MENU_STEREO); Full Stereo (86, default) /
+--                 Wide Stereo / Narrow Stereo / Mono -> MiSTer aud_mix encoding
+--   line 92: A500 Filter toggle (C_MENU_A500FILT), default ON; the fixed
+--            4400 Hz low-pass behind Paula's DAC (off = A1200-style brightness)
+--   line 93: LED Filter toggle (C_MENU_LEDFILT), default ON; arms the CIA-A PA1
+--            power-LED low-pass so it follows the emulated software live
+--   line 97: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
+--   lines 102..105: OSM-open key radio (C_MENU_OSMKEY_*); Help (102, default) / F11 /
 --                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
---   line 98: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
+--   line 109: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
 --            removes the 512 KB at $C00000 from the Amiga memory map (issue #20).
 --            The HDL cold-boots only the emulated Amiga on a change, so that
 --            amiga_config.vhd replays the userio config while QNICE keeps running.
@@ -621,29 +627,42 @@ constant OPTM_ITEMS        : string :=
    " 0%\n"                  &    -- 80: mute
    "\n"                     &    -- 81: line
    " Back to main menu\n"   &    -- 82: close submenu
-   "\n"                     &    -- 83: line
 
-   " Keyboard\n"            &    -- 84: headline (Keyboard section, issue #6)
+   " Stereo: %s\n"          &    -- 83: Stereo Mix submenu (crossfeed), directly under Volume
+   " Stereo Mix\n"          &    -- 84: headline (inside submenu)
    "\n"                     &    -- 85: line
-   " Amiga\n"               &    -- 86: keyboard mode radio: pure positional (C_MENU_KBD_AMIGA)
-   " MEGA65\n"              &    -- 87: keyboard mode radio: semantic "cap is law"; default
-
-   " OSM: %s\n"             &    -- 88: OSM-open key submenu (issue #8): "OSM: <choice>"
-   " Key to open the menu\n" &   -- 89: headline (inside submenu)
+   " Full Stereo\n"         &    -- 86: authentic hard-panned Paula; default
+   " Wide Stereo\n"         &    -- 87: gentle crossfeed (87.5% / 12.5%)
+   " Narrow Stereo\n"       &    -- 88: strong crossfeed (75% / 25%)
+   " Mono\n"                &    -- 89: both channels merged
    "\n"                     &    -- 90: line
-   " Help\n"                &    -- 91: OSMKEY radio: Help (C_MENU_OSMKEY_HELP); default
-   " F11\n"                 &    -- 92: OSMKEY radio: F11 (C_MENU_OSMKEY_F11)
-   " F13\n"                 &    -- 93: OSMKEY radio: F13 (C_MENU_OSMKEY_F13)
-   " MEGA + Run/Stop\n"     &    -- 94: OSMKEY radio: MEGA+Run/Stop combo (C_MENU_OSMKEY_COMBO)
-   "\n"                     &    -- 95: line
-   " Back to main menu\n"   &    -- 96: close submenu
+   " Back to main menu\n"   &    -- 91: close submenu
 
-   "\n"                     &    -- 97: line
-   " Slow RAM (A501)\n"     &    -- 98: single-select toggle, default ON (issue #20)
-   "\n"                     &    -- 99: line
-   " About & Help\n"        &    -- 100: help
+   " A500 Filter\n"         &    -- 92: single-select toggle, default ON (A500 fixed low-pass)
+   " LED Filter\n"          &    -- 93: single-select toggle, default ON (CIA-A PA1 low-pass)
+   "\n"                     &    -- 94: line
+
+   " Keyboard\n"            &    -- 95: headline (Keyboard section, issue #6)
+   "\n"                     &    -- 96: line
+   " Amiga\n"               &    -- 97: keyboard mode radio: pure positional (C_MENU_KBD_AMIGA)
+   " MEGA65\n"              &    -- 98: keyboard mode radio: semantic "cap is law"; default
+
+   " OSM: %s\n"             &    -- 99: OSM-open key submenu (issue #8): "OSM: <choice>"
+   " Key to open the menu\n" &   -- 100: headline (inside submenu)
    "\n"                     &    -- 101: line
-   " Close Menu\n";              -- 102: close
+   " Help\n"                &    -- 102: OSMKEY radio: Help (C_MENU_OSMKEY_HELP); default
+   " F11\n"                 &    -- 103: OSMKEY radio: F11 (C_MENU_OSMKEY_F11)
+   " F13\n"                 &    -- 104: OSMKEY radio: F13 (C_MENU_OSMKEY_F13)
+   " MEGA + Run/Stop\n"     &    -- 105: OSMKEY radio: MEGA+Run/Stop combo (C_MENU_OSMKEY_COMBO)
+   "\n"                     &    -- 106: line
+   " Back to main menu\n"   &    -- 107: close submenu
+
+   "\n"                     &    -- 108: line
+   " Slow RAM (A501)\n"     &    -- 109: single-select toggle, default ON (issue #20)
+   "\n"                     &    -- 110: line
+   " About & Help\n"        &    -- 111: help
+   "\n"                     &    -- 112: line
+   " Close Menu\n";              -- 113: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -662,6 +681,9 @@ constant OPTM_G_OSMKEY     : integer := 9;   -- OSM-open key radio (issue #8): H
 constant OPTM_G_OSM_MODE   : integer := 10;  -- OSM Scaling radio; read in HDL (mega65.vhd)
 constant OPTM_G_SLOWRAM    : integer := 11;  -- Slow RAM (A501) toggle (issues #20/#21); read and locally cold-booted in mega65.vhd
 constant OPTM_G_VOLUME     : integer := 12;  -- master volume radio (5% steps); read in HDL (mega65.vhd), attenuation applied in main.vhd
+constant OPTM_G_STEREO     : integer := 13;  -- stereo crossfeed radio (MiSTer aud_mix blends); read in HDL (mega65.vhd), applied in audio_filters.vhd
+constant OPTM_G_A500FILT   : integer := 14;  -- A500 Filter toggle (fixed 4400 Hz low-pass); read in HDL (mega65.vhd)
+constant OPTM_G_LEDFILT    : integer := 15;  -- LED Filter toggle (CIA-A PA1 power-LED low-pass); read in HDL (mega65.vhd)
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -765,30 +787,45 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_VOLUME,                            -- 80: 0% (mute)
                                              OPTM_G_LINE,                              -- 81: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 82: Close submenu / back to main menu
-                                             OPTM_G_LINE,                              -- 83: Line
 
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 84: Headline "Keyboard"
+                                             OPTM_G_SUBMENU,                           -- 83: Stereo Mix submenu block: "Stereo: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 84: Headline "Stereo Mix"
                                              OPTM_G_LINE,                              -- 85: Line
-                                             OPTM_G_KBD,                               -- 86: Amiga (pure positional)
-                                             OPTM_G_KBD + OPTM_G_STDSEL,               -- 87: MEGA65 (semantic; default)
-
-                                             OPTM_G_SUBMENU,                           -- 88: OSM-open key submenu block: "OSM: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 89: Headline "Key to open the menu"
+                                             OPTM_G_STEREO + OPTM_G_STDSEL,            -- 86: Full Stereo (default)
+                                             OPTM_G_STEREO,                            -- 87: Wide Stereo
+                                             OPTM_G_STEREO,                            -- 88: Narrow Stereo
+                                             OPTM_G_STEREO,                            -- 89: Mono
                                              OPTM_G_LINE,                              -- 90: Line
-                                             OPTM_G_OSMKEY + OPTM_G_STDSEL,            -- 91: Help (default opener)
-                                             OPTM_G_OSMKEY,                            -- 92: F11
-                                             OPTM_G_OSMKEY,                            -- 93: F13
-                                             OPTM_G_OSMKEY,                            -- 94: MEGA + Run/Stop
-                                             OPTM_G_LINE,                              -- 95: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 96: Close submenu / back to main menu
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 91: Close submenu / back to main menu
 
-                                             OPTM_G_LINE,                              -- 97: Line
-                                             OPTM_G_SLOWRAM + OPTM_G_SINGLESEL
-                                                            + OPTM_G_STDSEL,           -- 98: Slow RAM (A501) (single-select, default ON)
-                                             OPTM_G_LINE,                              -- 99: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 100: About & Help (WHS(1))
+                                             OPTM_G_A500FILT + OPTM_G_SINGLESEL
+                                                             + OPTM_G_STDSEL,          -- 92: A500 Filter (single-select, default ON)
+                                             OPTM_G_LEDFILT + OPTM_G_SINGLESEL
+                                                            + OPTM_G_STDSEL,           -- 93: LED Filter (single-select, default ON)
+                                             OPTM_G_LINE,                              -- 94: Line
+
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 95: Headline "Keyboard"
+                                             OPTM_G_LINE,                              -- 96: Line
+                                             OPTM_G_KBD,                               -- 97: Amiga (pure positional)
+                                             OPTM_G_KBD + OPTM_G_STDSEL,               -- 98: MEGA65 (semantic; default)
+
+                                             OPTM_G_SUBMENU,                           -- 99: OSM-open key submenu block: "OSM: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 100: Headline "Key to open the menu"
                                              OPTM_G_LINE,                              -- 101: Line
-                                             OPTM_G_CLOSE                              -- 102: Close Menu
+                                             OPTM_G_OSMKEY + OPTM_G_STDSEL,            -- 102: Help (default opener)
+                                             OPTM_G_OSMKEY,                            -- 103: F11
+                                             OPTM_G_OSMKEY,                            -- 104: F13
+                                             OPTM_G_OSMKEY,                            -- 105: MEGA + Run/Stop
+                                             OPTM_G_LINE,                              -- 106: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 107: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 108: Line
+                                             OPTM_G_SLOWRAM + OPTM_G_SINGLESEL
+                                                            + OPTM_G_STDSEL,           -- 109: Slow RAM (A501) (single-select, default ON)
+                                             OPTM_G_LINE,                              -- 110: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 111: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 112: Line
+                                             OPTM_G_CLOSE                              -- 113: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

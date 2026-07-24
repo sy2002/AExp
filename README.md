@@ -344,10 +344,12 @@ one that looks best, or fine-tune your own with the included
 
 ### Audio
 
-Audio is available on HDMI and on the 3.5 mm jack, carrying Paula's
-output as-is. The options menu offers a master volume control in 5%
-steps: the percentages describe the audible volume, so 50% sounds half
-as loud as 100%.
+Audio is available on HDMI and on the 3.5 mm jack simultaneously. By default
+AExp sounds like a real A500: the machine's fixed output filter and its
+software-switchable "LED filter" are both emulated, and the options menu adds
+a loudness-true master volume plus a stereo mix that makes hard-panned Amiga
+music pleasant on headphones. The full story — including why a sound filter
+is coupled to the power LED — is in [doc/audio.md](doc/audio.md).
 
 ### Real-time clock
 
