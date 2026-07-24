@@ -1816,21 +1816,21 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The On-Screen-Menu uses the heap for several data structures. This heap
 ; is located before the main system heap in memory.
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
-; Example: If your HEAP_SIZE would be 30208, then you write 30208-1280=28928
+; Example: If your HEAP_SIZE would be 30208, then you write 30208-1536=28672
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 74 menu items are a 746-character string plus the 19-word
-; menu structure plus three per-item arrays = 19 + 746 + 1 + 3 x 74 + 1 =
-; 989 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
-; per submenu (5), manual ROM (1) and vdrive (0) plus one scratch buffer =
-; 7 x 25 = 175 words. Total demand is 1164 words, rounded up to the next
-; 128-word boundary: 1280 words, leaving 116 words headroom. Do not reserve a
+; LOG_HEAP2): the 103 menu items are a 937-character string plus the 19-word
+; menu structure plus three per-item arrays = 19 + 937 + 1 + 3 x 103 + 1 =
+; 1267 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; per submenu (6), manual ROM (1) and vdrive (0) plus one scratch buffer =
+; 8 x 25 = 200 words. Total demand is 1467 words, rounded up to the next
+; 128-word boundary: 1536 words, leaving 69 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
 ; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/manual-ROM
 ; counts grow, recalculate both budgets and rebalance the HEAP_SIZE constants
 ; below by the same delta.
-MENU_HEAP_SIZE  .EQU 1280
+MENU_HEAP_SIZE  .EQU 1536
 
 #ifndef RELEASE
 
@@ -1838,13 +1838,13 @@ MENU_HEAP_SIZE  .EQU 1280
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 5888                       ; 7168 - 1280 = 5888
+HEAP_SIZE       .EQU 5632                       ; 7168 - 1536 = 5632
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 28928                      ; 30208 - 1280 = 28928
+HEAP_SIZE       .EQU 28672                      ; 30208 - 1536 = 28672
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

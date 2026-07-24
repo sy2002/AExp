@@ -55,6 +55,11 @@ entity main is
                                                  -- while the Amiga sets BPLCON0 LACE, constant
                                                  -- '0' otherwise; drives ascal's weave deinterlacer
 
+      -- Master volume from the OSM "Volume" radio (5% steps): 0 = mute .. 20 = 100%.
+      -- Applied below as a perceptual, loudness-linear attenuation on the final
+      -- Paula mix, so it affects the HDMI and analog audio outputs equally.
+      audio_volume_i          : in  natural range 0 to 20;
+
       -- Audio output (Signed PCM)
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
@@ -394,6 +399,20 @@ architecture synthesis of main is
    -- audio
    signal aud_ldata        : std_logic_vector(14 downto 0);
    signal aud_rdata        : std_logic_vector(14 downto 0);
+
+   -- Master-volume LUT (used by audio_volume_proc at the bottom of this file):
+   -- perceptual, loudness-linear attenuation for the OSM "Volume" radio. Each 5%
+   -- step is a 5 percentage-point change in perceived loudness, so 50% sounds
+   -- half as loud as 100% (-10 dB), 25% a quarter (-20 dB), and so on. The
+   -- amplitude gain therefore follows (percent/100)^1.661, stored as unsigned
+   -- Q15 (0x8000 = gain 1.0). Index 0 = 0% (mute) .. index 20 = 100%
+   -- (bit-transparent). Same values as C64MEGA65's C_VOL_LUT, so both cores
+   -- sound alike at the same slider position.
+   type vol_lut_t is array (0 to 20) of unsigned(15 downto 0);
+   constant C_VOL_LUT : vol_lut_t := (
+      x"0000", x"00E2", x"02CB", x"057B", x"08D6", x"0CCD", x"1154", x"1662",
+      x"1BF1", x"21FB", x"287A", x"2F6C", x"36CB", x"3E96", x"46C8", x"4F60",
+      x"585C", x"61B8", x"6B73", x"758C", x"8000");
 
    -- joysticks in minimig format: active low {...,fire2,fire,up,down,left,right}
    signal joy1_n           : std_logic_vector(15 downto 0);
@@ -859,10 +878,31 @@ begin
    video_ce_ovl_o <= '1' when video_retro15khz_i = '0' else vid_ce_ovl_half;
 
    ---------------------------------------------------------------------------
-   -- Audio: Paula 15-bit signed -> 16-bit signed PCM (as MiSTer: {data, 1'b0})
+   -- Audio: Paula 15-bit signed -> 16-bit signed PCM (as MiSTer: {data, 1'b0}),
+   -- attenuated by the OSM master volume
    ---------------------------------------------------------------------------
 
-   audio_left_o  <= signed(aud_ldata & '0');
-   audio_right_o <= signed(aud_rdata & '0');
+   -- Apply the OSM master-volume attenuation to the final Paula mix. Registered
+   -- on the main clock so Vivado maps the two 16x17 products to pipelined DSP48
+   -- slices; the one-cycle latency (~35 ns) is inaudible. At 100% (Q15 gain
+   -- 0x8000) the multiply is bit-transparent, and the gain is always <= 1.0 so
+   -- the result can never clip. This is the single point ahead of the
+   -- framework's split into the HDMI and analog audio paths, so the volume
+   -- affects both outputs equally. Paula's own per-channel volume registers and
+   -- the 4-channel mix stay untouched upstream: this stage is the volume knob
+   -- on the monitor, not part of the emulated machine.
+   audio_volume_proc : process (clk_main_i)
+      variable gain   : signed(16 downto 0);
+      variable prod_l : signed(32 downto 0);
+      variable prod_r : signed(32 downto 0);
+   begin
+      if rising_edge(clk_main_i) then
+         gain          := signed('0' & std_logic_vector(C_VOL_LUT(audio_volume_i)));
+         prod_l        := signed(aud_ldata & '0') * gain;   -- signed(16) x signed(17) = signed(33)
+         prod_r        := signed(aud_rdata & '0') * gain;
+         audio_left_o  <= prod_l(30 downto 15);             -- arithmetic >>15: back to signed(16)
+         audio_right_o <= prod_r(30 downto 15);
+      end if;
+   end process audio_volume_proc;
 
 end architecture synthesis;

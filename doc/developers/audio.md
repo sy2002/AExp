@@ -7,6 +7,8 @@ It is written for maintainers who know neither MiSTer nor the Amiga audio
 hardware in detail. The short version is:
 
 * AExp currently outputs raw Paula audio.
+* The OSM "Volume" control attenuates the final mix in `main.vhd`; at its
+  100% default it is bit-transparent, so raw Paula remains the default sound.
 * The `audio_*` constants in `CORE/vhdl/globals.vhd` are correct for the
   generic MiSTer final audio filter.
 * That generic filter is not the Amiga A500 low-pass filter.
@@ -39,11 +41,12 @@ by shifting left once:
 {rdata[14:0], 1'b0}
 ```
 
-AExp does the same thing in VHDL:
+AExp does the same widening in VHDL, as part of the master-volume stage
+(`audio_volume_proc` in `main.vhd`):
 
 ```vhdl
-audio_left_o  <= signed(aud_ldata & '0');
-audio_right_o <= signed(aud_rdata & '0');
+prod_l        := signed(aud_ldata & '0') * gain;
+audio_left_o  <= prod_l(30 downto 15);
 ```
 
 That is the clean raw-Paula path. It is not obviously wrong; it is simply not
@@ -142,18 +145,25 @@ the shared output path.
 
 ## 3. What AExp currently does
 
-AExp currently ships the raw-Paula path:
+AExp ships the raw-Paula path, with the OSM master volume as the final stage
+(`audio_volume_proc` in `main.vhd`):
 
 ```vhdl
-audio_left_o  <= signed(aud_ldata & '0');
-audio_right_o <= signed(aud_rdata & '0');
+gain          := signed('0' & std_logic_vector(C_VOL_LUT(audio_volume_i)));
+prod_l        := signed(aud_ldata & '0') * gain;
+prod_r        := signed(aud_rdata & '0') * gain;
+audio_left_o  <= prod_l(30 downto 15);
+audio_right_o <= prod_r(30 downto 15);
 ```
 
 The README documents this as:
 
 ```text
 Audio is available on HDMI and on the 3.5 mm jack, carrying Paula's
-output as-is.
+output as-is. The options menu offers a master volume control in 5%
+steps: the percentages describe the audible volume, so 50% sounds half
+as loud as 100%. At the default of 100% the audio path is
+bit-transparent.
 ```
 
 The generic MiSTer final filter is present in the M2M framework, and AExp has
@@ -168,12 +178,40 @@ So the current chain is:
 ```text
 Minimig Paula
   -> AExp main.vhd: widen 15-bit signed Paula to 16-bit signed PCM
+  -> AExp main.vhd: OSM master volume (Q15 multiply; 100% = bit-transparent)
   -> M2M av_pipeline: select raw audio because qnice_audio_filter_o = '0'
   -> HDMI audio and MEGA65 analog audio jack
 ```
 
 The Amiga-specific `lpf4400` and `lpf3275` filters from MiSTer Minimig are
 not currently ported into AExp.
+
+### 3.1 The OSM master volume
+
+The "Volume" control lives in the "Audio" section of the options menu: a
+21-position radio from 100% down to 0% in 5% steps. `mega65.vhd` decodes the
+one-hot selection into a step index (0 = mute, 20 = 100%, the default), and
+`main.vhd` turns the index into an amplitude gain via `C_VOL_LUT` and
+multiplies the final stereo mix with it (registered, so Vivado maps it to two
+DSP48 slices; one core-clock cycle of extra latency).
+
+Design properties:
+
+* The taper is perceptual, not linear in amplitude: each 5% step is a
+  5 percentage-point change in perceived loudness, so 50% sounds half as loud
+  as 100% (-10 dB) and 25% a quarter (-20 dB). The gain follows
+  `(percent/100)^1.661`, stored as unsigned Q15. The LUT values are identical
+  to C64MEGA65, so both cores sound alike at the same slider position.
+* 100% multiplies by Q15 `0x8000`, which is exactly transparent: the default
+  output is bit-identical to a core without the volume stage.
+* The gain never exceeds 1.0, so the multiply can never clip; 0% is a true
+  digital mute.
+* The gain is applied at the single point ahead of the M2M split into the
+  HDMI and analog paths, so both outputs track exactly.
+* Everything Amiga-side stays untouched upstream: Paula's per-channel 6-bit
+  volume registers, the 4-channel mix, and (once ported) the A500 filters.
+  The master volume models the volume knob on the monitor or amplifier, not
+  part of the emulated machine.
 
 ## 4. Where the M2M "Improve audio" switch sits
 
@@ -317,6 +355,9 @@ For A500-style audio, port the two Minimig filters into AExp's `main.vhd`:
 * `lpf4400`: fixed A500 output low-pass
 * `lpf3275`: LED low-pass behavior
 
+Insert them between Paula and the master-volume stage: the volume control
+models the knob on the monitor, so it stays the last step in `main.vhd`.
+
 For an OCS A500 core, a simple first policy could be:
 
 * A500 fixed low-pass: default on
@@ -331,7 +372,7 @@ also be enabled to match MiSTer's final output stage.
 AExp is not currently "wrong". It is currently simple:
 
 ```text
-raw Paula -> HDMI and analog
+raw Paula -> master volume (100% = transparent) -> HDMI and analog
 ```
 
 The `globals.vhd` constants are already correct for the generic MiSTer

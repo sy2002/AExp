@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "V1";
+constant CORE_VERSION : string := "WIP-V2-A1";
 
 constant SCR_WELCOME : string :=
 
@@ -106,6 +106,7 @@ constant HELP_1 : string :=
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
+   " (volume adjustable in the menu)\n" &
    " Battery-backed real-time clock\n\n" &
    
    " Mouse:    Port 1\n" &
@@ -118,7 +119,7 @@ constant HELP_1 : string :=
    " More disk drives (df1:), hard disks\n" &
    " Kickstart newer than 1.3\n" &
    " ECS/AGA, NTSC, Fast RAM, hard disks\n\n" &
-   "\n\n\n" &  -- keep footer at bottom
+   "\n\n" &  -- keep footer at bottom
 
    " Crsr right: Next                (1/7)\n" &
    " Space or Run/Stop: Close";
@@ -488,7 +489,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 74;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 103; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -497,22 +498,24 @@ constant OPTM_SIZE         : natural := 74;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise use the height of the largest menu view: count one line per
 -- item that is visible at that level, including one line per submenu label, excluding the contents of submenus.
 -- (A submenu view does NOT show its own label line - see _OPTM_STRUCT in M2M/rom/menu.asm.)
--- Main menu view = 24 lines, HDMI Settings submenu view = 7 lines,
+-- Main menu view = 28 lines, HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
--- OSM Scaling submenu view = 13 lines, OSM-open key submenu view = 8 lines.
+-- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
+-- OSM-open key submenu view = 8 lines.
 -- The main view is the tallest, so OPTM_DY tracks it.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 24;
+constant OPTM_DY           : natural := 28;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
 --   line  9: 720p 50 Hz 16:9  / 10: 576p 50 4:3  / 11: 576p 50 5:4
 --   line 27: HDMI Flicker-free toggle (C_MENU_HDMI_FF)
 --   line 31: VGA Standard / 35: VGA 15 kHz with HS/VS / 36: VGA 15 kHz with CSYNC
 --   lines 43..51: OSM Scaling radio (C_MENU_OSM_SCALING); 100% (43, default) down to 50% (51)
---   line 57: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
---   lines 62..65: OSM-open key radio (C_MENU_OSMKEY_*); Help (62, default) / F11 /
+--   lines 60..80: Volume radio (C_MENU_VOLUME); 100% (60, default) down to 0% (80)
+--   line 86: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
+--   lines 91..94: OSM-open key radio (C_MENU_OSMKEY_*); Help (91, default) / F11 /
 --                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
---   line 69: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
+--   line 98: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
 --            removes the 512 KB at $C00000 from the Amiga memory map (issue #20).
 --            The HDL cold-boots only the emulated Amiga on a change, so that
 --            amiga_config.vhd replays the userio config while QNICE keeps running.
@@ -589,27 +592,58 @@ constant OPTM_ITEMS        : string :=
 
    "\n"                     &    -- 54: line
 
-   " Keyboard\n"            &    -- 55: headline (Keyboard section, issue #6)
+   " Audio\n"               &    -- 55: headline (Audio section)
    "\n"                     &    -- 56: line
-   " Amiga\n"               &    -- 57: keyboard mode radio: pure positional (C_MENU_KBD_AMIGA)
-   " MEGA65\n"              &    -- 58: keyboard mode radio: semantic "cap is law"; default
 
-   " OSM: %s\n"             &    -- 59: OSM-open key submenu (issue #8): "OSM: <choice>"
-   " Key to open the menu\n" &   -- 60: headline (inside submenu)
-   "\n"                     &    -- 61: line
-   " Help\n"                &    -- 62: OSMKEY radio: Help (C_MENU_OSMKEY_HELP); default
-   " F11\n"                 &    -- 63: OSMKEY radio: F11 (C_MENU_OSMKEY_F11)
-   " F13\n"                 &    -- 64: OSMKEY radio: F13 (C_MENU_OSMKEY_F13)
-   " MEGA + Run/Stop\n"     &    -- 65: OSMKEY radio: MEGA+Run/Stop combo (C_MENU_OSMKEY_COMBO)
-   "\n"                     &    -- 66: line
-   " Back to main menu\n"   &    -- 67: close submenu
+   " Volume: %s\n"          &    -- 57: Volume submenu (master volume)
+   " Volume Control\n"      &    -- 58: headline (inside submenu)
+   "\n"                     &    -- 59: line
+   " 100%\n"                &    -- 60: full volume; default (bit-transparent)
+   " 95%\n"                 &    -- 61
+   " 90%\n"                 &    -- 62
+   " 85%\n"                 &    -- 63
+   " 80%\n"                 &    -- 64
+   " 75%\n"                 &    -- 65
+   " 70%\n"                 &    -- 66
+   " 65%\n"                 &    -- 67
+   " 60%\n"                 &    -- 68
+   " 55%\n"                 &    -- 69
+   " 50%\n"                 &    -- 70
+   " 45%\n"                 &    -- 71
+   " 40%\n"                 &    -- 72
+   " 35%\n"                 &    -- 73
+   " 30%\n"                 &    -- 74
+   " 25%\n"                 &    -- 75
+   " 20%\n"                 &    -- 76
+   " 15%\n"                 &    -- 77
+   " 10%\n"                 &    -- 78
+   " 5%\n"                  &    -- 79
+   " 0%\n"                  &    -- 80: mute
+   "\n"                     &    -- 81: line
+   " Back to main menu\n"   &    -- 82: close submenu
+   "\n"                     &    -- 83: line
 
-   "\n"                     &    -- 68: line
-   " Slow RAM (A501)\n"     &    -- 69: single-select toggle, default ON (issue #20)
-   "\n"                     &    -- 70: line
-   " About & Help\n"        &    -- 71: help
-   "\n"                     &    -- 72: line
-   " Close Menu\n";              -- 73: close
+   " Keyboard\n"            &    -- 84: headline (Keyboard section, issue #6)
+   "\n"                     &    -- 85: line
+   " Amiga\n"               &    -- 86: keyboard mode radio: pure positional (C_MENU_KBD_AMIGA)
+   " MEGA65\n"              &    -- 87: keyboard mode radio: semantic "cap is law"; default
+
+   " OSM: %s\n"             &    -- 88: OSM-open key submenu (issue #8): "OSM: <choice>"
+   " Key to open the menu\n" &   -- 89: headline (inside submenu)
+   "\n"                     &    -- 90: line
+   " Help\n"                &    -- 91: OSMKEY radio: Help (C_MENU_OSMKEY_HELP); default
+   " F11\n"                 &    -- 92: OSMKEY radio: F11 (C_MENU_OSMKEY_F11)
+   " F13\n"                 &    -- 93: OSMKEY radio: F13 (C_MENU_OSMKEY_F13)
+   " MEGA + Run/Stop\n"     &    -- 94: OSMKEY radio: MEGA+Run/Stop combo (C_MENU_OSMKEY_COMBO)
+   "\n"                     &    -- 95: line
+   " Back to main menu\n"   &    -- 96: close submenu
+
+   "\n"                     &    -- 97: line
+   " Slow RAM (A501)\n"     &    -- 98: single-select toggle, default ON (issue #20)
+   "\n"                     &    -- 99: line
+   " About & Help\n"        &    -- 100: help
+   "\n"                     &    -- 101: line
+   " Close Menu\n";              -- 102: close
 
 -- define your own constants here and choose meaningful names
 -- make sure that your first group uses the value 1 (0 means "no menu item", such as text and line),
@@ -627,6 +661,7 @@ constant OPTM_G_KBD        : integer := 8;   -- keyboard mapping mode radio (iss
 constant OPTM_G_OSMKEY     : integer := 9;   -- OSM-open key radio (issue #8): Help / F11 / F13 / MEGA+Run-Stop; read in HDL (mega65.vhd)
 constant OPTM_G_OSM_MODE   : integer := 10;  -- OSM Scaling radio; read in HDL (mega65.vhd)
 constant OPTM_G_SLOWRAM    : integer := 11;  -- Slow RAM (A501) toggle (issues #20/#21); read and locally cold-booted in mega65.vhd
+constant OPTM_G_VOLUME     : integer := 12;  -- master volume radio (5% steps); read in HDL (mega65.vhd), attenuation applied in main.vhd
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -701,28 +736,59 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
 
                                              OPTM_G_LINE,                              -- 54: Line
 
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 55: Headline "Keyboard"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 55: Headline "Audio"
                                              OPTM_G_LINE,                              -- 56: Line
-                                             OPTM_G_KBD,                               -- 57: Amiga (pure positional)
-                                             OPTM_G_KBD + OPTM_G_STDSEL,               -- 58: MEGA65 (semantic; default)
 
-                                             OPTM_G_SUBMENU,                           -- 59: OSM-open key submenu block: "OSM: %s"
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 60: Headline "Key to open the menu"
-                                             OPTM_G_LINE,                              -- 61: Line
-                                             OPTM_G_OSMKEY + OPTM_G_STDSEL,            -- 62: Help (default opener)
-                                             OPTM_G_OSMKEY,                            -- 63: F11
-                                             OPTM_G_OSMKEY,                            -- 64: F13
-                                             OPTM_G_OSMKEY,                            -- 65: MEGA + Run/Stop
-                                             OPTM_G_LINE,                              -- 66: Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 67: Close submenu / back to main menu
+                                             OPTM_G_SUBMENU,                           -- 57: Volume submenu block: "Volume: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 58: Headline "Volume Control"
+                                             OPTM_G_LINE,                              -- 59: Line
+                                             OPTM_G_VOLUME + OPTM_G_STDSEL,            -- 60: 100% (default)
+                                             OPTM_G_VOLUME,                            -- 61: 95%
+                                             OPTM_G_VOLUME,                            -- 62: 90%
+                                             OPTM_G_VOLUME,                            -- 63: 85%
+                                             OPTM_G_VOLUME,                            -- 64: 80%
+                                             OPTM_G_VOLUME,                            -- 65: 75%
+                                             OPTM_G_VOLUME,                            -- 66: 70%
+                                             OPTM_G_VOLUME,                            -- 67: 65%
+                                             OPTM_G_VOLUME,                            -- 68: 60%
+                                             OPTM_G_VOLUME,                            -- 69: 55%
+                                             OPTM_G_VOLUME,                            -- 70: 50%
+                                             OPTM_G_VOLUME,                            -- 71: 45%
+                                             OPTM_G_VOLUME,                            -- 72: 40%
+                                             OPTM_G_VOLUME,                            -- 73: 35%
+                                             OPTM_G_VOLUME,                            -- 74: 30%
+                                             OPTM_G_VOLUME,                            -- 75: 25%
+                                             OPTM_G_VOLUME,                            -- 76: 20%
+                                             OPTM_G_VOLUME,                            -- 77: 15%
+                                             OPTM_G_VOLUME,                            -- 78: 10%
+                                             OPTM_G_VOLUME,                            -- 79: 5%
+                                             OPTM_G_VOLUME,                            -- 80: 0% (mute)
+                                             OPTM_G_LINE,                              -- 81: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 82: Close submenu / back to main menu
+                                             OPTM_G_LINE,                              -- 83: Line
 
-                                             OPTM_G_LINE,                              -- 68: Line
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 84: Headline "Keyboard"
+                                             OPTM_G_LINE,                              -- 85: Line
+                                             OPTM_G_KBD,                               -- 86: Amiga (pure positional)
+                                             OPTM_G_KBD + OPTM_G_STDSEL,               -- 87: MEGA65 (semantic; default)
+
+                                             OPTM_G_SUBMENU,                           -- 88: OSM-open key submenu block: "OSM: %s"
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,            -- 89: Headline "Key to open the menu"
+                                             OPTM_G_LINE,                              -- 90: Line
+                                             OPTM_G_OSMKEY + OPTM_G_STDSEL,            -- 91: Help (default opener)
+                                             OPTM_G_OSMKEY,                            -- 92: F11
+                                             OPTM_G_OSMKEY,                            -- 93: F13
+                                             OPTM_G_OSMKEY,                            -- 94: MEGA + Run/Stop
+                                             OPTM_G_LINE,                              -- 95: Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,            -- 96: Close submenu / back to main menu
+
+                                             OPTM_G_LINE,                              -- 97: Line
                                              OPTM_G_SLOWRAM + OPTM_G_SINGLESEL
-                                                            + OPTM_G_STDSEL,           -- 69: Slow RAM (A501) (single-select, default ON)
-                                             OPTM_G_LINE,                              -- 70: Line
-                                             OPTM_G_About   + OPTM_G_HELP,             -- 71: About & Help (WHS(1))
-                                             OPTM_G_LINE,                              -- 72: Line
-                                             OPTM_G_CLOSE                              -- 73: Close Menu
+                                                            + OPTM_G_STDSEL,           -- 98: Slow RAM (A501) (single-select, default ON)
+                                             OPTM_G_LINE,                              -- 99: Line
+                                             OPTM_G_About   + OPTM_G_HELP,             -- 100: About & Help (WHS(1))
+                                             OPTM_G_LINE,                              -- 101: Line
+                                             OPTM_G_CLOSE                              -- 102: Close Menu
                                            );
 
 --------------------------------------------------------------------------------------------------------------------

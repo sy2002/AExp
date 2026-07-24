@@ -296,6 +296,9 @@ signal main_chip_wren_l       : std_logic;
 signal main_pwr_led           : std_logic;
 signal main_fdd_led           : std_logic;
 
+-- Master volume: OSM "Volume" radio decoded into a step index (0 = mute .. 20 = 100%)
+signal main_volume            : natural range 0 to 20;
+
 -- ADF floppy: track engine's HyperRAM read port (main_clk side, post avm_cache
 -- in main.vhd) and the mount status CDC'd from the QNICE domain
 signal main_adf_avm_write         : std_logic;
@@ -415,28 +418,34 @@ constant C_MENU_VGA_15KHZCS   : natural := 36;   -- VGA: raw 15.625 kHz RGB with
 -- while line 51 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
 subtype C_MENU_OSM_SCALING is natural range 51 downto 43;
 
+-- Volume radio (master volume, 5% steps): line 60 (100%, default) down to line 80
+-- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
+-- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
+-- ahead of the framework's split into the HDMI and analog audio paths.
+subtype C_MENU_VOLUME is natural range 80 downto 60;
+
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 58 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 87 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 57;
+constant C_MENU_KBD_AMIGA     : natural := 86;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 62 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 91 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 62;
-constant C_MENU_OSMKEY_F11    : natural := 63;
-constant C_MENU_OSMKEY_F13    : natural := 64;
-constant C_MENU_OSMKEY_COMBO  : natural := 65;
+constant C_MENU_OSMKEY_HELP   : natural := 91;
+constant C_MENU_OSMKEY_F11    : natural := 92;
+constant C_MENU_OSMKEY_F13    : natural := 93;
+constant C_MENU_OSMKEY_COMBO  : natural := 94;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 69;
+constant C_MENU_SLOWRAM       : natural := 98;
 
 begin
 
@@ -544,6 +553,24 @@ begin
    osm_key_b_o <= 63 when main_osm_control_i(C_MENU_OSMKEY_COMBO) = '1' else 67;
    osm_combo_o <= main_osm_control_i(C_MENU_OSMKEY_COMBO);
 
+   -- Master volume: the OSM "Volume" radio (C_MENU_VOLUME) is a 21-way one-hot
+   -- selection in 5% steps; its lowest bit (line 60) is 100% and its highest bit
+   -- (line 80) is 0%. Translate it into a 0..20 step index (0 = mute, 20 = 100%),
+   -- defaulting to 100% when no bit is set (e.g. while QNICE is still booting), so
+   -- the core never powers up muted. Like the OSM-key decode above this is static,
+   -- pure combinational routing in the core clock domain - no CDC. The perceptual
+   -- attenuation itself lives in main.vhd (C_VOL_LUT), ahead of the framework's
+   -- split into the HDMI and analog audio paths.
+   volume_decode_proc : process (main_osm_control_i)
+   begin
+      main_volume <= 20;                                  -- default: 100%
+      for b in C_MENU_VOLUME'low to C_MENU_VOLUME'high loop
+         if main_osm_control_i(b) = '1' then
+            main_volume <= C_MENU_VOLUME'high - b;        -- bit 60 -> 20 (100%) .. bit 80 -> 0 (mute)
+         end if;
+      end loop;
+   end process volume_decode_proc;
+
    -- Memory topology is guest state, so changing it must be a cold boot from
    -- Kickstart's perspective. This local controller deliberately does not drive
    -- either M2M reset: the menu, QNICE and the framework remain alive.
@@ -592,6 +619,9 @@ begin
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
          video_fl_o           => video_fl_o,
+
+         -- Master volume (OSM "Volume" radio): 0..20 step index = mute..100%
+         audio_volume_i       => main_volume,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,

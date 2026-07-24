@@ -345,7 +345,9 @@ one that looks best, or fine-tune your own with the included
 ### Audio
 
 Audio is available on HDMI and on the 3.5 mm jack, carrying Paula's
-output as-is.
+output as-is. The options menu offers a master volume control in 5%
+steps: the percentages describe the audible volume, so 50% sounds half
+as loud as 100%.
 
 ### Real-time clock
 
