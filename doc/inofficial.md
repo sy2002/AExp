@@ -5,6 +5,12 @@ builds that were not there in older builds. By finding the last known-to-work
 build, we have a better chance to hunt down problems. The name of the build
 can be checked in the "About & Help" menu of the core.
 
+## Version 2
+
+| Name          | Date     | Commit  | Comment
+|---------------|----------|---------|----------------------------------------
+| WIP-V2-A1     | 07/25/26 | 232c584 | Authentic A500 sound: A500 Filter + LED Filter (both default on) and a Stereo Mix option. Master volume control (perceptual loudness taper).
+
 ## Version 1
 
 | Name          | Date     | Commit  | Comment
