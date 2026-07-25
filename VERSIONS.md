@@ -1,3 +1,14 @@
+Version 2 - MONTH DAY, YEAR
+===========================
+
+WORK-IN-PROGRES see doc/inofficial.md
+
+* Authentic A500 sound: A500 Filter + LED Filter (both default on)
+
+* Stereo Mix option
+
+* Master volume control (perceptual loudness taper)
+
 Version 1 - July 26, 2026
 =========================
 
