@@ -125,6 +125,40 @@ entity main is
       -- while the Amiga is in reset and encoded in the replayed userio memory config.
       slow_ram_i              : in  std_logic;
 
+      -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
+      -- Drive map from the OSM "Configure Drives" radio (static in clk_main;
+      -- changes trigger the amiga_cold_boot reset in mega65.vhd):
+      hwf_adf_en_i            : in  std_logic;                     -- '1' = ADF drive exists
+      hwf_adf_unit_i          : in  std_logic_vector(1 downto 0);  -- unit of the ADF drive
+      hwf_phys_unit_i         : in  std_logic_vector(1 downto 0);  -- unit of the physical drive
+      hwf_phys_en_i           : in  std_logic;                     -- '1' = physical unit exists
+      -- CIA-B drive-control taps towards the connector (pin driving lives in
+      -- mega65.vhd next to the f_* ports):
+      hwf_fdd_ctrl_o          : out std_logic_vector(7 downto 0);  -- {motor_n,sel3..0_n,side,direc,step_n}
+      hwf_motor_on_o          : out std_logic_vector(3 downto 0);  -- per-unit motor latches
+      -- conditioned real drive status (synced to clk_main in mega65.vhd):
+      hwf_change_n_i          : in  std_logic;
+      hwf_wprot_n_i           : in  std_logic;
+      hwf_track0_n_i          : in  std_logic;
+      hwf_ready_n_i           : in  std_logic;
+      hwf_index_i             : in  std_logic;
+      hwf_present_i           : in  std_logic;
+      -- reconstructed MFM word stream (read side of the front-end FIFO):
+      hwf_rd_data_i           : in  std_logic_vector(15 downto 0);
+      hwf_rd_empty_i          : in  std_logic;
+      hwf_rd_en_o             : out std_logic;
+      -- live DSKSYNC towards the front-end bit-aligner:
+      hwf_dsksync_o           : out std_logic_vector(15 downto 0);
+      -- diag: Gray-coded count of physical data words served into Paula:
+      hwf_served_gray_o       : out std_logic_vector(15 downto 0);
+      -- diag: store-signature pair (engine-served vs Paula-stored, first
+      -- 1024 words after the sync match of each read attempt) + counters:
+      hwf_eng_sig_o           : out std_logic_vector(15 downto 0);
+      hwf_eng_ses_o           : out std_logic_vector(7 downto 0);
+      hwf_eng_done_o          : out std_logic;
+      hwf_pau_sig_o           : out std_logic_vector(15 downto 0);
+      hwf_pau_att_o           : out std_logic_vector(7 downto 0);
+
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
       joy_1_down_n_i          : in  std_logic;
@@ -216,6 +250,18 @@ architecture synthesis of main is
          pwr_led        : out std_logic;
          fdd_led        : out std_logic;
          hdd_led        : out std_logic;
+
+         -- physical-drive support (see minimig_m65.v / paula_floppy.v)
+         fdd_ctrl          : out std_logic_vector(7 downto 0);
+         fdd_motor_on      : out std_logic_vector(3 downto 0);
+         fdd_dsig          : out std_logic_vector(15 downto 0);
+         fdd_datt          : out std_logic_vector(7 downto 0);
+         fdd_phys_mask     : in  std_logic_vector(3 downto 0);
+         fdd_phys_change_n : in  std_logic;
+         fdd_phys_wprot_n  : in  std_logic;
+         fdd_phys_track0_n : in  std_logic;
+         fdd_phys_ready_n  : in  std_logic;
+         fdd_phys_index    : in  std_logic;
 
          rtc            : in  std_logic_vector(64 downto 0);
 
@@ -436,6 +482,10 @@ architecture synthesis of main is
    signal mouse_btn        : std_logic_vector(2 downto 0);
    signal kbd_mouse_rmb    : std_logic;   -- RUN/STOP held (right mouse button substitute)
 
+   -- Hardware Floppy: one-hot mask of the physical unit for paula_floppy's
+   -- status muxes (0000 whenever the feature is off = bit-identical core)
+   signal hwf_phys_mask    : std_logic_vector(3 downto 0);
+
    -- POT-line mouse buttons for active adapters (mouSTer and friends), see
    -- the comment block at the mouse_btn assignment and doc/mouse.md.
    -- Watchdog: 30 s at 28.375 MHz; releases a phantom "pressed" after the
@@ -570,6 +620,10 @@ begin
          clk_main_i       => clk_main_i,
          reset_i          => amiga_rst,
          slow_ram_i       => slow_ram_i,
+         -- two drives only when BOTH the ADF drive and the physical unit
+         -- exist (Configure Drives combos A/B); the single-drive combos
+         -- C/D announce one drive
+         floppy_drives_i  => "0" & (hwf_adf_en_i and hwf_phys_en_i),
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,
@@ -607,6 +661,22 @@ begin
          wr_track_o          => adf_wr_track_o,
          wr_req_o            => adf_wr_req_o,
          wr_ack_i            => adf_wr_ack_i,
+
+         -- Hardware Floppy: drive map, real-disk presence and the
+         -- reconstructed word stream from the front-end (mega65.vhd)
+         adf_en_i            => hwf_adf_en_i,
+         adf_unit_i          => hwf_adf_unit_i,
+         phys_unit_i         => hwf_phys_unit_i,
+         phys_en_i           => hwf_phys_en_i,
+         phys_present_i      => hwf_present_i,
+         phys_rd_data_i      => hwf_rd_data_i,
+         phys_rd_empty_i     => hwf_rd_empty_i,
+         phys_rd_en_o        => hwf_rd_en_o,
+         dsksync_o           => hwf_dsksync_o,
+         phys_served_gray_o  => hwf_served_gray_o,
+         phys_sig_o          => hwf_eng_sig_o,
+         phys_sig_ses_o      => hwf_eng_ses_o,
+         phys_sig_done_o     => hwf_eng_done_o,
 
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,
@@ -771,6 +841,14 @@ begin
    mouse_btn <= pot_mmb & (kbd_mouse_rmb or pot_rmb) & '0';
 
    ---------------------------------------------------------------------------
+   -- Hardware Floppy: one-hot physical-unit mask for paula_floppy's muxes
+   ---------------------------------------------------------------------------
+
+   hwf_phys_mask <= "0001" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "00" else
+                    "0010" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "01" else
+                    "0000";
+
+   ---------------------------------------------------------------------------
    -- The Minimig core itself
    ---------------------------------------------------------------------------
 
@@ -818,6 +896,21 @@ begin
          pwr_led        => pwr_led,
          fdd_led        => fdd_led_o,
          hdd_led        => open,
+
+         -- Hardware Floppy: CIA-B taps out, real drive status in (the
+         -- one-hot mask keeps every mux bit-identical when the feature is
+         -- off; the status levels are already clk_main-synced in mega65.vhd)
+         fdd_ctrl          => hwf_fdd_ctrl_o,
+         fdd_motor_on      => hwf_motor_on_o,
+         fdd_dsig          => hwf_pau_sig_o,
+         fdd_datt          => hwf_pau_att_o,
+         fdd_phys_mask     => hwf_phys_mask,
+         fdd_phys_change_n => hwf_change_n_i,
+         fdd_phys_wprot_n  => hwf_wprot_n_i,
+         fdd_phys_track0_n => hwf_track0_n_i,
+         fdd_phys_ready_n  => hwf_ready_n_i,
+         fdd_phys_index    => hwf_index_i,
+
          rtc            => rtc_i,
 
          io_uio         => io_uio,

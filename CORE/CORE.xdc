@@ -60,6 +60,35 @@ set_max_delay -datapath_only 13.400 \
    -from [get_pins -hierarchical -regexp {.*/i_ascal/o_dpram_reg.*/CLK}] \
    -to   [get_cells -hierarchical -regexp {.*/i_ascal/o_dr_reg\[[0-9]+\]}]
 
+## Hardware Floppy: qnice_clk <-> main_clk CDC (WIP-V2-A2)
+##
+## The physical-floppy read front-end (physical_fdd_top, 50 MHz qnice_clk)
+## introduced the first RAW synchronizer crossings between qnice_clk and
+## main_clk: the Cummings word FIFO (Gray-pointer 2-FF syncs both ways plus
+## the LUTRAM read data into adf_track_engine's io_din register), and the
+## control-context/dsksync 2-FF metas (en/sel/mot_meta, sync_meta). All
+## earlier qnice<->main traffic went through cdc_stable (bounded by
+## M2M/common.xdc) or dual-clock BRAM, so these two MMCM-unrelated clocks
+## had never exposed an unconstrained fabric path - the first R3 build
+## timed them at worst-case edge alignment: WNS -6.331, 47 endpoints, ALL
+## of them inside this plumbing (the exact failure class of C64MEGA65's
+## physical-1581 first build).
+##
+## Every crossing is a 2-FF synchronizer (async_reg-tagged), a Gray-coded
+## pointer, or the FIFO data path whose stability the Gray protocol
+## guarantees (data settles >= 2 destination periods before the synced
+## pointer exposes it). A clock-pair set_max_delay -datapath_only of one
+## qnice period bounds the staleness/skew of all of them and removes the
+## hold-fix detours. DELIBERATELY max_delay and not the C64's blanket
+## set_false_path: object-scoped exceptions of the same type stay in force
+## (common.xdc's cdc_stable set_max_delay keeps its tighter bound), while a
+## clock-pair false path would OVERRIDE those bounds (false path outranks
+## max delay regardless of specificity).
+set_max_delay -datapath_only 20.000 \
+   -from [get_clocks qnice_clk] -to [get_clocks main_clk]
+set_max_delay -datapath_only 20.000 \
+   -from [get_clocks main_clk] -to [get_clocks qnice_clk]
+
 ## Notes for timing review after the first synthesis (do not enable blindly):
 ## - rtl/minimig_m68k_bridge.v uses a logic signal (_as_and_cs) as an async
 ##   preset (infers FDPE) - check the timing report for it.

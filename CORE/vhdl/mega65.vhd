@@ -33,6 +33,7 @@ library work;
 use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
+use work.physical_fdd_pkg.all;
 
 entity MEGA65_Core is
 generic (
@@ -198,6 +199,23 @@ port (
    iec_srq_n_i             : in  std_logic;
    iec_srq_n_o             : out std_logic;
 
+   -- MEGA65 internal floppy drive (Hardware Floppy feature): the 34-pin
+   -- connector, threaded as plain wires from the board tops (M2M-UPSTREAM
+   -- floppy-pins; the C64MEGA65 issue-#90 pattern). All active low. Drive B
+   -- and the write pins (f_motorb/f_selectb/f_wdata/f_wgate) stay tied '1'
+   -- at the top level - read-only milestone.
+   f_motora_o              : out std_logic;
+   f_selecta_o             : out std_logic;
+   f_side1_o               : out std_logic;
+   f_stepdir_o             : out std_logic;
+   f_step_o                : out std_logic;
+   f_density_o             : out std_logic;
+   f_index_i               : in  std_logic;
+   f_track0_i              : in  std_logic;
+   f_writeprotect_i        : in  std_logic;
+   f_rdata_i               : in  std_logic;
+   f_diskchanged_i         : in  std_logic;
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -321,6 +339,40 @@ signal main_adf_wr_track          : std_logic_vector(7 downto 0);
 signal main_adf_wr_req            : std_logic;
 signal main_adf_wr_ack            : std_logic;
 
+-- Hardware Floppy (main_clk side): drive-map combo decode, CIA-B taps from
+-- minimig, conditioned real drive status (CDC'd from the 50 MHz front-end
+-- below) and the reconstructed word stream towards the track engine
+signal main_hwf_combo             : std_logic_vector(1 downto 0);  -- {single_drive, hw_is_df0}
+signal main_hwf_en                : std_logic;                     -- physical unit exists
+signal main_hwf_unit              : std_logic_vector(1 downto 0);  -- physical unit
+signal main_adf_en                : std_logic;                     -- ADF drive exists
+signal main_adf_unit              : std_logic_vector(1 downto 0);  -- ADF unit
+signal main_hwf_ctrl              : std_logic_vector(7 downto 0);  -- {motor_n,sel3..0_n,side,direc,step_n}
+signal main_hwf_motor_on          : std_logic_vector(3 downto 0);
+signal main_hwf_selected          : std_logic := '0';
+signal main_hwf_motor             : std_logic;
+signal main_hwf_change_n          : std_logic;
+signal main_hwf_wprot_n           : std_logic;
+signal main_hwf_track0_n          : std_logic;
+signal main_hwf_ready_n           : std_logic;
+signal main_hwf_index             : std_logic;
+signal main_hwf_present           : std_logic;
+signal main_hwf_rd_data           : std_logic_vector(15 downto 0);
+signal main_hwf_rd_empty          : std_logic;
+signal main_hwf_rd_en             : std_logic;
+signal main_hwf_dsksync           : std_logic_vector(15 downto 0);
+signal main_hwf_sideinv           : std_logic;                     -- diag side-invert, synced
+signal main_hwf_served_gray       : std_logic_vector(15 downto 0); -- engine served-word count (Gray)
+signal main_hwf_eng_sig           : std_logic_vector(15 downto 0); -- store-signature pair: engine side
+signal main_hwf_eng_ses           : std_logic_vector(7 downto 0);
+signal main_hwf_eng_done          : std_logic;
+signal main_hwf_pau_sig           : std_logic_vector(15 downto 0); -- store-signature pair: Paula side
+signal main_hwf_pau_att           : std_logic_vector(7 downto 0);
+signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
+                                                -- front-end FIFO's read-side reset MUST
+                                                -- derive from the same event as the
+                                                -- write side (Gray-pointer discipline)
+
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
@@ -347,6 +399,54 @@ signal qnice_adf_any_dirty    : std_logic;
 signal qnice_adf_wrt_track    : std_logic_vector(7 downto 0);
 signal qnice_adf_wrt_req      : std_logic;
 signal qnice_adf_wrt_ack      : std_logic;
+
+-- Hardware Floppy front-end (physical_fdd_top runs on qnice_clk; every
+-- magnetic constant is hardware-proven at exactly 50 MHz) + diag device 0x0104
+signal qnice_fdd_track0_n     : std_logic;
+signal qnice_fdd_wprot_n      : std_logic;
+signal qnice_fdd_change_n     : std_logic;
+signal qnice_fdd_ready_n      : std_logic;
+signal qnice_fdd_index        : std_logic;
+signal qnice_fdd_present      : std_logic;
+signal qnice_fdd_status       : std_logic_vector(15 downto 0);
+signal qnice_fdd_sync         : std_logic_vector(15 downto 0);
+signal qnice_fdd_est          : unsigned(11 downto 0);
+signal qnice_fdd_level        : unsigned(5 downto 0);
+signal qnice_fdd_idxper       : unsigned(31 downto 0);
+signal qnice_fdd_idxwid       : unsigned(31 downto 0);
+signal qnice_fdd_cnt_index    : unsigned(15 downto 0);
+signal qnice_fdd_cnt_sync     : unsigned(15 downto 0);
+signal qnice_fdd_cnt_word     : unsigned(15 downto 0);
+signal qnice_fdd_cnt_runt     : unsigned(15 downto 0);
+signal qnice_fdd_cnt_lol      : unsigned(15 downto 0);
+signal qnice_fdd_cnt_drop     : unsigned(15 downto 0);
+signal qnice_fdd_data         : std_logic_vector(15 downto 0);
+signal qnice_hwf_map3         : std_logic_vector(2 downto 0);  -- {unit[1:0], enable} for diag
+signal qnice_fdd_cap_flags    : std_logic_vector(3 downto 0);
+signal qnice_fdd_cap_count    : unsigned(15 downto 0);
+signal qnice_fdd_cap_words    : t_fdd_cap_words;
+signal qnice_fdd_sideinv      : std_logic := '0';              -- diag reg 0x1F bit 0
+signal qnice_fdd_rev_mask     : std_logic_vector(10 downto 0);
+signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
+signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
+signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
+
+-- engine served-word Gray counter: 2-FF sync into the QNICE domain (single-
+-- step Gray - engine increments are >= one io-word handshake apart, far
+-- slower than this clock samples), then decoded/registered as binary
+signal qnice_fdd_served_m     : std_logic_vector(15 downto 0);
+signal qnice_fdd_served_s     : std_logic_vector(15 downto 0);
+signal qnice_fdd_served       : unsigned(15 downto 0) := (others => '0');
+attribute async_reg           : string;
+attribute async_reg of qnice_fdd_served_m : signal is "true";
+
+-- store-signature pair into the QNICE domain (quasi-static after each read
+-- attempt; cdc_stable below)
+signal qnice_fdd_eng_sig      : std_logic_vector(15 downto 0);
+signal qnice_fdd_eng_ses      : std_logic_vector(7 downto 0);
+signal qnice_fdd_eng_done     : std_logic;
+signal qnice_fdd_pau_sig      : std_logic_vector(15 downto 0);
+signal qnice_fdd_pau_att      : std_logic_vector(7 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- hr_clk (HyperRAM clock domain)
@@ -384,54 +484,70 @@ signal hr_adf_avm_waitrequest     : std_logic;
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
 ---------------------------------------------------------------------------------------------
 
--- (the " ADF:%s" mount item at line 2 is handled by the Shell itself and needs
--- no C_MENU constant; it shifted everything below it by 2 lines)
+-- (the " df0:%s" mount item at line 2, the hardware-role text at line 3 and
+-- the " Configure Drives" submenu head at line 4 are handled by the Shell /
+-- firmware and need no C_MENU constant here)
 -- ALL C_MENU_* constants below are additionally scraped by
 -- CORE/m2m-rom/make_rom.sh into the autogenerated osm_const.asm (as
 -- AEXP_OSM_*), so the firmware never hardcodes menu line numbers.
 -- Keep them single-line for the awk scraper.
--- The "Display" section headline+line at lines 4/5 (issue #6) shifted every
--- entry below it by another 2 lines vs the previous layout.
+-- The Configure Drives block at lines 3..12 shifted every entry below it by
+-- 10 lines vs the pre-Hardware-Floppy layout.
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
-constant C_MENU_HDMI_16_9_50  : natural :=  9;
-constant C_MENU_HDMI_4_3_50   : natural := 10;
-constant C_MENU_HDMI_5_4_50   : natural := 11;
+
+-- Configure Drives radio (drive-map combos, Hardware Floppy feature): which
+-- Amiga units the ADF drive and the MEGA65's real internal drive occupy.
+-- Line 7 carries OPTM_G_STDSEL = the default (df0: ADF, df1: Hardware).
+-- Decoded below into the 2-bit combo code {single_drive, hw_is_df0}:
+-- A="00" df0:ADF df1:HW, B="01" df0:HW df1:ADF, C="10" df0:ADF only,
+-- D="11" df0:HW only (no ADF drive). A change triggers the amiga_cold_boot
+-- reset (drive count is reset-latched in Paula and AmigaOS enumerates units
+-- at boot). The firmware rewrites the labels of menu lines 2+3 to match
+-- (HWF_LABEL_SYNC; see config.vhd's DRIVE LINES comment).
+constant C_MENU_HWFC_ADF_HW   : natural :=  7;
+constant C_MENU_HWFC_HW_ADF   : natural :=  8;
+constant C_MENU_HWFC_ADF_OFF  : natural :=  9;
+constant C_MENU_HWFC_HW_OFF   : natural := 10;
+
+constant C_MENU_HDMI_16_9_50  : natural := 19;
+constant C_MENU_HDMI_4_3_50   : natural := 20;
+constant C_MENU_HDMI_5_4_50   : natural := 21;
 
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
-constant C_MENU_FLT_NO_FILTER     : natural := 17;
-constant C_MENU_FLT_SHARP         : natural := 18;
-constant C_MENU_FLT_BICUBIC       : natural := 19;
-constant C_MENU_FLT_SMOOTH        : natural := 20;
-constant C_MENU_FLT_LANCZOS       : natural := 21;
-constant C_MENU_FLT_SCANLINES     : natural := 22;
-constant C_MENU_FLT_CRT_SVIDEO    : natural := 23;
-constant C_MENU_FLT_CRT_COMPOSITE : natural := 24;
+constant C_MENU_FLT_NO_FILTER     : natural := 27;
+constant C_MENU_FLT_SHARP         : natural := 28;
+constant C_MENU_FLT_BICUBIC       : natural := 29;
+constant C_MENU_FLT_SMOOTH        : natural := 30;
+constant C_MENU_FLT_LANCZOS       : natural := 31;
+constant C_MENU_FLT_SCANLINES     : natural := 32;
+constant C_MENU_FLT_CRT_SVIDEO    : natural := 33;
+constant C_MENU_FLT_CRT_COMPOSITE : natural := 34;
 
 -- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
 -- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
-constant C_MENU_HDMI_FF       : natural := 27;
+constant C_MENU_HDMI_FF       : natural := 37;
 
-constant C_MENU_VGA_STD       : natural := 31;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 35;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 36;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+constant C_MENU_VGA_STD       : natural := 41;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 45;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 46;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
--- OSM Scaling follows the C64 layout: line 43 (100%, default) maps to bit 0,
--- while line 51 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
-subtype C_MENU_OSM_SCALING is natural range 51 downto 43;
+-- OSM Scaling follows the C64 layout: line 53 (100%, default) maps to bit 0,
+-- while line 61 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
+subtype C_MENU_OSM_SCALING is natural range 61 downto 53;
 
--- Volume radio (master volume, 5% steps): line 60 (100%, default) down to line 80
+-- Volume radio (master volume, 5% steps): line 70 (100%, default) down to line 90
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 80 downto 60;
+subtype C_MENU_VOLUME is natural range 90 downto 70;
 
--- Stereo crossfeed radio ("Stereo: %s" submenu): line 86 (Full Stereo, default)
--- down to line 89 (Mono). Decoded below into main_stereo_mix using MiSTer's
+-- Stereo crossfeed radio ("Stereo: %s" submenu): line 96 (Full Stereo, default)
+-- down to line 99 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 89 downto 86;
+subtype C_MENU_STEREO is natural range 99 downto 96;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -439,31 +555,31 @@ subtype C_MENU_STEREO is natural range 89 downto 86;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 92;
-constant C_MENU_LEDFILT       : natural := 93;
+constant C_MENU_A500FILT      : natural := 102;
+constant C_MENU_LEDFILT       : natural := 103;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 98 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 108 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 97;
+constant C_MENU_KBD_AMIGA     : natural := 107;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 102 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 112 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 102;
-constant C_MENU_OSMKEY_F11    : natural := 103;
-constant C_MENU_OSMKEY_F13    : natural := 104;
-constant C_MENU_OSMKEY_COMBO  : natural := 105;
+constant C_MENU_OSMKEY_HELP   : natural := 112;
+constant C_MENU_OSMKEY_F11    : natural := 113;
+constant C_MENU_OSMKEY_F13    : natural := 114;
+constant C_MENU_OSMKEY_COMBO  : natural := 115;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 109;
+constant C_MENU_SLOWRAM       : natural := 119;
 
 begin
 
@@ -603,13 +719,38 @@ begin
       end loop;
    end process stereo_decode_proc;
 
+   -- Hardware Floppy drive map: decode the Configure Drives radio into the
+   -- combo code {single_drive, hw_is_df0}. The fall-through default is
+   -- combo A (df0: ADF, df1: Hardware - the OPTM_G_STDSEL line), so the
+   -- core behaves per the standard map even while QNICE is still booting.
+   hwf_combo_decode : process (main_osm_control_i)
+   begin
+      if main_osm_control_i(C_MENU_HWFC_HW_ADF) = '1' then
+         main_hwf_combo <= "01";                            -- B: df0 HW, df1 ADF
+      elsif main_osm_control_i(C_MENU_HWFC_ADF_OFF) = '1' then
+         main_hwf_combo <= "10";                            -- C: df0 ADF only
+      elsif main_osm_control_i(C_MENU_HWFC_HW_OFF) = '1' then
+         main_hwf_combo <= "11";                            -- D: df0 HW only
+      else
+         main_hwf_combo <= "00";                            -- A: df0 ADF, df1 HW (default)
+      end if;
+   end process hwf_combo_decode;
+
+   main_hwf_en   <= '0' when main_hwf_combo = "10" else '1';       -- no physical unit in C
+   main_adf_en   <= '0' when main_hwf_combo = "11" else '1';       -- no ADF drive in D
+   main_hwf_unit <= "0" & not main_hwf_combo(0);                   -- HW: df0 in B/D, df1 in A
+   main_adf_unit <= "0" & main_hwf_combo(0);                       -- ADF: the other unit
+
    -- Memory topology is guest state, so changing it must be a cold boot from
-   -- Kickstart's perspective. This local controller deliberately does not drive
-   -- either M2M reset: the menu, QNICE and the framework remain alive.
+   -- Kickstart's perspective; the Hardware Floppy drive map is treated the
+   -- same way (drive count is reset-latched in Paula, units are enumerated at
+   -- boot). This local controller deliberately does not drive either M2M
+   -- reset: the menu, QNICE and the framework remain alive.
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
          clk_i             => main_clk,
          slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
+         hwf_map_i         => main_hwf_combo,
          amiga_reset_o     => amiga_cold_reset,
          chip_scrub_o      => amiga_chip_scrub,
          chip_scrub_addr_o => amiga_chip_scrub_addr
@@ -709,6 +850,31 @@ begin
          -- Sampled by amiga_config.vhd during the Amiga-local cold boot above, so the new
          -- topology is installed before Kickstart rebuilds its memory list.
          slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
+
+         -- Hardware Floppy: drive map, CIA-B taps, conditioned real drive
+         -- status and the reconstructed word stream (front-end below)
+         hwf_adf_en_i         => main_adf_en,
+         hwf_adf_unit_i       => main_adf_unit,
+         hwf_phys_unit_i      => main_hwf_unit,
+         hwf_phys_en_i        => main_hwf_en,
+         hwf_fdd_ctrl_o       => main_hwf_ctrl,
+         hwf_motor_on_o       => main_hwf_motor_on,
+         hwf_change_n_i       => main_hwf_change_n,
+         hwf_wprot_n_i        => main_hwf_wprot_n,
+         hwf_track0_n_i       => main_hwf_track0_n,
+         hwf_ready_n_i        => main_hwf_ready_n,
+         hwf_index_i          => main_hwf_index,
+         hwf_present_i        => main_hwf_present,
+         hwf_rd_data_i        => main_hwf_rd_data,
+         hwf_rd_empty_i       => main_hwf_rd_empty,
+         hwf_rd_en_o          => main_hwf_rd_en,
+         hwf_dsksync_o        => main_hwf_dsksync,
+         hwf_served_gray_o    => main_hwf_served_gray,
+         hwf_eng_sig_o        => main_hwf_eng_sig,
+         hwf_eng_ses_o        => main_hwf_eng_ses,
+         hwf_eng_done_o       => main_hwf_eng_done,
+         hwf_pau_sig_o        => main_hwf_pau_sig,
+         hwf_pau_att_o        => main_hwf_pau_att,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -846,9 +1012,77 @@ begin
             qnice_dev_data_o <= qnice_adf_data;
             qnice_dev_wait_o <= qnice_adf_wait;
 
+         -- Hardware Floppy diagnostics: register bank, no wait (the single
+         -- writable register 0x1F lives in the process below)
+         when C_DEV_AMIGA_FDD =>
+            qnice_dev_data_o <= qnice_fdd_data;
+
          when others => null;
       end case;
    end process core_specific_devices;
+
+   -- Hardware Floppy diag write register 0x1F, bit 0 = side-invert: XORed
+   -- onto the f_side1 pin (hwf_pins_proc) for the empirical side-polarity
+   -- verdict - flip it live from the QNICE debug console, no rebuild.
+   -- M2M convention: QNICE device writes register on the falling edge.
+   fdd_sideinv_proc : process (qnice_clk_i)
+   begin
+      if falling_edge(qnice_clk_i) then
+         if qnice_rst_i = '1' then
+            qnice_fdd_sideinv <= '0';
+         elsif qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+               qnice_dev_id_i = C_DEV_AMIGA_FDD and
+               qnice_dev_addr_i(5 downto 0) = "011111" then
+            qnice_fdd_sideinv <= qnice_dev_data_i(0);
+         end if;
+      end if;
+   end process fdd_sideinv_proc;
+
+   -- store-signature pair into the QNICE domain: both sides are quasi-static
+   -- (they change once per read attempt, >= 200 ms apart), so cdc_stable's
+   -- stability guarantee holds and the diag reads consistent values while
+   -- the drive is idle
+   i_cdc_hwf_sig : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 49,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i                 => main_clk,
+         src_data_i(15 downto 0)   => main_hwf_eng_sig,
+         src_data_i(23 downto 16)  => main_hwf_eng_ses,
+         src_data_i(24)            => main_hwf_eng_done,
+         src_data_i(40 downto 25)  => main_hwf_pau_sig,
+         src_data_i(48 downto 41)  => main_hwf_pau_att,
+         dst_clk_i                 => qnice_clk_i,
+         dst_data_o(15 downto 0)   => qnice_fdd_eng_sig,
+         dst_data_o(23 downto 16)  => qnice_fdd_eng_ses,
+         dst_data_o(24)            => qnice_fdd_eng_done,
+         dst_data_o(40 downto 25)  => qnice_fdd_pau_sig,
+         dst_data_o(48 downto 41)  => qnice_fdd_pau_att
+      ); -- i_cdc_hwf_sig
+
+   -- served-word diagnostic counter: the engine's Gray count crosses by
+   -- plain 2-FF (single-step Gray; the qnice<->main max_delay pair in
+   -- CORE/CORE.xdc bounds the path), then is decoded to binary and
+   -- registered for the diag read mux
+   fdd_served_proc : process (qnice_clk_i)
+      function f_gray2bin(g : std_logic_vector) return unsigned is
+         variable b : std_logic_vector(g'range);
+      begin
+         b(g'high) := g(g'high);
+         for i in g'high - 1 downto g'low loop
+            b(i) := b(i + 1) xor g(i);
+         end loop;
+         return unsigned(b);
+      end function f_gray2bin;
+   begin
+      if rising_edge(qnice_clk_i) then
+         qnice_fdd_served_m <= main_hwf_served_gray;
+         qnice_fdd_served_s <= qnice_fdd_served_m;
+         qnice_fdd_served   <= f_gray2bin(qnice_fdd_served_s);
+      end if;
+   end process fdd_served_proc;
 
    ---------------------------------------------------------------------------------------------
    -- Dual Clocks: the Amiga's memories
@@ -992,6 +1226,213 @@ begin
          wren_b    => qnice_kick_we_l,
          q_b       => qnice_kick_q_l
       ); -- kick_rom_l
+
+   ---------------------------------------------------------------------------------------------
+   -- Hardware Floppy: connector driving, 50 MHz read front-end, CDC and diagnostics
+   --
+   -- The MEGA65's real internal 3.5" drive as an Amiga unit (read milestone).
+   -- Control pins are driven straight from Minimig's CIA-B taps (registered
+   -- in the core clock domain; the connector is asynchronous). The flux
+   -- front-end runs on qnice_clk = exactly 50 MHz, where all magnetic
+   -- constants are hardware-proven (C64MEGA65 physical-1581 bring-up); its
+   -- conditioned status levels cross into the core domain via cdc_stable and
+   -- the reconstructed MFM words via the front-end's dual-clock FIFO.
+   ---------------------------------------------------------------------------------------------
+
+   -- Connector outputs, registered in the core clock domain. Polarity facts
+   -- (hardware-proven on this mechanism): select/motor/step active low;
+   -- f_stepdir '1' = toward track 0 = Minimig's direc; f_density '1' is the
+   -- DD-safe level. f_side1 <= side is the straight wire (Minimig side=0
+   -- selects the upper head = PC "side 1") - CONFIRMED on real hardware
+   -- 2026-07-26 by the diag sector-header capture: a cylinder-0/head-0 read
+   -- returned an info long claiming track 0, so the mapping is correct as
+   -- wired. The diag register 0x1F (main_hwf_sideinv) remains as a live
+   -- inversion facility for future mechanisms; it must stay 0 on this one.
+   -- STEP is additionally gated on "our unit selected" (drives gate on
+   -- SELECT internally anyway; this keeps the pin quiet when the virtual
+   -- unit steps). main_hwf_ctrl = {motor_n,sel3..0_n,side,direc,step_n}.
+   hwf_pins_proc : process (main_clk)
+      variable v_sel_n : std_logic;
+   begin
+      if rising_edge(main_clk) then
+         if main_hwf_en = '1' then
+            if main_hwf_unit = "01" then
+               v_sel_n := main_hwf_ctrl(4);                  -- _sel1
+            else
+               v_sel_n := main_hwf_ctrl(3);                  -- _sel0
+            end if;
+            f_selecta_o <= v_sel_n;
+            if main_hwf_unit = "01" then
+               f_motora_o <= not main_hwf_motor_on(1);
+            else
+               f_motora_o <= not main_hwf_motor_on(0);
+            end if;
+            f_side1_o   <= main_hwf_ctrl(2) xor main_hwf_sideinv;  -- side (verify on hardware)
+            f_stepdir_o <= main_hwf_ctrl(1);                 -- direc: '1' = toward track 0
+            if v_sel_n = '0' then
+               f_step_o <= main_hwf_ctrl(0);
+            else
+               f_step_o <= '1';
+            end if;
+            main_hwf_selected <= not v_sel_n;
+         else
+            f_selecta_o       <= '1';
+            f_motora_o        <= '1';
+            f_side1_o         <= '1';
+            f_stepdir_o       <= '1';
+            f_step_o          <= '1';
+            main_hwf_selected <= '0';
+         end if;
+         f_density_o <= '1';                                 -- DD-safe level, always
+      end if;
+   end process hwf_pins_proc;
+
+   main_hwf_motor <= main_hwf_motor_on(1) when main_hwf_unit = "01" else main_hwf_motor_on(0);
+
+   -- The read front-end: pins -> conditioner -> gaps -> adaptive quantiser ->
+   -- raw-bit rebuild/DSKSYNC aligner -> word FIFO. Control context and the
+   -- live DSKSYNC enter as async signals (synchronized/settle-filtered
+   -- inside); the FIFO read side runs on main_clk with the QNICE reset
+   -- synced below (shared-reset discipline).
+   i_physical_fdd_top : entity work.physical_fdd_top
+      port map (
+         clk_i               => qnice_clk_i,
+         rst_i               => qnice_rst_i,
+         f_index_i           => f_index_i,
+         f_track0_i          => f_track0_i,
+         f_writeprotect_i    => f_writeprotect_i,
+         f_diskchanged_i     => f_diskchanged_i,
+         f_rdata_i           => f_rdata_i,
+         enable_i            => main_hwf_en,
+         selected_i          => main_hwf_selected,
+         motor_i             => main_hwf_motor,
+         side_i              => main_hwf_ctrl(2),
+         dsksync_i           => main_hwf_dsksync,
+         track0_n_o          => qnice_fdd_track0_n,
+         wprot_n_o           => qnice_fdd_wprot_n,
+         change_n_o          => qnice_fdd_change_n,
+         ready_n_o           => qnice_fdd_ready_n,
+         index_o             => qnice_fdd_index,
+         present_o           => qnice_fdd_present,
+         rd_clk_i            => main_clk,
+         rd_rst_i            => main_qnice_rst,
+         rd_en_i             => main_hwf_rd_en,
+         rd_data_o           => main_hwf_rd_data,
+         rd_empty_o          => main_hwf_rd_empty,
+         diag_status_o       => qnice_fdd_status,
+         diag_sync_o         => qnice_fdd_sync,
+         diag_est_o          => qnice_fdd_est,
+         diag_fifo_level_o   => qnice_fdd_level,
+         diag_index_period_o => qnice_fdd_idxper,
+         diag_index_width_o  => qnice_fdd_idxwid,
+         diag_cnt_index_o    => qnice_fdd_cnt_index,
+         diag_cnt_sync_o     => qnice_fdd_cnt_sync,
+         diag_cnt_word_o     => qnice_fdd_cnt_word,
+         diag_cnt_runt_o     => qnice_fdd_cnt_runt,
+         diag_cnt_lol_o      => qnice_fdd_cnt_lol,
+         diag_cnt_drop_o     => qnice_fdd_cnt_drop,
+         diag_cap_flags_o    => qnice_fdd_cap_flags,
+         diag_cap_count_o    => qnice_fdd_cap_count,
+         diag_cap_words_o    => qnice_fdd_cap_words,
+         diag_rev_mask_o     => qnice_fdd_rev_mask,
+         diag_rev_caps_o     => qnice_fdd_rev_caps,
+         diag_rev_lol_o      => qnice_fdd_rev_lol,
+         diag_fmt_bad_o      => qnice_fdd_fmt_bad
+      ); -- i_physical_fdd_top
+
+   -- diag side-invert into the core domain (quasi-static level; covered by
+   -- M2M/common.xdc's cdc_stable constraint) - XORed onto f_side1 above
+   i_cdc_hwf_sideinv : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => false
+      )
+      port map (
+         src_clk_i     => qnice_clk_i,
+         src_data_i(0) => qnice_fdd_sideinv,
+         dst_clk_i     => main_clk,
+         dst_data_o(0) => main_hwf_sideinv
+      ); -- i_cdc_hwf_sideinv
+
+   -- QNICE reset into the core domain: the FIFO read-side reset (must derive
+   -- from the same event as the write side - Gray-pointer discipline)
+   i_cdc_hwf_rst : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i     => qnice_clk_i,
+         src_data_i(0) => qnice_rst_i,
+         dst_clk_i     => main_clk,
+         dst_data_o(0) => main_qnice_rst
+      ); -- i_cdc_hwf_rst
+
+   -- conditioned real drive status into the core domain (slowly varying
+   -- mechanical levels; covered by M2M/common.xdc's cdc_stable constraint)
+   i_cdc_hwf_status : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 6,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i     => qnice_clk_i,
+         src_data_i(0) => qnice_fdd_change_n,
+         src_data_i(1) => qnice_fdd_wprot_n,
+         src_data_i(2) => qnice_fdd_track0_n,
+         src_data_i(3) => qnice_fdd_ready_n,
+         src_data_i(4) => qnice_fdd_index,
+         src_data_i(5) => qnice_fdd_present,
+         dst_clk_i     => main_clk,
+         dst_data_o(0) => main_hwf_change_n,
+         dst_data_o(1) => main_hwf_wprot_n,
+         dst_data_o(2) => main_hwf_track0_n,
+         dst_data_o(3) => main_hwf_ready_n,
+         dst_data_o(4) => main_hwf_index,
+         dst_data_o(5) => main_hwf_present
+      ); -- i_cdc_hwf_status
+
+   -- drive map for the diag device, decoded in the QNICE domain (same OSM
+   -- bits as the main-domain decode; the diag reads it CDC-free).
+   -- Encoding {unit[1:0], enable} of the PHYSICAL drive:
+   -- A/B/D have it enabled (df1/df0/df0), C has it off.
+   qnice_hwf_map3 <= "001" when qnice_osm_control_i(C_MENU_HWFC_HW_ADF) = '1' else
+                     "000" when qnice_osm_control_i(C_MENU_HWFC_ADF_OFF) = '1' else
+                     "001" when qnice_osm_control_i(C_MENU_HWFC_HW_OFF) = '1' else
+                     "011";                                  -- combo A (default): df1
+
+   i_physical_fdd_diag : entity work.physical_fdd_diag
+      port map (
+         qnice_addr_i        => qnice_dev_addr_i,
+         qnice_data_o        => qnice_fdd_data,
+         diag_status_i       => qnice_fdd_status,
+         diag_sync_i         => qnice_fdd_sync,
+         diag_est_i          => qnice_fdd_est,
+         diag_fifo_level_i   => qnice_fdd_level,
+         diag_index_period_i => qnice_fdd_idxper,
+         diag_index_width_i  => qnice_fdd_idxwid,
+         diag_cnt_index_i    => qnice_fdd_cnt_index,
+         diag_cnt_sync_i     => qnice_fdd_cnt_sync,
+         diag_cnt_word_i     => qnice_fdd_cnt_word,
+         diag_cnt_runt_i     => qnice_fdd_cnt_runt,
+         diag_cnt_lol_i      => qnice_fdd_cnt_lol,
+         diag_cnt_drop_i     => qnice_fdd_cnt_drop,
+         diag_map_i          => qnice_hwf_map3,
+         diag_cap_flags_i    => qnice_fdd_cap_flags,
+         diag_cap_count_i    => qnice_fdd_cap_count,
+         diag_cap_words_i    => qnice_fdd_cap_words,
+         diag_served_i       => qnice_fdd_served,
+         diag_rev_mask_i     => qnice_fdd_rev_mask,
+         diag_rev_caps_i     => qnice_fdd_rev_caps,
+         diag_rev_lol_i      => qnice_fdd_rev_lol,
+         diag_fmt_bad_i      => qnice_fdd_fmt_bad,
+         diag_eng_sig_i      => qnice_fdd_eng_sig,
+         diag_eng_ses_i      => qnice_fdd_eng_ses,
+         diag_eng_done_i     => qnice_fdd_eng_done,
+         diag_pau_sig_i      => qnice_fdd_pau_sig,
+         diag_pau_att_i      => qnice_fdd_pau_att,
+         sideinv_i           => qnice_fdd_sideinv
+      ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------
    -- ADF floppy: HyperRAM plumbing

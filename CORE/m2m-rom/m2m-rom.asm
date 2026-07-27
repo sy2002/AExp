@@ -388,6 +388,12 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
                 RSUB    OPTM_SELECT, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
+                ; (the Configure Drives combo radio needs NO handling here:
+                ; the HDL cold-boots the Amiga on its own, and the df0:/df1:
+                ; labels of menu lines 2+3 are healed by HWF_LABEL_SYNC from
+                ; HANDLE_CORE_IO, which also ticks inside the submenu's
+                ; key-wait loop - see the routine's header)
+
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
                 DECRB
@@ -607,6 +613,9 @@ HANDLE_CORE_IO  SYSCALL(enter, 1)
                 AND     SCR_TICK_MASK, R5
                 RBRA    _HCIO_NODET, !Z
                 RSUB    DETECT_SCREEN_MODE, 1     ; detect + apply on a mode change
+                RSUB    HWF_LABEL_SYNC, 1         ; heal the df0:/df1: menu labels
+                                                  ; (same 1/8 cadence; RAMROM-
+                                                  ; transparent like the detector)
 
                 ; be transparent about the active RAMROM device selection
 _HCIO_NODET     MOVE    M2M$RAMROM_DEV, R0
@@ -1097,6 +1106,223 @@ _ADF_UM_DIS     MOVE    ADF_FDH_VALID, R0
 
 _ADF_UM_RET     DECRB
                 RET
+
+; ----------------------------------------------------------------------------
+; Hardware Floppy: dynamic df0:/df1: labels (Configure Drives)
+; ----------------------------------------------------------------------------
+
+; HWF_LABEL_SYNC: menu lines 2 (the ADF mount item " df0:%s") and 3 (the
+; hardware-role text " df1: Hardware Floppy") carry labels that depend on
+; the selected Configure Drives combo. The menu STRUCTURE is fully static
+; (config.vhd - reordering is impossible within the framework invariants,
+; hardware-proven), so only two FIXED-WIDTH label fields are rewritten in
+; the menu heap:
+;   * the 4-char unit prefix of line 2: "df0:" / "df1:" / "ADF:"
+;   * the 21-char text field of line 3
+; HELP_MENU rebuilds the heap from the config ROM on EVERY menu open,
+; wiping any patch - therefore this routine is SELF-HEALING: called from
+; HANDLE_CORE_IO (which ticks inside all OSM wait loops), it compares the
+; heap fields against the labels the current combo expects and, on a
+; mismatch, patches the heap and - only when the main menu view is actually
+; on screen (OSM visible, menu level 0, no browser/help sub-activity) -
+; repaints the two lines. Every other draw (submenu exit, cursor moves)
+; reads the freshly patched heap. Boot-safe: the combo is read straight
+; from M2M$CFM_DATA (M2M$GET_SETTING would go FATAL before the menu system
+; is initialized) and the line scan is bounded (the heap holds garbage
+; before the first menu open; a patch into the reserved region is
+; harmless). RAMROM-transparent (SCR$PRINTSTRXY changes the selection).
+;
+; Combo encoding (flat menu lines 7..10 = M2M$CFM_DATA bank 0 bits 7..10):
+;   0 = df0: ADF      df1: Hardware  (default; bit 7 or no bit at all)
+;   1 = df0: Hardware df1: ADF       (bit 8)
+;   2 = df0: ADF      df1: Off       (bit 9)
+;   3 = df0: Hardware df1: Off       (bit 10; no ADF drive - the mount
+;                                     line reads " ADF:" then)
+;
+; Input:  none    Output: none    All registers preserved.
+HWF_LABEL_SYNC  SYSCALL(enter, 1)
+
+                ; be transparent about the active RAMROM device selection
+                MOVE    M2M$RAMROM_DEV, R1
+                MOVE    @R1, R11
+                MOVE    M2M$RAMROM_4KWIN, R1
+                MOVE    @R1, R12
+
+                ; current combo -> R7 (plain CFM read; boot-safe)
+                MOVE    M2M$CFM_ADDR, R0
+                MOVE    0, @R0
+                MOVE    M2M$CFM_DATA, R0
+                MOVE    @R0, R0                 ; R0: CFM bank 0, bits 15..0
+                XOR     R7, R7                  ; combo 0 (default)
+                MOVE    R0, R1
+                AND     0x0100, R1              ; bit 8: df0 HW, df1 ADF
+                RBRA    _HWFS_CHK2, Z
+                MOVE    1, R7
+                RBRA    _HWFS_LOC, 1
+_HWFS_CHK2      MOVE    R0, R1
+                AND     0x0200, R1              ; bit 9: df0 ADF, df1 Off
+                RBRA    _HWFS_CHK3, Z
+                MOVE    2, R7
+                RBRA    _HWFS_LOC, 1
+_HWFS_CHK3      MOVE    R0, R1
+                AND     0x0400, R1              ; bit 10: df0 HW, df1 Off
+                RBRA    _HWFS_LOC, Z
+                MOVE    3, R7
+
+                ; locate heap line 2: skip two "\n" pairs in the items-string
+                ; copy (bounded scan - garbage-safe before the first open)
+_HWFS_LOC       MOVE    HEAP, R0
+                ADD     OPTM_STRUCTSIZE, R0     ; R0: items string on the heap
+                MOVE    2, R1                   ; newline pairs to skip
+                MOVE    32, R2                  ; scan bound
+_HWFS_SCAN      MOVE    @R0++, R3
+                SUB     1, R2
+                RBRA    _HWFS_RET, Z            ; bound hit: heap not built yet
+                CMP     0x005C, R3              ; backslash ...
+                RBRA    _HWFS_SCAN, !Z
+                CMP     0x006E, @R0             ; ... followed by 'n'?
+                RBRA    _HWFS_SCAN, !Z
+                ADD     1, R0                   ; skip the 'n'
+                SUB     1, R1
+                RBRA    _HWFS_SCAN, !Z
+                MOVE    R0, R6                  ; R6: line 2 start
+
+                ; compare the line-2 prefix (4 chars after the leading space)
+                MOVE    HWF_L2_TAB, R1
+                ADD     R7, R1
+                MOVE    @R1, R1                 ; R1: " df?:" table string
+                MOVE    R6, R2
+                ADD     1, R2
+                MOVE    R1, R3
+                ADD     1, R3
+                MOVE    4, R4
+                XOR     R5, R5                  ; R5: stale flag
+_HWFS_C2        MOVE    @R3++, R8
+                CMP     @R2++, R8
+                RBRA    _HWFS_C2A, Z
+                MOVE    1, R5
+_HWFS_C2A       SUB     1, R4
+                RBRA    _HWFS_C2, !Z
+
+                ; locate line 3 (one more "\n" pair; R2 = behind the prefix)
+                MOVE    R2, R0
+                MOVE    16, R4                  ; scan bound (line-2 tail)
+_HWFS_SCAN3     MOVE    @R0++, R3
+                SUB     1, R4
+                RBRA    _HWFS_RET, Z
+                CMP     0x005C, R3
+                RBRA    _HWFS_SCAN3, !Z
+                CMP     0x006E, @R0
+                RBRA    _HWFS_SCAN3, !Z
+                ADD     1, R0                   ; R0: line 3 start
+
+                ; compare the 21-char line-3 field
+                MOVE    HWF_L3_TAB, R1
+                ADD     R7, R1
+                MOVE    @R1, R1                 ; R1: 23-char table string
+                MOVE    R0, R2
+                MOVE    R1, R3
+                MOVE    21, R4
+_HWFS_C3        MOVE    @R3++, R8
+                CMP     @R2++, R8
+                RBRA    _HWFS_C3A, Z
+                MOVE    1, R5
+_HWFS_C3A       SUB     1, R4
+                RBRA    _HWFS_C3, !Z
+
+                CMP     0, R5                   ; labels already correct?
+                RBRA    _HWFS_RET, Z
+
+                ; patch the heap: line-2 prefix (4 chars) ...
+                MOVE    HWF_L2_TAB, R1
+                ADD     R7, R1
+                MOVE    @R1, R1
+                ADD     1, R1                   ; skip the leading space
+                MOVE    R6, R2
+                ADD     1, R2
+                MOVE    4, R4
+_HWFS_P2        MOVE    @R1++, @R2++
+                SUB     1, R4
+                RBRA    _HWFS_P2, !Z
+
+                ; ... and the line-3 field (21 chars incl. leading space)
+                MOVE    HWF_L3_TAB, R1
+                ADD     R7, R1
+                MOVE    @R1, R1
+                MOVE    R0, R2
+                MOVE    21, R4
+_HWFS_P3        MOVE    @R1++, @R2++
+                SUB     1, R4
+                RBRA    _HWFS_P3, !Z
+
+                ; repaint - only when the MAIN menu view is on screen
+                MOVE    M2M$CSR, R1
+                MOVE    @R1, R1
+                AND     M2M$CSR_OSM, R1
+                RBRA    _HWFS_RET, Z            ; OSM not visible
+                MOVE    OSM_SUB_ACTIVE, R1
+                CMP     1, @R1
+                RBRA    _HWFS_RET, Z            ; browser/help owns the screen
+                MOVE    OPTM_MENULEVEL, R1
+                CMP     0, @R1
+                RBRA    _HWFS_RET, !Z           ; a submenu view is showing
+
+                ; line 2: paint only the 5-char prefix (the %s-substituted
+                ; filename right of it is prefix-independent). line 3: paint
+                ; the full 23-char row (clears shorter texts).
+                MOVE    2, R8
+                MOVE    OPTM_F_MS_SLCT, R9      ; fatal context (unused on OK)
+                RSUB    _OPTM_R_F2M_O, 1        ; R8 = row; C=1 -> off-level
+                RBRA    _HWFS_RET, C
+                RSUB    _HWFS_XY, 1             ; R9/R10 := screen x/y
+                MOVE    HWF_L2_TAB, R8
+                ADD     R7, R8
+                MOVE    @R8, R8
+                RSUB    SCR$PRINTSTRXY, 1
+
+                MOVE    3, R8
+                MOVE    OPTM_F_MS_SLCT, R9
+                RSUB    _OPTM_R_F2M_O, 1
+                RBRA    _HWFS_RET, C
+                RSUB    _HWFS_XY, 1
+                MOVE    HWF_L3_TAB, R8
+                ADD     R7, R8
+                MOVE    @R8, R8
+                RSUB    SCR$PRINTSTRXY, 1
+
+_HWFS_RET       MOVE    M2M$RAMROM_4KWIN, R1    ; restore the RAMROM selection
+                MOVE    R12, @R1
+                MOVE    M2M$RAMROM_DEV, R1
+                MOVE    R11, @R1
+                SYSCALL(leave, 1)
+                RET
+
+; helper: R8 = menu row -> R9 = screen x (OPTM_X+1), R10 = screen y
+; (OPTM_Y+row+1); preserves R8
+_HWFS_XY        INCRB
+                MOVE    OPTM_Y, R10
+                MOVE    @R10, R10
+                ADD     R8, R10
+                ADD     1, R10
+                MOVE    OPTM_X, R9
+                MOVE    @R9, R9
+                ADD     1, R9
+                DECRB
+                RET
+
+; label tables: line-2 prefixes (5 chars incl. the leading space; the heap
+; patch uses chars 1..4, the paint uses all 5) and line-3 fields (exactly
+; 23 chars = the OSM content width; the heap patch uses chars 0..20)
+HWF_L2_TAB      .DW     HWF_L2_A, HWF_L2_B, HWF_L2_C, HWF_L2_D
+HWF_L3_TAB      .DW     HWF_L3_A, HWF_L3_B, HWF_L3_C, HWF_L3_D
+HWF_L2_A        .ASCII_W " df0:"
+HWF_L2_B        .ASCII_W " df1:"
+HWF_L2_C        .ASCII_W " df0:"
+HWF_L2_D        .ASCII_W " ADF:"
+HWF_L3_A        .ASCII_W " df1: Hardware Floppy  "
+HWF_L3_B        .ASCII_W " df0: Hardware Floppy  "
+HWF_L3_C        .ASCII_W " df1: Off              "
+HWF_L3_D        .ASCII_W " df0: Hardware Floppy  "
 
 ; ----------------------------------------------------------------------------
 ; HDMI Filter dispatch
@@ -1816,21 +2042,21 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The On-Screen-Menu uses the heap for several data structures. This heap
 ; is located before the main system heap in memory.
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
-; Example: If your HEAP_SIZE would be 30208, then you write 30208-1664=28544
+; Example: If your HEAP_SIZE would be 30208, then you write 30208-1920=28288
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 114 menu items are a 1065-character string plus the 19-word
-; menu structure plus three per-item arrays = 19 + 1065 + 1 + 3 x 114 + 1 =
-; 1428 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
-; per submenu (7), manual ROM (1) and vdrive (0) plus one scratch buffer =
-; 9 x 25 = 225 words. Total demand is 1653 words, rounded up to the next
-; 128-word boundary: 1664 words, leaving 11 words headroom. Do not reserve a
+; LOG_HEAP2): the 124 menu items are a 1245-character string plus the 19-word
+; menu structure plus three per-item arrays = 19 + 1245 + 1 + 3 x 124 + 1 =
+; 1638 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; per submenu (8), manual ROM (1) and vdrive (0) plus one scratch buffer =
+; 10 x 25 = 250 words. Total demand is 1888 words, rounded up to the next
+; 128-word boundary: 1920 words, leaving 32 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
-; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/manual-ROM
-; counts grow, recalculate both budgets and rebalance the HEAP_SIZE constants
-; below by the same delta.
-MENU_HEAP_SIZE  .EQU 1664
+; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
+; manual-ROM counts grow, recalculate both budgets and rebalance the
+; HEAP_SIZE constants below by the same delta.
+MENU_HEAP_SIZE  .EQU 1920
 
 #ifndef RELEASE
 
@@ -1838,13 +2064,13 @@ MENU_HEAP_SIZE  .EQU 1664
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 5504                       ; 7168 - 1664 = 5504
+HEAP_SIZE       .EQU 5248                       ; 7168 - 1920 = 5248
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 28544                      ; 30208 - 1664 = 28544
+HEAP_SIZE       .EQU 28288                      ; 30208 - 1920 = 28288
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

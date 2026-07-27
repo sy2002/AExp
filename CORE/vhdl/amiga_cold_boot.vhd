@@ -10,6 +10,11 @@
 -- $000004-$000007. Kickstart then rejects the warm-boot state, probes the new memory map and
 -- rebuilds Exec. QNICE, the framework, HyperRAM and mounted media remain untouched.
 --
+-- The drive map of the Hardware Floppy feature (hwf_map_i: Off / df0: / df1:) is a topology
+-- change too: Paula latches the drive count only at reset, AmigaOS enumerates units at boot,
+-- and a unit changing identity under a running OS would confuse mounted volumes. A map
+-- change therefore triggers the same cold boot (the SysBase scrub is harmless there).
+--
 -- The request is level-based (requested /= applied), not a pulse. Consequently a change
 -- cannot be lost, and changes arriving during a cold boot converge to the latest value.
 ---------------------------------------------------------------------------------------------
@@ -22,6 +27,8 @@ entity amiga_cold_boot is
    port (
       clk_i             : in  std_logic;
       slow_ram_i        : in  std_logic;
+      hwf_map_i         : in  std_logic_vector(1 downto 0);  -- Configure Drives combo code
+                                                             -- {single_drive, hw_is_df0}
 
       amiga_reset_o     : out std_logic;
       chip_scrub_o      : out std_logic;
@@ -40,6 +47,8 @@ architecture synthesis of amiga_cold_boot is
 
    signal state            : t_state := IDLE;
    signal slow_ram_applied : std_logic := '1'; -- OSM default is A501 enabled
+   signal hwf_map_applied  : std_logic_vector(1 downto 0) := "00"; -- OSM default: combo A
+                                                                   -- (df0: ADF, df1: Hardware)
    signal reset_hold_count : natural range 0 to C_RESET_HOLD_CYCLES - 1 := 0;
 
 begin
@@ -60,7 +69,7 @@ begin
       if rising_edge(clk_i) then
          case state is
             when IDLE =>
-               if slow_ram_i /= slow_ram_applied then
+               if slow_ram_i /= slow_ram_applied or hwf_map_i /= hwf_map_applied then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
                end if;
@@ -79,10 +88,11 @@ begin
                state <= HOLD_RESET;
 
             when HOLD_RESET =>
-               -- Capture the latest requested value, not the value that originally triggered
-               -- the reset. If it changes again after this edge, IDLE detects the mismatch and
+               -- Capture the latest requested values, not the values that originally triggered
+               -- the reset. If one changes again after this edge, IDLE detects the mismatch and
                -- immediately performs another complete cold boot; no request can be lost.
                slow_ram_applied <= slow_ram_i;
+               hwf_map_applied  <= hwf_map_i;
                state            <= IDLE;
          end case;
       end if;

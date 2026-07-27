@@ -112,10 +112,14 @@ constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 constant C_DEV_AMIGA_CHIP     : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 
--- ADF mount buffer (df0): byte-window bridge into HyperRAM plus the M2M CSR
--- protocol in window 0xFFFF; the OSM " ADF:%s" menu item streams the disk
--- image here (adf_mount_wrapper.vhd)
+-- ADF mount buffer: byte-window bridge into HyperRAM plus the M2M CSR
+-- protocol in window 0xFFFF; the OSM " df0:%s" / " df1:%s" mount item streams
+-- the disk image here (adf_mount_wrapper.vhd)
 constant C_DEV_AMIGA_ADF      : std_logic_vector(15 downto 0) := x"0103";
+
+-- Physical floppy diagnostics: read-only register bank of the Hardware Floppy
+-- front-end (physical_fdd_diag.vhd) - the on-hardware bring-up instrument
+constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System

@@ -158,6 +158,12 @@ entity amiga_config is
       -- takes effect during the Amiga-local cold boot requested by amiga_cold_boot.vhd.
       slow_ram_i       : in  std_logic;
 
+      -- Floppy drive count for command 0xF7 bits [3:2] ("FF - drive number"):
+      -- "00" = 1 drive (df0: only), "01" = 2 drives (df0: + df1:). Driven by the
+      -- Hardware Floppy drive map (two units whenever a physical unit exists);
+      -- sampled like slow_ram_i, and a map change triggers the same cold boot.
+      floppy_drives_i  : in  std_logic_vector(1 downto 0);
+
       -- Minimig host/userio port (minimig.v:214-218)
       io_uio_o         : out std_logic;                     -- minimig IO_UIO  (userio IO_ENA)
       io_strobe_o      : out std_logic;                     -- minimig IO_STROBE, 1 clk per word
@@ -227,12 +233,18 @@ architecture synthesis of amiga_config is
    -- slow RAM) is not taken from the constant but from slow_ram_q (OSM toggle, issue #20)
    constant C_IDX_MEMCFG : natural := 3;
 
+   -- index of the 0xF7 floppy-config entry in C_SEQ: its payload bits [3:2] (drive
+   -- count) are not taken from the constant but from floppy_drives_q (Hardware Floppy)
+   constant C_IDX_FLOPPY : natural := 5;
+
    signal state : t_state := ST_RESET;
    signal idx   : natural range 0 to C_SEQ'high := 0;                         -- current transfer
    signal cnt   : natural range 0 to f_max(G_START_DELAY, G_STEP_DELAY) := 0; -- pacing down-counter
 
-   -- slow_ram_i sampled during ST_RESET: one consistent value for the whole sequence
-   signal slow_ram_q : std_logic := '1';
+   -- slow_ram_i / floppy_drives_i sampled during ST_RESET: one consistent
+   -- value each for the whole sequence
+   signal slow_ram_q      : std_logic := '1';
+   signal floppy_drives_q : std_logic_vector(1 downto 0) := "01";
 
 begin
 
@@ -253,7 +265,8 @@ begin
                cpu_reset_done_o <= '0';
                idx              <= 0;
                cnt              <= G_START_DELAY;
-               slow_ram_q       <= slow_ram_i;    -- freezes when reset_i releases
+               slow_ram_q       <= slow_ram_i;       -- freeze when reset_i releases
+               floppy_drives_q  <= floppy_drives_i;
                if reset_i = '0' then
                   state <= ST_START_WAIT;
                end if;
@@ -298,6 +311,9 @@ begin
                io_din_o <= C_SEQ(idx).payload;
                if idx = C_IDX_MEMCFG then
                   io_din_o(2) <= slow_ram_q;      -- SS[0]: '1' = 512KB slow RAM, '0' = none
+               end if;
+               if idx = C_IDX_FLOPPY then
+                  io_din_o(3 downto 2) <= floppy_drives_q;  -- FF: drive count - 1
                end if;
                if cnt /= 0 then
                   cnt <= cnt - 1;

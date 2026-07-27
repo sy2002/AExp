@@ -99,8 +99,12 @@ the deep material lives in `doc/` (see "Key documents").
 - One core clock: **28.375 MHz** (PAL ideal 28.37516, −5.6 ppm), MMCM in
   `CORE/vhdl/clk.vhd` (100 MHz × 56.750 / 5 / 40). No 113.5 MHz clock —
   everything SDRAM/turbo/AGA that needed it is out of scope.
-- Floppy: df0 with read/write ADF mount from the OSM (image staged in
-  HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`). **Write support
+- Floppy: TWO drive units. The ADF drive (read/write ADF mount from the
+  OSM, image staged in HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`) and
+  the Hardware Floppy = the MEGA65's internal mechanism reading real Amiga
+  DD disks (read-only milestone). The OSM "Configure Drives" submenu picks
+  one of four combos: df0:ADF+df1:Hardware (default), df0:Hardware+df1:ADF,
+  df0:ADF only, df0:Hardware only (no ADF drive). **Write support
   implemented 2026-07-05, NOT yet synthesized/hardware-verified**:
   hardware MFM write decoder (bit-exact minimig_fdd.cpp
   FindSync/GetHeader/GetData) commits verified sectors to HyperRAM;
@@ -122,7 +126,8 @@ the deep material lives in `doc/` (see "Key documents").
   single-select default ON; MiSTer `aud_mix` crossfeed = OSM "Stereo: %s"
   radio Full/Wide/Narrow/Mono, default Full) → master volume (Q15,
   monitor-knob = last) → HDMI + analog alike. All HDL-read OSM bits
-  (`C_MENU_STEREO` 86..89, `C_MENU_A500FILT` 92, `C_MENU_LEDFILT` 93), zero
+  (`C_MENU_STEREO` 96..99, `C_MENU_A500FILT` 102, `C_MENU_LEDFILT` 103 since
+  the Configure Drives block shifted lines ≥3 by +10), zero
   firmware logic, zero BRAM; both filters have intrinsic DC gain (+0.53 /
   +1.11 dB, MiSTer-faithful incl. the IIR's 16-bit clamp). Everything-off =
   bit-transparent raw Paula (the V1 sound). OPTM_SIZE 103→114, OPTM_DY
@@ -130,10 +135,131 @@ the deep material lives in `doc/` (see "Key documents").
   stays tied off. End-user doc: `doc/audio.md`; details:
   `doc/developers/audio.md`; TBs in `.research/` (tb_iir_amiga.v +
   tb_audio_filters.vhd, all green).
+- **Hardware Floppy (read milestone) — implemented 2026-07-26; first R3
+  build closed timing after the CDC fix, OSM reworked after hardware round
+  1; read path partially proven on hardware (real flux decoded, boot
+  attempt started), ships in WIP-V2-A2.** The MEGA65's internal 3.5" drive
+  as a real Amiga unit: OSM "Configure Drives" submenu with four combos
+  (`C_MENU_HWFC_*` 7..10) A: df0:ADF+df1:HW (default) / B: df0:HW+df1:ADF
+  / C: df0:ADF only / D: df0:HW only (no ADF drive - the engine gates its
+  ADF service, announcements and commits with `adf_en_i`); a combo change
+  cold-boots only the Amiga via `amiga_cold_boot`, drive count via userio
+  0xF7 bits [3:2] (two drives only in A/B). Research:
+  `.research/RESEARCH-physical-floppy-drive.md`. Minimig has NO flux layer,
+  so three surfaces: (1) 50 MHz read front-end `CORE/vhdl/physical_fdd/`
+  (C64MEGA65 physical-1581 codec: input conditioner + index qualification,
+  runt-filtered gap stage, ADAPTIVE quantiser — constants hardware-proven at
+  exactly 50 MHz on this mechanism — plus the new gap→raw-channel-bit
+  rebuild with drought filler and a bit-level DSKSYNC aligner/deserializer
+  into a Gray dual-clock word FIFO; BOTH FIFO resets derive from the QNICE
+  reset, load-bearing); (2) `adf_track_engine` per-unit backend mux (status
+  sel bits dispatch ADF vs physical; physical words stream at real disk
+  pace; raw dsksync exported to the aligner — no Copy Lock substitution;
+  physical writes drain-DISCARD, `drain_commit` gates the MFM decoder so
+  they can never commit into the ADF image; per-unit 0x1nnn announce,
+  physical always announced write-protected); (3) CIA-line muxes inside
+  `paula_floppy.v` (per-unit substitution into the open-collector status
+  AND-terms, real /TRK0 for recalibration, real INDEX edge into CIA-B FLAG,
+  `motor_on` export; `phys_mask=0` = bit-identical) + connector driving in
+  mega65.vhd (`f_side1 <= side` straight wire — HARDWARE-CONFIRMED correct
+  2026-07-26 by the diag sector-header capture, the C64 side-select lesson
+  laid to rest). /RDY is synthesized (motor off
+  = ready → drive-ID 0xFFFFFFFF for df1:; motor on = 505 ms + 2 qualified
+  index edges + index freshness = eject detection). Diag device 0x0104
+  (`physical_fdd_diag`, QNICE domain, CDC-free — the bring-up instrument).
+  The menu STRUCTURE is fully static (config.vhd, zero M2M involvement):
+  line 2 = the ADF mount item " df0:%s", line 3 = a TEXT line showing the
+  hardware drive's role, line 4 = the Configure Drives submenu head (no
+  %s). Only the LABELS of lines 2+3 follow the combo, rewritten by the
+  firmware alone: `HWF_LABEL_SYNC` (m2m-rom.asm), SELF-HEALING from
+  HANDLE_CORE_IO (ticks inside all OSM wait loops), compares two
+  FIXED-WIDTH heap fields (4-char unit prefix "df0:"/"df1:"/"ADF:" +
+  21-char role text) against the current combo and on mismatch patches
+  the heap and repaints - but only when the main menu view is on screen
+  (M2M$CSR OSM bit + OPTM_MENULEVEL=0 + not OSM_SUB_ACTIVE). Boot-safe:
+  combo read straight from M2M$CFM_DATA (M2M$GET_SETTING would fatal
+  before menu init), bounded heap scan, RAMROM-transparent. No
+  OSM_SEL_POST hook needed. A positional REORDER of the lines is
+  impossible within the framework invariants and was HARDWARE-REFUTED on
+  R3 (fatal 0x001F on submenu exit): submenu blocks are contiguity-defined
+  (head..closer) and CFM bit i is positionally bound to line i.
+  OPTM_SIZE 114→124, OPTM_DY 31→33,
+  MENU_HEAP 1664→1920. f_wgate/f_wdata stay tied '1' (write = a later
+  milestone; DD media only, PC HD mechanisms cannot do Amiga HD). TB
+  `.research/tb_physical_fdd_top.vhd`: 5 closed-loop scenarios (nominal /
+  ±3% speed / jitter / runts / drought re-lock) ALL PASS; firmware
+  qasm-clean; nvc + iverilog clean. Dev SD card: regenerate the settings
+  file (`M2M/tools/make_config.sh aexp-WIP-V2-A2.cfg auto`). First R3
+  synthesis (2026-07-26) FAILED timing exactly like the C64 precedent: WNS
+  -6.331, all 47 failing endpoints = the new RAW qnice<->main crossings
+  (word-FIFO Gray syncs + LUTRAM read into the engine's io_din register,
+  control/dsksync 2-FF metas) - the first unconstrained fabric paths
+  between these MMCM-unrelated clocks. FIXED in `CORE/CORE.xdc`:
+  clock-pair `set_max_delay -datapath_only 20.000` qnice<->main in BOTH
+  directions (deliberately NOT the C64 blanket false path: a clock-pair
+  false path would override common.xdc's object-scoped cdc_stable bounds,
+  while max_delay yields to them). Round 2 on R3 (2026-07-26, rebuilt
+  core WNS +0.131): the flux front-end PROVEN healthy on real media (284
+  sync hits = exactly 22/rev over ~13 revs, 300.5 RPM, 0 runts, 0 drops)
+  yet `DF1:BAD` → suspected side inversion → sector-header CAPTURE
+  (diag regs 0x11..0x1A: SIDE//TRK0-tagged 8 words after the double
+  0x4489) + runtime side-invert (writable diag reg 0x1F → XOR on
+  f_side1) added = map v2. **Round 3 (2026-07-26): SIDE INVERSION
+  REFUTED — polarity CORRECT as wired** (capture at cylinder 0/head 0
+  returned info long 0xFF000207 = track 0 sector 2, hand-verified
+  bit-exact MFM incl. clock bits; keep 0x1F at 0; mega65.vhd comment
+  updated). Full delivery-chain audit (engine ST_PHYS, wfifo FWFT,
+  paula_floppy receiver/WORDSYNC/DMA FSM): loss-free by construction,
+  everything after Paula rx shared with the WORKING ADF path — but NO
+  existing counter separates "read 6400 words and rejected them" from
+  "DMA never armed" (both end `DF1:BAD`). Response = **diag map v3**
+  (reg 0x01 = 0x0003; R3 build closed WNS +0.182, BRAM 365): 0x1B =
+  words SERVED into Paula (engine ST_PHYS_DATA count, Gray-crossed —
+  the go/no-go observable; 1 track read = 6400), 0x1C =
+  last-revolution sector-seen mask (0x07FF = all 11), 0x1D =
+  {captures,LOL} last rev, 0x1E = bad-format-capture count. The
+  DiskDoctor whole-disk sweep (v2 build) then PROVED: disk HEALTHY
+  (18254 captures = 11.00 headers/rev over 1659 streamed revs, LOL
+  0.60/rev = splice only), side mapping correct on BOTH heads (track
+  74 @ cyl37/h0 + track 105 @ cyl52/h1, cylinder == DiskDoctor
+  display → stepping 1:1), index edges 1:1 with streamed revs — yet
+  hard errors on ~every track at ~10 fast retries × 2 surfaces per
+  cylinder. Open findings: (a) /RDY WART — the PC mechanism gates
+  INDEX on /SEL, so idx_fresh starves across deselect gaps and the
+  synthesized /RDY flickers at operation STARTS (fix: drop the
+  idx_fresh term from steady-state media_ready, keep the spin-up
+  gate, eject via the proven /DSKCHG); (b) co-selection hole (Paula
+  sel = priority encoder: a df0: change-poll click during a df1: read
+  makes the engine abort/discard ~1 ms or dispatch the ADF service
+  into the phys DMA — refuted as root cause by round-1 combo D, MUST
+  still be fixed). THE FORK = v3 reg 0x1B served delta over one read
+  workload: ≈N×6400 → served-and-rejected → next instrument = a
+  Paula-side capture tap (first fifo_wr words after trackrdok rise);
+  ≈0 → never armed → the ready-model fix is the prime candidate.
+  Round 4 DECIDED the fork: **served-and-rejected** (0x1B ticking at the
+  full word rate live, media_ready/idx_fresh = 1 during reads, scoreboard
+  0x07FF/11/2 = complete revolutions into Paula — trackdisk rejects
+  anyway). The engine→Paula-receiver segment was then exonerated in sim
+  (`.research/tb_engine_paula.vhd`: REAL engine vs a line-by-line VHDL
+  model of paula_floppy.v's receiver at real-flux cadence — 2 attempts ×
+  6400 stored words, all ring-exact) and the same TB caught the
+  co-selection hole red-handed (foreign-sel pulse mid-read → 6242 shifted
+  words = poisoned buffer). **v4 = diag map 0x0004 (implemented + TB/nvc
+  verified 2026-07-27, NOT synthesized):** (a) store-signature pair — XOR
+  over the first 1024 post-sync words per attempt, engine-side
+  (`phys_sig_*`) AND inside the real paula_floppy.v (`fdd_dsig`, threaded
+  paula.v → minimig.v → minimig_m65.v → main.vhd), diag regs 0x20..0x23
+  (decode widened to addr[5:0]) — equal-on-hardware exonerates the real
+  channel, different = corruption caught; (b) co-selection FIX
+  (`phys_stream` session latch: no abort/discard/ADF-dispatch on
+  transient foreign sel while trackrd=1; red→green in the TB); (c) /RDY
+  HOLD fix (media_ready latches once qualified, holds while motor on —
+  INDEX is /SEL-gated so freshness starves across deselect gaps; eject =
+  /DSKCHG). Full playbook: `.research/HANDOVER-hardware-floppy-round2.md`.
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with SIX sanctioned
+- `M2M/` — the framework. **NEVER modify**, with SEVEN sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -174,7 +300,14 @@ the deep material lives in `doc/` (see "Key documents").
   real Amiga has no DB9 debouncing) and mandatory for quadrature mice, whose fast
   pulse trains the 1 ms filter swallowed (frozen-then-jumping pointer). Port-flip
   + joy on/off gating kept; `CLK_FREQ`/`reset_n` now unused. sy2002-approved
-  2026-07-22, to become a framework option when upstreamed. All other framework fixes
+  2026-07-22, to become a framework option when upstreamed.
+  (7) `floppy-pins` — the four board tops route the 11 read-path floppy pins
+  (f_motora/f_selecta/f_side1/f_stepdir/f_step/f_density + the 5 inputs)
+  into `MEGA65_Core` for the Hardware Floppy feature (the C64MEGA65
+  issue-#90 pattern: board top → core direct, `framework.vhd` untouched);
+  f_motorb/f_selectb/f_wdata/f_wgate stay tied '1'. sy2002-approved
+  2026-07-26.
+  All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
 - `CORE/vhdl/` — the port (all files ours):
@@ -200,7 +333,15 @@ the deep material lives in `doc/` (see "Key documents").
     streaming with status-bit-8 flow control, MFM write decoder
     (drain-and-commit: verified sectors → HyperRAM via avm writes,
     dirty-track events → wrapper via two-phase cdc_stable toggle
-    handshake); the protocol contract is documented in its header
+    handshake); since WIP-V2-A2 also the Hardware Floppy backend (per-unit
+    dispatch on the status sel bits, real-flux word streaming, dsksync
+    export, drain-discard for physical writes); the protocol contract is
+    documented in its header
+  - `physical_fdd/` — the Hardware Floppy 50 MHz read front-end (pkg,
+    input conditioner, runt-filtered gap stage, adaptive quantiser,
+    raw-bit rebuild + DSKSYNC aligner, dual-clock word FIFO, top, QNICE
+    diag device 0x0104); codec stages adapted from the C64MEGA65
+    physical-1581 bring-up (hardware-proven at exactly this clock)
   - `keyboard.vhd` — MEGA65 keys → raw Amiga scancodes (kms_level toggle)
   - `clk.vhd`, `globals.vhd`, `config.vhd` (OSM menu — bit = line number,
     must match `C_MENU_*` constants in mega65.vhd; exception: the HDMI
@@ -298,12 +439,13 @@ the deep material lives in `doc/` (see "Key documents").
     formula (from `HELP_MENU` in `M2M/rom/options.asm`): 19 (menu struct) +
     `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 3 ×
     `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
-    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A1 with the 114-item menu
-    (volume 72→103, audio filters + stereo mix 103→114) needs exactly
-    1653 words and uses `MENU_HEAP_SIZE` 1664, headroom 11. For release,
+    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A2 with the 124-item menu
+    (volume 72→103, audio filters + stereo mix 103→114, Hardware Floppy /
+    Configure Drives 114→124 = one more submenu) needs exactly 1888 words
+    and uses `MENU_HEAP_SIZE` 1920, headroom 32. For release,
     AExp follows the C64 total of 30208 words: with `HEAP=0x8220` and stack
     start `0xFEE0`, 1728 stack words remain versus 1536 required; the
-    file-browser heap is 28544 words. Recheck both live heap budgets and the
+    file-browser heap is 28288 words. Recheck both live heap budgets and the
     `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually whenever the
     menu or firmware variables grow.
 
