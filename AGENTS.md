@@ -277,8 +277,15 @@ the deep material lives in `doc/` (see "Key documents").
   prefix per selection, strict sync-at-start check, phys_sel vs sel_stat
   separation): old engine RED with the exact hardware junk signature,
   fixed engine ALL PASS. Also: the two m2m-rom.asm genitive apostrophes
-  reworded (0 cpp warnings, 26261 ROM lines). Round-7 expectation:
-  **DF1: MOUNTS.** Full playbook:
+  reworded (0 cpp warnings, 26261 ROM lines). **Round 7 (2026-07-27, v6
+  build): READ MILESTONE REACHED — the real disk MOUNTS with its volume
+  name and browses; signature pairs EQUAL on every dump (channel proven
+  word-exact end to end); one-time validate popup (authentic old-media
+  retry or the dirty-bitmap-needs-write case = correct wprot behavior)
+  and one Guru 00000025 while loading (suspect: 1994 disk content, not
+  the core) under observation. Round-8 checklist (eject/re-insert,
+  browse+Type, combo-D boot, wprot regression, DiskDoctor re-run) +
+  commit decision + R4/R5/R6 + docs pass pending.** Full playbook:
   `.research/HANDOVER-hardware-floppy-round2.md`.
 
 ## Repository map
