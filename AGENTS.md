@@ -255,7 +255,31 @@ the deep material lives in `doc/` (see "Key documents").
   transient foreign sel while trackrd=1; red→green in the TB); (c) /RDY
   HOLD fix (media_ready latches once qualified, holds while motor on —
   INDEX is /SEL-gated so freshness starves across deselect gaps; eject =
-  /DSKCHG). Full playbook: `.research/HANDOVER-hardware-floppy-round2.md`.
+  /DSKCHG). Round 5 (v4 build) showed the signatures differing — round 6
+  (v5 instruments: checkpoint sigs 0x24..0x27, 8-word Paula tap
+  0x28..0x2F, WORDSYNC bit 0x23.8) revealed WHY and found the ROOT
+  CAUSE: **ADKCON WORDSYNC is 0 in this system** (measured live; the sig
+  windows were differently anchored — the "corruption" verdict is
+  retracted, the channel is clean), Paula therefore stores from the VERY
+  FIRST served word, and after the deselect-induced chain reset between
+  attempts the engine served up to ~570 free-running PRE-LOCK words (the
+  taps showed them: legal MFM at wrong bit phase, `A4A5 12A9...`) at the
+  buffer start — which trackdisk rejects (the WORKING ADF path's tap
+  shows its first aligned 0x4489 at offset 2 = the tolerance
+  calibration). Explains the ~100% failure incl. round 1's boot. **v6 =
+  THE FIX (implemented + red/green verified 2026-07-27, NOT synthesized;
+  version reg = 0x0006, map unchanged): serve-from-sync gate** in
+  `adf_track_engine` (`phys_hunt`: discard FIFO words until head equals
+  the live DSKSYNC, serve from the sync word; correct under either
+  wordsync setting; engine sig window now sync-inclusive = Paula's exact
+  window → 0x20 and 0x22 must read EQUAL on an intact channel). TB
+  reworked to measured reality (wordsync=0 model, hardware-taken junk
+  prefix per selection, strict sync-at-start check, phys_sel vs sel_stat
+  separation): old engine RED with the exact hardware junk signature,
+  fixed engine ALL PASS. Also: the two m2m-rom.asm genitive apostrophes
+  reworded (0 cpp warnings, 26261 ROM lines). Round-7 expectation:
+  **DF1: MOUNTS.** Full playbook:
+  `.research/HANDOVER-hardware-floppy-round2.md`.
 
 ## Repository map
 

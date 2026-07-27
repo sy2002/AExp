@@ -391,8 +391,8 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
                 ; (the Configure Drives combo radio needs NO handling here:
                 ; the HDL cold-boots the Amiga on its own, and the df0:/df1:
                 ; labels of menu lines 2+3 are healed by HWF_LABEL_SYNC from
-                ; HANDLE_CORE_IO, which also ticks inside the submenu's
-                ; key-wait loop - see the routine's header)
+                ; HANDLE_CORE_IO, which also ticks inside the key-wait
+                ; loop of the submenu - see the header of that routine)
 
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9

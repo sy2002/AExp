@@ -139,6 +139,11 @@ entity adf_track_engine is
       phys_sig_o          : out std_logic_vector(15 downto 0);
       phys_sig_ses_o      : out std_logic_vector(7 downto 0);
       phys_sig_done_o     : out std_logic;
+      -- checkpoint prefixes of the same signature (after 64 and 256 words):
+      -- compared against Paula's checkpoints they bracket the FIRST
+      -- diverging word of a corrupted attempt in one observation
+      phys_sig_c64_o      : out std_logic_vector(15 downto 0);
+      phys_sig_c256_o     : out std_logic_vector(15 downto 0);
 
       -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
       io_fpga_o           : out std_logic;                     -- registered - async-clear pin inside Paula!
@@ -246,6 +251,18 @@ architecture synthesis of adf_track_engine is
    -- the dispatch into the ADF service (which would poison the read DMA).
    signal phys_stream  : std_logic := '0';
 
+   -- serve-from-sync gate (the round-6 root cause): ADKCON WORDSYNC is 0 in
+   -- this system (hardware-measured; the ADF path works because its stream
+   -- starts at a sector boundary), so Paula stores from the very FIRST word
+   -- the engine serves. After a chain reset (deselect between attempts) the
+   -- front end emits free-running pre-lock words - serving those puts
+   -- hundreds of junk words at the buffer start and trackdisk rejects the
+   -- read. The gate discards FIFO words until the head equals the live
+   -- DSKSYNC, then serves from the sync word itself: the buffer starts
+   -- sync-aligned exactly like a real drive behind Paula WORDSYNC, under
+   -- EITHER wordsync setting.
+   signal phys_hunt    : std_logic := '0';
+
    -- served-side store signature (see the port comment)
    constant C_SIG_WORDS : natural := 1024;
    type t_sig is (SG_HUNT, SG_RUN, SG_IDLE);
@@ -253,6 +270,8 @@ architecture synthesis of adf_track_engine is
    signal sig_acc      : std_logic_vector(15 downto 0) := (others => '0');
    signal sig_cnt      : unsigned(10 downto 0) := (others => '0');
    signal sig_last     : std_logic_vector(15 downto 0) := (others => '0');
+   signal sig_c64      : std_logic_vector(15 downto 0) := (others => '0');
+   signal sig_c256     : std_logic_vector(15 downto 0) := (others => '0');
    signal sig_done     : std_logic := '0';
    signal sig_ses      : unsigned(7 downto 0) := (others => '0');
    signal phys_din_q   : std_logic_vector(15 downto 0) := (others => '0');
@@ -667,7 +686,10 @@ begin
                               sig_acc   <= (others => '0');
                               sig_cnt   <= (others => '0');
                               sig_done  <= '0';
+                              sig_c64   <= (others => '0');
+                              sig_c256  <= (others => '0');
                               sig_ses   <= sig_ses + 1;
+                              phys_hunt <= '1';
                            end if;
                            phys_stream <= '1';
                            state_after <= ST_PHYS_OPEN;
@@ -1159,11 +1181,24 @@ begin
                      when others =>                -- w2 done: stream if words exist
                         word_cnt <= (others => '0');
                         if phys_rd_empty_i = '0' then
-                           io_din_o     <= phys_rd_data_i;   -- FWFT head
-                           phys_din_q   <= phys_rd_data_i;   -- signature shadow
-                           phys_rd_en_o <= '1';              -- pop it
-                           xfer         <= XF_STROBE;
-                           state        <= ST_PHYS_DATA;
+                           if phys_hunt = '1' and sync_phys /= x"0000"
+                              and phys_rd_data_i /= sync_phys then
+                              -- pre-sync word: discard it (one per frame -
+                              -- ~5 us per word, far faster than the 32 us
+                              -- arrival pace) and re-poll
+                              phys_rd_en_o <= '1';
+                              state_after  <= ST_PHYS_OPEN;
+                              io_fpga_o    <= '0';
+                              delay_cnt    <= C_GAP_DELAY;
+                              state        <= ST_CLOSE;
+                           else
+                              phys_hunt    <= '0';
+                              io_din_o     <= phys_rd_data_i; -- FWFT head
+                              phys_din_q   <= phys_rd_data_i; -- signature shadow
+                              phys_rd_en_o <= '1';            -- pop it
+                              xfer         <= XF_STROBE;
+                              state        <= ST_PHYS_DATA;
+                           end if;
                         else
                            -- nothing decoded yet (words arrive every ~32 us):
                            -- close and re-poll after a short gap
@@ -1185,19 +1220,27 @@ begin
                   served_bin  <= served_bin + 1;
                   served_gray <= std_logic_vector(
                                     shift_right(served_bin + 1, 1) xor (served_bin + 1));
-                  -- store signature: hunt the first DSKSYNC word of the
-                  -- session, then XOR the following C_SIG_WORDS words (the
-                  -- exact window Paula stores from - its WORDSYNC gate drops
-                  -- the matching word). phys_din_q is the word just
-                  -- completed (io_din_o may re-latch on this same edge).
+                  -- store signature: XOR of C_SIG_WORDS served words starting
+                  -- WITH the first DSKSYNC word of the session - with the
+                  -- serve-from-sync gate and WORDSYNC=0 (the measured
+                  -- reality) that is exactly Paula's store window, so the
+                  -- signature pair must be EQUAL on an intact channel.
+                  -- phys_din_q is the word just completed (io_din_o may
+                  -- re-latch on this same edge).
                   if sig_state = SG_HUNT then
-                     if phys_din_q = sync_phys then
+                     if phys_din_q = sync_phys or sync_phys = x"0000" then
                         sig_state <= SG_RUN;
+                        sig_acc   <= phys_din_q;
+                        sig_cnt   <= to_unsigned(1, sig_cnt'length);
                      end if;
                   elsif sig_state = SG_RUN then
                      sig_acc <= sig_acc xor phys_din_q;
                      sig_cnt <= sig_cnt + 1;
-                     if sig_cnt = to_unsigned(C_SIG_WORDS - 1, sig_cnt'length) then
+                     if sig_cnt = to_unsigned(63, sig_cnt'length) then
+                        sig_c64 <= sig_acc xor phys_din_q;
+                     elsif sig_cnt = to_unsigned(255, sig_cnt'length) then
+                        sig_c256 <= sig_acc xor phys_din_q;
+                     elsif sig_cnt = to_unsigned(C_SIG_WORDS - 1, sig_cnt'length) then
                         sig_last  <= sig_acc xor phys_din_q;
                         sig_done  <= '1';
                         sig_state <= SG_IDLE;
@@ -1307,6 +1350,8 @@ begin
    phys_sig_o      <= sig_last;
    phys_sig_ses_o  <= std_logic_vector(sig_ses);
    phys_sig_done_o <= sig_done;
+   phys_sig_c64_o  <= sig_c64;
+   phys_sig_c256_o <= sig_c256;
 
    p_dirty_scan : process (clk_main_i)
    begin

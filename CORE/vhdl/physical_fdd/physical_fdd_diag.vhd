@@ -14,7 +14,8 @@
 --
 -- Register map (word addresses):
 --   0x00  signature 0xFDD0
---   0x01  map version 0x0004
+--   0x01  map version 0x0006 (map identical to 0x0005; the bump marks the
+--         build with the serve-from-sync fix in adf_track_engine)
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -67,7 +68,23 @@
 --         read attempt. EQUAL to 0x20 (with 0x21/0x23 counters paired)
 --         proves the io channel + store gating word-exact on hardware;
 --         a difference is the corruption caught red-handed. Read idle.
---   0x23  {8'b0, Paula read-attempt count[7:0]}
+--         NOTE: Paula has ONE disk-DMA channel, so the attempt counter
+--         (and signature) also advance on ADF-unit reads - only the LAST
+--         attempt before an idle dump is compared, and the 0x21/0x23
+--         DELTAS across a physical-only workload pair 1:1.
+--   0x23  {7'b0, live ADKCON WORDSYNC level, attempt count[7:0]} - the
+--         window pairing assumes WORDSYNC=1 (trackdisk standard); bit 8
+--         verifies that assumption empirically
+--   0x24  engine-signature checkpoint after 64 words
+--   0x25  engine-signature checkpoint after 256 words
+--   0x26  Paula-signature checkpoint after 64 words
+--   0x27  Paula-signature checkpoint after 256 words
+--         (first differing pair 0x24/0x26 -> corruption in words 0..63;
+--          else 0x25/0x27 -> 64..255; else 0x20/0x22 -> 256..1023)
+--   0x28..0x2F  the first 8 words Paula STORED in the last attempt (with
+--         WORDSYNC on, word 0 is the second 0x4489 and words 1..4 the
+--         encoded info long - directly comparable to the front-end
+--         capture at 0x13..0x1A)
 -- All counters wrap at 16 bit (diff two reads to rate them).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
@@ -111,6 +128,12 @@ entity physical_fdd_diag is
     diag_eng_done_i     : in  std_logic;
     diag_pau_sig_i      : in  std_logic_vector(15 downto 0);
     diag_pau_att_i      : in  std_logic_vector(7 downto 0);
+    diag_eng_c64_i      : in  std_logic_vector(15 downto 0);  -- checkpoint prefixes
+    diag_eng_c256_i     : in  std_logic_vector(15 downto 0);
+    diag_pau_c64_i      : in  std_logic_vector(15 downto 0);
+    diag_pau_c256_i     : in  std_logic_vector(15 downto 0);
+    diag_pau_tap_i      : in  std_logic_vector(127 downto 0); -- first 8 stored words
+    diag_pau_ws_i       : in  std_logic;                      -- live WORDSYNC level
     sideinv_i           : in  std_logic                       -- readback of the 0x1F bit
   );
 end entity physical_fdd_diag;
@@ -122,7 +145,7 @@ begin
   begin
     case qnice_addr_i(5 downto 0) is
       when "000000" => qnice_data_o <= x"FDD0";
-      when "000001" => qnice_data_o <= x"0004";
+      when "000001" => qnice_data_o <= x"0006";
       when "000010" => qnice_data_o <= diag_status_i;
       when "000011" => qnice_data_o <= diag_sync_i;
       when "000100" => qnice_data_o <= x"0" & std_logic_vector(diag_est_i);
@@ -159,7 +182,20 @@ begin
       when "100001" => qnice_data_o <= "0000000" & diag_eng_done_i
                                        & diag_eng_ses_i;
       when "100010" => qnice_data_o <= diag_pau_sig_i;
-      when "100011" => qnice_data_o <= x"00" & diag_pau_att_i;
+      when "100011" => qnice_data_o <= "0000000" & diag_pau_ws_i
+                                       & diag_pau_att_i;
+      when "100100" => qnice_data_o <= diag_eng_c64_i;
+      when "100101" => qnice_data_o <= diag_eng_c256_i;
+      when "100110" => qnice_data_o <= diag_pau_c64_i;
+      when "100111" => qnice_data_o <= diag_pau_c256_i;
+      when "101000" => qnice_data_o <= diag_pau_tap_i( 15 downto   0);
+      when "101001" => qnice_data_o <= diag_pau_tap_i( 31 downto  16);
+      when "101010" => qnice_data_o <= diag_pau_tap_i( 47 downto  32);
+      when "101011" => qnice_data_o <= diag_pau_tap_i( 63 downto  48);
+      when "101100" => qnice_data_o <= diag_pau_tap_i( 79 downto  64);
+      when "101101" => qnice_data_o <= diag_pau_tap_i( 95 downto  80);
+      when "101110" => qnice_data_o <= diag_pau_tap_i(111 downto  96);
+      when "101111" => qnice_data_o <= diag_pau_tap_i(127 downto 112);
       when others   => qnice_data_o <= x"EEEE";
     end case;
   end process read_mux;

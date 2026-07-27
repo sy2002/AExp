@@ -156,8 +156,14 @@ entity main is
       hwf_eng_sig_o           : out std_logic_vector(15 downto 0);
       hwf_eng_ses_o           : out std_logic_vector(7 downto 0);
       hwf_eng_done_o          : out std_logic;
+      hwf_eng_c64_o           : out std_logic_vector(15 downto 0);
+      hwf_eng_c256_o          : out std_logic_vector(15 downto 0);
       hwf_pau_sig_o           : out std_logic_vector(15 downto 0);
       hwf_pau_att_o           : out std_logic_vector(7 downto 0);
+      hwf_pau_c64_o           : out std_logic_vector(15 downto 0);
+      hwf_pau_c256_o          : out std_logic_vector(15 downto 0);
+      hwf_pau_tap_o           : out std_logic_vector(127 downto 0);
+      hwf_pau_ws_o            : out std_logic;
 
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
@@ -256,6 +262,10 @@ architecture synthesis of main is
          fdd_motor_on      : out std_logic_vector(3 downto 0);
          fdd_dsig          : out std_logic_vector(15 downto 0);
          fdd_datt          : out std_logic_vector(7 downto 0);
+         fdd_dc64          : out std_logic_vector(15 downto 0);
+         fdd_dc256         : out std_logic_vector(15 downto 0);
+         fdd_dtap          : out std_logic_vector(127 downto 0);
+         fdd_dws           : out std_logic;
          fdd_phys_mask     : in  std_logic_vector(3 downto 0);
          fdd_phys_change_n : in  std_logic;
          fdd_phys_wprot_n  : in  std_logic;
@@ -677,6 +687,8 @@ begin
          phys_sig_o          => hwf_eng_sig_o,
          phys_sig_ses_o      => hwf_eng_ses_o,
          phys_sig_done_o     => hwf_eng_done_o,
+         phys_sig_c64_o      => hwf_eng_c64_o,
+         phys_sig_c256_o     => hwf_eng_c256_o,
 
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,
@@ -904,6 +916,10 @@ begin
          fdd_motor_on      => hwf_motor_on_o,
          fdd_dsig          => hwf_pau_sig_o,
          fdd_datt          => hwf_pau_att_o,
+         fdd_dc64          => hwf_pau_c64_o,
+         fdd_dc256         => hwf_pau_c256_o,
+         fdd_dtap          => hwf_pau_tap_o,
+         fdd_dws           => hwf_pau_ws_o,
          fdd_phys_mask     => hwf_phys_mask,
          fdd_phys_change_n => hwf_change_n_i,
          fdd_phys_wprot_n  => hwf_wprot_n_i,

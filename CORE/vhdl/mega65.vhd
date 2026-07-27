@@ -366,8 +366,14 @@ signal main_hwf_served_gray       : std_logic_vector(15 downto 0); -- engine ser
 signal main_hwf_eng_sig           : std_logic_vector(15 downto 0); -- store-signature pair: engine side
 signal main_hwf_eng_ses           : std_logic_vector(7 downto 0);
 signal main_hwf_eng_done          : std_logic;
+signal main_hwf_eng_c64           : std_logic_vector(15 downto 0);
+signal main_hwf_eng_c256          : std_logic_vector(15 downto 0);
 signal main_hwf_pau_sig           : std_logic_vector(15 downto 0); -- store-signature pair: Paula side
 signal main_hwf_pau_att           : std_logic_vector(7 downto 0);
+signal main_hwf_pau_c64           : std_logic_vector(15 downto 0);
+signal main_hwf_pau_c256          : std_logic_vector(15 downto 0);
+signal main_hwf_pau_tap           : std_logic_vector(127 downto 0);
+signal main_hwf_pau_ws            : std_logic;
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
                                                 -- front-end FIFO's read-side reset MUST
                                                 -- derive from the same event as the
@@ -445,8 +451,14 @@ attribute async_reg of qnice_fdd_served_m : signal is "true";
 signal qnice_fdd_eng_sig      : std_logic_vector(15 downto 0);
 signal qnice_fdd_eng_ses      : std_logic_vector(7 downto 0);
 signal qnice_fdd_eng_done     : std_logic;
+signal qnice_fdd_eng_c64      : std_logic_vector(15 downto 0);
+signal qnice_fdd_eng_c256     : std_logic_vector(15 downto 0);
 signal qnice_fdd_pau_sig      : std_logic_vector(15 downto 0);
 signal qnice_fdd_pau_att      : std_logic_vector(7 downto 0);
+signal qnice_fdd_pau_c64      : std_logic_vector(15 downto 0);
+signal qnice_fdd_pau_c256     : std_logic_vector(15 downto 0);
+signal qnice_fdd_pau_tap      : std_logic_vector(127 downto 0);
+signal qnice_fdd_pau_ws       : std_logic;
 
 ---------------------------------------------------------------------------------------------
 -- hr_clk (HyperRAM clock domain)
@@ -873,8 +885,14 @@ begin
          hwf_eng_sig_o        => main_hwf_eng_sig,
          hwf_eng_ses_o        => main_hwf_eng_ses,
          hwf_eng_done_o       => main_hwf_eng_done,
+         hwf_eng_c64_o        => main_hwf_eng_c64,
+         hwf_eng_c256_o       => main_hwf_eng_c256,
          hwf_pau_sig_o        => main_hwf_pau_sig,
          hwf_pau_att_o        => main_hwf_pau_att,
+         hwf_pau_c64_o        => main_hwf_pau_c64,
+         hwf_pau_c256_o       => main_hwf_pau_c256,
+         hwf_pau_tap_o        => main_hwf_pau_tap,
+         hwf_pau_ws_o         => main_hwf_pau_ws,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -1044,22 +1062,34 @@ begin
    -- the drive is idle
    i_cdc_hwf_sig : entity work.cdc_stable
       generic map (
-         G_DATA_SIZE    => 49,
+         G_DATA_SIZE    => 242,
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i                 => main_clk,
-         src_data_i(15 downto 0)   => main_hwf_eng_sig,
-         src_data_i(23 downto 16)  => main_hwf_eng_ses,
-         src_data_i(24)            => main_hwf_eng_done,
-         src_data_i(40 downto 25)  => main_hwf_pau_sig,
-         src_data_i(48 downto 41)  => main_hwf_pau_att,
-         dst_clk_i                 => qnice_clk_i,
-         dst_data_o(15 downto 0)   => qnice_fdd_eng_sig,
-         dst_data_o(23 downto 16)  => qnice_fdd_eng_ses,
-         dst_data_o(24)            => qnice_fdd_eng_done,
-         dst_data_o(40 downto 25)  => qnice_fdd_pau_sig,
-         dst_data_o(48 downto 41)  => qnice_fdd_pau_att
+         src_clk_i                  => main_clk,
+         src_data_i(15 downto 0)    => main_hwf_eng_sig,
+         src_data_i(23 downto 16)   => main_hwf_eng_ses,
+         src_data_i(24)             => main_hwf_eng_done,
+         src_data_i(40 downto 25)   => main_hwf_pau_sig,
+         src_data_i(48 downto 41)   => main_hwf_pau_att,
+         src_data_i(64 downto 49)   => main_hwf_eng_c64,
+         src_data_i(80 downto 65)   => main_hwf_eng_c256,
+         src_data_i(96 downto 81)   => main_hwf_pau_c64,
+         src_data_i(112 downto 97)  => main_hwf_pau_c256,
+         src_data_i(240 downto 113) => main_hwf_pau_tap,
+         src_data_i(241)            => main_hwf_pau_ws,
+         dst_clk_i                  => qnice_clk_i,
+         dst_data_o(15 downto 0)    => qnice_fdd_eng_sig,
+         dst_data_o(23 downto 16)   => qnice_fdd_eng_ses,
+         dst_data_o(24)             => qnice_fdd_eng_done,
+         dst_data_o(40 downto 25)   => qnice_fdd_pau_sig,
+         dst_data_o(48 downto 41)   => qnice_fdd_pau_att,
+         dst_data_o(64 downto 49)   => qnice_fdd_eng_c64,
+         dst_data_o(80 downto 65)   => qnice_fdd_eng_c256,
+         dst_data_o(96 downto 81)   => qnice_fdd_pau_c64,
+         dst_data_o(112 downto 97)  => qnice_fdd_pau_c256,
+         dst_data_o(240 downto 113) => qnice_fdd_pau_tap,
+         dst_data_o(241)            => qnice_fdd_pau_ws
       ); -- i_cdc_hwf_sig
 
    -- served-word diagnostic counter: the engine's Gray count crosses by
@@ -1431,6 +1461,12 @@ begin
          diag_eng_done_i     => qnice_fdd_eng_done,
          diag_pau_sig_i      => qnice_fdd_pau_sig,
          diag_pau_att_i      => qnice_fdd_pau_att,
+         diag_eng_c64_i      => qnice_fdd_eng_c64,
+         diag_eng_c256_i     => qnice_fdd_eng_c256,
+         diag_pau_c64_i      => qnice_fdd_pau_c64,
+         diag_pau_c256_i     => qnice_fdd_pau_c256,
+         diag_pau_tap_i      => qnice_fdd_pau_tap,
+         diag_pau_ws_i       => qnice_fdd_pau_ws,
          sideinv_i           => qnice_fdd_sideinv
       ); -- i_physical_fdd_diag
 
