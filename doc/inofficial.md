@@ -9,8 +9,8 @@ can be checked in the "About & Help" menu of the core.
 
 | Name          | Date     | Commit  | Comment
 |---------------|----------|---------|----------------------------------------
-| WIP-V2-A2     | 07/26/26 | tbd     | Hardware Floppy (read-only): the MEGA65's built-in disk drive reads real Amiga DD disks. New "Configure Drives" menu with four combos (df0/df1 as ADF or hardware, incl. single-drive maps); the df0:/df1: menu lines rename themselves to match. Default: df0:=ADF, df1:=hardware.
 | WIP-V2-A1     | 07/25/26 | 232c584 | Authentic A500 sound: A500 Filter + LED Filter (both default on) and a Stereo Mix option. Master volume control (perceptual loudness taper).
+| WIP-V2-A2     | 07/26/26 | 032aec2 | Hardware Floppy (read-only): First attempt to use the built-in disk drive to read real Amiga disks
 
 ## Version 1
 
