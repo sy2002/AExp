@@ -143,7 +143,7 @@ So what works depends on what you plug in:
 inherits the exact same limitation. Therefore you need to
 [download firmware version `3.23.5313`](https://github.com/willyvmm/mouSTer/releases/tag/3.23.5313)
 or newer. With new firmware, mouSTer supports a new setting in the
-`[mouse]` section: `activeplotlines=true`. With that, you can use the right
+`[mouse]` section: `activepotlines=true`. With that, you can use the right
 button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
 Here is an example of a known-to-work [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
