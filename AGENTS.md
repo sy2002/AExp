@@ -3,7 +3,55 @@
 Port of the MiSTer Minimig-AGA core to the MEGA65, scoped to an Amiga 500
 OCS, built on the MiSTer2MEGA65 (M2M) framework V2.0.1.
 
-**Status: ADF floppy milestone achieved (2026-07-03).** Read-only ADF
+**Status: VERSION 1 IS RELEASED (tag `V1` = commit `46ef60c`, 2026-07-23;
+`VERSIONS.md` dates the release 2026-07-26).** Read the
+"Released and working" box below before assuming anything in this file is
+still pending - much of the prose here was written while a feature was in
+flight and was never re-worded after it shipped. Development continues on
+Version 2 (audio improvements, Hardware Floppy, more drives).
+
+### Released and working - do not re-litigate these
+
+- **ADF floppy df0:, READ AND WRITE** - shipped in Version 1, in daily use.
+- Video (HDMI + analog, interlace flicker fixer, screen adjustment),
+  keyboard (both modes), mouse/joystick, battery RTC, Slow RAM toggle.
+- See `VERSIONS.md` for the authoritative Version 1 feature list and
+  `doc/inofficial.md` for the alpha/beta history.
+- **The AExp release tag is `V1`** (commit `46ef60c`), and the alphas/betas
+  are `WIP-V1-*` / `WIP-V2-*`. There is no `V1.0.0` tag in this project.
+  Version numbers like "V2.0.1" in this file refer to the **MiSTer2MEGA65
+  framework**, never to an AExp release - do not read a framework version
+  as a core release. (This repo was forked from the M2M template, so M2M's
+  own tags `V0.9.0`, `V0.9.1`, `V1.0.0`, `V2.0.0`, `V2.0.1`,
+  `Vivado-2019.2` used to be present locally; they were removed on
+  2026-08-02 and `remote.upstream.tagOpt=--no-tags` keeps them from coming
+  back. GitHub `origin` never had them. If you ever see them again,
+  someone fetched upstream tags - they are framework releases.)
+
+**Work in progress (Version 2):**
+
+- `WIP-V2-A1` — audio filters (A500 + LED), Stereo Mix, master volume.
+- `WIP-V2-A2` — Hardware Floppy read: works "OK-ish", real disks mount and
+  browse, but old/marginal media still produce errors.
+- **`WIP-V2-A3` — MULTIPLE SIMULATED DRIVES (the current alpha, in
+  progress).** Three Amiga units `df0`/`df1`/`df2`, each either a
+  read/write ADF disk image or the Hardware Floppy (at most one). New
+  per-drive OSM lines driven by the backported M2M menu-dependency
+  feature, a `Drive Settings` submenu with a `Drives 1/2/3` radio, three
+  `adf_mount_wrapper` instances with their own guarded HyperRAM pools, a
+  unit-tagged `adf_track_engine`, and per-drive firmware write-back.
+  **The authoritative working document is
+  `.research/HANDOVER-multi-drive.md`** - read it before touching the
+  floppy stack; it carries the design rationale, the defect classes to
+  avoid (above all the untagged write drain, which would write one drive
+  into another drive's image) and the ordered work list.
+  Note that `CORE_VERSION` drives `CFG_FILE`, so the OSM settings file on
+  the SD card becomes `/amiga/aexp-WIP-V2-A3.cfg` - regenerate it with
+  `M2M/tools/make_config.sh` (see hard rule 10). The
+  `doc/inofficial.md` row for A3 is added at packaging time, because
+  `make_release.py check_inofficial_md` requires a real commit hash.
+
+**ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
 desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
 Mount via OSM " ADF:" → Shell streams to HyperRAM (QNICE device 0x0103,
@@ -104,8 +152,15 @@ the deep material lives in `doc/` (see "Key documents").
   the Hardware Floppy = the MEGA65's internal mechanism reading real Amiga
   DD disks (read-only milestone). The OSM "Configure Drives" submenu picks
   one of four combos: df0:ADF+df1:Hardware (default), df0:Hardware+df1:ADF,
-  df0:ADF only, df0:Hardware only (no ADF drive). **Write support
-  implemented 2026-07-05, NOT yet synthesized/hardware-verified**:
+  df0:ADF only, df0:Hardware only (no ADF drive). **ADF read AND write are
+  RELEASED and work: they shipped in Version 1 (tag `V1`, 2026-07-23) and
+  have been in daily use since. Do not treat the ADF drive as unproven** -
+  `VERSIONS.md` lists "One floppy drive (df0:): read/write standard 880 KB
+  *.adf disk images" as a Version 1 feature. What was never formally
+  recorded is the write test MATRIX of the write spec §8 (rename persists
+  across power cycle, format, write+verify, swap-while-dirty, wprot
+  regression); the feature itself is fine.
+  The write path is a
   hardware MFM write decoder (bit-exact minimig_fdd.cpp
   FindSync/GetHeader/GetData) commits verified sectors to HyperRAM;
   per-track dirty bitmap + vdrives-style anti-thrash (2 s, config.vhd
@@ -552,10 +607,13 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Roadmap
 
-1. **Floppy: read-only DONE 2026-07-03** (verified on hardware);
-   **write support IMPLEMENTED 2026-07-05** — awaiting synthesis +
-   hardware test round (plan in
-   `.research/INTEGRATION-SPEC-floppy-adf-write.md` §8: WB rename
+1. **Floppy: ADF read/write DONE and RELEASED in Version 1 (tag `V1`).**
+   Read-only landed 2026-07-03, write 2026-07-05 (`WIP-V1-A4`), and both
+   rode through A5..A11 and the release candidates B2/B3 into the Version 1
+   release. This is a working, shipped, daily-driven feature - do NOT
+   re-open it as "unverified". The only thing still unrecorded is the
+   formal write test matrix
+   (`.research/INTEGRATION-SPEC-floppy-adf-write.md` §8: WB rename
    persists across power cycle, format, write+verify, swap-while-dirty,
    wprot regression). Before touching floppy code, read BOTH specs in
    `.research/` — the read spec is authoritative on three verified points
