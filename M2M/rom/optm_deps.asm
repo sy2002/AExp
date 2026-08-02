@@ -319,9 +319,9 @@ _RES_DONE       MOVE    R0, R8                  ; restore R8 (array base)
 ;   class 1  ERR_F_DEPIDX     : item mask is empty, or contains a bit at or
 ;                               beyond the member count (radio mother) / beyond
 ;                               bit 1 (single-select mother)
-;   class 2  ERR_F_DEPMIX     : members of one group carry differing
-;                               dependency words (incl. some-tagged/some-not)
-;   class 3  ERR_F_DEPCHAIN   : a line of a mother group is itself dependent
+;   class 2  ERR_F_DEPMIX     : members of one group reference different mother
+;                               groups, or some are tagged and some are not
+;   class 3  ERR_F_DEPCHAIN   : a line depends on its OWN group
 ;   class 4  ERR_F_DEPSPECIAL : a dependent line is a submenu opener/closer or
 ;                               is flagged special by the caller (since
 ;                               dependency format 2, MOUNT_DRV and START lines
@@ -335,6 +335,21 @@ _RES_DONE       MOVE    R0, R8                  ; restore R8 (array base)
 ; therefore supplied by the caller in a separate one-word-per-line array
 ; (nonzero = special line). Which flags the caller folds into that array is
 ; the caller policy, not a property of this routine.
+;
+; M2M-UPSTREAM osm-deps: classes 2 and 3 are deliberately WEAKER here than in
+; the C64MEGA65 original, because this core needs two constructs the original
+; does not have (see the OPTM_DEP comment in CORE/vhdl/config.vhd):
+;   * PARTIALLY VISIBLE groups - the members of one radio may carry different
+;     item masks of the SAME mother, so that the mother swaps one set of items
+;     against another. Class 2 therefore compares only the dependent flag and
+;     the mother id, not the mask. That the masks together cover every mother
+;     state is checked statically by .research/check_osm_menu.py, not here.
+;   * two-level CHAINS - a mode radio may be dependent itself AND be the mother
+;     of other lines. That is sound because visibility is derived from the
+;     SELECTED item alone, never from the visibility of another line, so no
+;     evaluation order exists that could be wrong. Class 3 therefore only
+;     rejects a line that depends on its own group, which is nonsense in any
+;     reading.
 ;
 ; Input:
 ;   R8: pointer to the (masked) groups array (N words)
@@ -406,11 +421,17 @@ _VAL_A          CMP     R1, R4                  ; all lines checked?
                 CMP     255, R7
                 RBRA    _VAL_E_MOTH, Z
 
-                ; scan the mother group: count members, single-select flag,
-                ; and whether any member is itself dependent (chain)
+                ; class 3: the line must not depend on its own group
+                MOVE    R0, R6                  ; GROUPS[i] group id
+                ADD     R4, R6
+                MOVE    @R6, R6
+                AND     0x00FF, R6
+                CMP     R7, R6
+                RBRA    _VAL_E_CHAIN, Z
+
+                ; scan the mother group: count members and single-select flag
                 XOR     R9, R9                  ; R9: member count
                 XOR     R10, R10                ; R10: single-select flag
-                XOR     R11, R11                ; R11: chain flag
                 XOR     R12, R12                ; R12: inner index j
 _VAL_MSCAN      CMP     R1, R12
                 RBRA    _VAL_MSCANE, Z
@@ -425,20 +446,12 @@ _VAL_MSCAN      CMP     R1, R12
                 AND     0x8000, R8
                 RBRA    _VAL_MNS, Z
                 MOVE    1, R10                  ; remember single-select mother
-_VAL_MNS        MOVE    R2, R8                  ; is this member dependent?
-                ADD     R12, R8
-                MOVE    @R8, R8
-                AND     0x1000, R8
-                RBRA    _VAL_MNC, Z
-                MOVE    1, R11                  ; remember chain
-_VAL_MNC        ADD     1, R9                   ; one more member
+_VAL_MNS        ADD     1, R9                   ; one more member
 _VAL_MSCANN     ADD     1, R12
                 RBRA    _VAL_MSCAN, 1
 
 _VAL_MSCANE     CMP     0, R9                   ; class 0: mother has no members
                 RBRA    _VAL_E_MOTH, Z
-                CMP     0, R11                  ; class 3: dependency chain
-                RBRA    _VAL_E_CHAIN, !Z
 
                 ; class 1: item mask empty or out of range
                 MOVE    R5, R8                  ; recompute item mask
@@ -465,8 +478,8 @@ _VAL_A_NEXT     ADD     1, R4
                 RBRA    _VAL_A, 1
 
                 ; --------------------------------------------------------
-                ; pass B: uniformity of dependency words within each group
-                ; (each member must match the first member of its group)
+                ; pass B: every member of a group must reference the same
+                ; mother (the item mask may differ, see the header)
                 ; --------------------------------------------------------
 _VAL_B_INIT     XOR     R4, R4
 _VAL_B          CMP     R1, R4
@@ -500,10 +513,12 @@ _VAL_BF_OK      CMP     R6, R4                  ; is i itself the first member?
                 MOVE    R2, R7                  ; DEPS[first member]
                 ADD     R6, R7
                 MOVE    @R7, R7
+                AND     0x10FF, R7              ; dependent flag + mother id
                 MOVE    R2, R8                  ; DEPS[i]
                 ADD     R4, R8
                 MOVE    @R8, R8
-                CMP     R7, R8                  ; identical dependency words?
+                AND     0x10FF, R8
+                CMP     R7, R8                  ; same mother, both tagged?
                 RBRA    _VAL_E_MIX, !Z          ; no: mixed group
 _VAL_B_NEXT     ADD     1, R4
                 RBRA    _VAL_B, 1

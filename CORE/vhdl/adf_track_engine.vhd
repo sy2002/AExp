@@ -34,24 +34,40 @@
 --     including Kickstart's RESET instruction - so it is re-sent every poll cycle (MiSTer does
 --     the same on every poll loop).
 --
--- PHYSICAL DRIVE BACKEND (July 2026): one drive unit can be backed by the MEGA65's real internal
--- floppy mechanism (OSM "Hardware Floppy" radio -> drive map). The engine then serves TWO units
--- over the same host channel, dispatching per poll on the status word's sel bits [15:14]:
---   * sel = adf_unit_i  -> the classic ADF service below (HyperRAM fetch, MFM encode, write
---     decode + commit) - completely unchanged, just unit-relocatable;
---   * sel = phys_unit_i -> the physical service: reconstructed MFM words from physical_fdd_top's
---     word FIFO are streamed to Paula AT REAL DISK PACE (~1 word/32 us - the words originate
---     from live flux, so pacing is inherent; flow-control bit 8 can never engage). The requested
---     track in the status word is IGNORED: data comes from wherever the real head is, in
---     rotation order, exactly like a real Amiga. The live DSKSYNC (response word 1) is exported
---     RAW to the front-end bit-aligner (dsksync_o) - no Copy Lock substitution: the real disk
---     contains whatever sync the loader programmed, which is precisely what the aligner hunts.
+-- MULTIPLE DRIVE UNITS. The engine serves up to three Amiga units df0/df1/df2 over the same host
+-- channel, dispatching per poll on the status word's sel bits [15:14]. The drive index IS the
+-- Amiga unit number; the OSM Drive Settings submenu decides what each unit is:
+--   * adf_en_i(u) = '1'   -> a simulated ADF drive: HyperRAM fetch from that unit's own pool,
+--     MFM encode, write decode and commit back into that same pool;
+--   * phys_en_i = '1' and sel = phys_unit_i -> the MEGA65's real internal mechanism (at most
+--     ONE unit): reconstructed MFM words from physical_fdd_top's word FIFO are streamed to
+--     Paula AT REAL DISK PACE (~1 word/32 us - the words originate from live flux, so pacing is
+--     inherent; flow-control bit 8 can never engage). The requested track in the status word is
+--     IGNORED: data comes from wherever the real head is, in rotation order, exactly like a real
+--     Amiga. The live DSKSYNC (response word 1) is exported RAW to the front-end bit-aligner
+--     (dsksync_o) - no Copy Lock substitution: the real disk contains whatever sync the loader
+--     programmed, which is precisely what the aligner hunts.
+--   * neither -> the unit does not exist and its polls are ignored.
+--
+-- UNIT OWNERSHIP is the load-bearing invariant of the multi-drive engine, because all the
+-- expensive state - the sector buffers, the write decoder, the Avalon master - exists only once
+-- and is time-shared between the units:
+--   * serve_unit is latched from the status word at the poll that accepted the request and is
+--     what the read service (fetch address, track clamp, mid-stream abort check) uses. Paula
+--     binds trackrd to one unit for a whole DMA, so re-deriving it later would be wrong.
+--   * drain_unit is latched when a write drain starts and is what the commit address, the
+--     commit gates and the dirty-track event use. The moment a poll reports a DIFFERENT unit,
+--     the drain is aborted in EVERY decoder phase, not just while hunting: a frame belonging to
+--     unit B fed into a decoder opened for unit A would checksum-verify and commit into unit A's
+--     image. That is the one defect class that silently corrupts a disk image.
 --   * Writes towards the physical unit are drained and DISCARDED (read-only milestone; the unit
---     is announced write-protected): the write decoder's sync hunt and commit path are gated by
---     drain_commit, so a physical-unit drain can NEVER decode into a HyperRAM commit against
---     the ADF image of the other unit.
---   * The 0x1nnn drive-status announce carries per-unit nibbles: the ADF unit's present/writable
---     from the mount status, the physical unit's presence from the real disk-change latch.
+--     is announced write-protected): drain_commit is only set for a drain owned by a simulated
+--     drive, and it gates the sync hunt, so a physical-unit drain can never decode at all.
+--   * Rotation continuation (track_prev / track_valid / sector_next) is PER UNIT: two drives
+--     stepping and reading in alternation must not inherit each other's sector position.
+--   * The 0x1nnn drive-status announce carries per-unit nibbles: each simulated drive's
+--     present/writable from its own mount status, the physical unit's presence from the real
+--     disk-change latch.
 --   * While idle, the engine drains and discards the physical word FIFO (words decoded while
 --     the drive spins without a pending DMA), keeping the stream fresh.
 --
@@ -67,8 +83,11 @@ use ieee.numeric_std.all;
 
 entity adf_track_engine is
    generic (
-      -- HyperRAM word base address of the ADF image = C_HMAP_ADF_DF0(9 downto 0) & X"000"
-      G_BASE_ADDRESS : std_logic_vector(21 downto 0);
+      -- HyperRAM word base address of each drive's ADF image pool
+      -- (C_HMAP_ADF_DF<n>(9 downto 0) & X"000" from globals.vhd)
+      G_BASE_DF0     : std_logic_vector(21 downto 0);
+      G_BASE_DF1     : std_logic_vector(21 downto 0);
+      G_BASE_DF2     : std_logic_vector(21 downto 0);
 
       -- clk_main cycles between poll cycles (~1 ms; FIFO drain pacing makes polling
       -- faster than ~0.1 ms pointless, see the spec's bandwidth math)
@@ -82,28 +101,32 @@ entity adf_track_engine is
       -- The engine owns the shared IO_STROBE/IO_DIN bus only while this is high.
       bus_grant_i         : in  std_logic;
 
-      -- Mount status from adf_mount_wrapper (CDC'd to clk_main in mega65.vhd)
-      disk_mounted_i      : in  std_logic;
-      disk_tracks_i       : in  std_logic_vector(7 downto 0);  -- 160..166
+      -- Mount status of the three simulated drives, from their adf_mount_wrapper
+      -- instances (CDC'd to clk_main in mega65.vhd). Index / slice = Amiga unit.
+      disk_mounted_i      : in  std_logic_vector( 2 downto 0);
+      disk_tracks_i       : in  std_logic_vector(23 downto 0);  -- 3 x 8 bit, 160..166 each
 
       -- Write-back armed by the firmware (WBC WR_EN, CDC'd like the mount
-      -- status): announce the disk writable and commit decoded sectors
-      write_en_i          : in  std_logic;
+      -- status): announce that disk writable and commit its decoded sectors
+      write_en_i          : in  std_logic_vector(2 downto 0);
 
-      -- Dirty-track event channel towards adf_mount_wrapper (two-phase toggle
-      -- handshake; the cdc_stable instances live in mega65.vhd)
+      -- Dirty-track event channel towards the adf_mount_wrapper instances
+      -- (two-phase toggle handshake; the cdc_stable instances live in
+      -- mega65.vhd). One request toggle per drive with a SHARED track
+      -- payload: the scanner serves one event at a time, so the payload is
+      -- stable for the whole round trip and the idle drives see no edge.
       wr_track_o          : out std_logic_vector(7 downto 0);
-      wr_req_o            : out std_logic;                     -- toggle
-      wr_ack_i            : in  std_logic;                     -- toggle (CDC'd)
+      wr_req_o            : out std_logic_vector(2 downto 0);  -- toggle per drive
+      wr_ack_i            : in  std_logic_vector(2 downto 0);  -- toggle (CDC'd)
 
-      -- Drive map (OSM "Configure Drives" radio, static in clk_main):
-      -- which unit the ADF drive serves (if any), which unit (if any) is
-      -- physical. With adf_en_i='0' (the hardware-only combo) the ADF
-      -- service, its announcements and the write-decoder commits are all
-      -- disabled - the mount machinery keeps working, the image just has
-      -- no unit until an ADF-carrying combo is selected again.
-      adf_en_i            : in  std_logic;
-      adf_unit_i          : in  std_logic_vector(1 downto 0);
+      -- Drive configuration (OSM Drive Settings, static in clk_main):
+      -- adf_en_i(u)='1' makes unit u a simulated ADF drive, phys_en_i/
+      -- phys_unit_i name the one unit backed by the real mechanism. A unit
+      -- that is neither does not exist: its polls are ignored, it is not
+      -- announced, and no drain of it can ever commit. The mount machinery
+      -- of a disabled simulated drive keeps working, its image simply has no
+      -- unit until the menu gives it one again.
+      adf_en_i            : in  std_logic_vector(2 downto 0);
       phys_unit_i         : in  std_logic_vector(1 downto 0);
       phys_en_i           : in  std_logic;
 
@@ -152,6 +175,15 @@ entity adf_track_engine is
       io_dout_i           : in  std_logic_vector(15 downto 0);
       io_wait_i           : in  std_logic;
 
+      -- '1' while an Avalon transaction is in flight or about to be issued.
+      -- main.vhd uses this to invalidate the shared read cache only at a safe
+      -- moment: the cache is common to all drives, so a newly streamed image
+      -- must flush it, but flushing mid-fetch would swallow a burst response
+      -- and hang the fetch. Asserted at least one clock BEFORE avm_read_o /
+      -- avm_write_o rise (ST_SERVE and ST_WCOMMIT_ADDR precede the issue
+      -- states), which closes the race against the flush decision.
+      avm_busy_o          : out std_logic;
+
       -- ADF image port: Avalon-MM master into avm_cache (clk_main domain).
       -- Single-word reads and writes with byteenable "11" (single-word is
       -- required for the cache's prefetch AND for its write-hit line update).
@@ -193,6 +225,46 @@ architecture synthesis of adf_track_engine is
    -- Paula's FIFO holds ALL of it - no mid-section starvation handling needed.
    constant C_HDR_WORDS         : natural := 25;
    constant C_DATA_WORDS        : natural := 516;
+
+   -- Per-unit lookup tables. Amiga unit 3 exists in the status word's sel
+   -- field but can never be a drive here, so it maps to drive 0's entries and
+   -- is kept out by adf_en_i, which is "000" for it by construction.
+   type t_base_array is array (0 to 3) of unsigned(21 downto 0);
+   constant C_BASE : t_base_array := (unsigned(G_BASE_DF0), unsigned(G_BASE_DF1),
+                                      unsigned(G_BASE_DF2), unsigned(G_BASE_DF0));
+
+   -- track count of one drive out of the packed disk_tracks_i vector
+   function f_tracks(t : std_logic_vector(23 downto 0);
+                     u : unsigned(1 downto 0)) return unsigned is
+   begin
+      case to_integer(u) is
+         when 0      => return unsigned(t( 7 downto  0));
+         when 1      => return unsigned(t(15 downto  8));
+         when 2      => return unsigned(t(23 downto 16));
+         when others => return (7 downto 0 => '0');
+      end case;
+   end function f_tracks;
+
+   -- "unit u is a simulated ADF drive" (false for the non-existent unit 3)
+   function f_is_adf(e : std_logic_vector(2 downto 0);
+                     u : unsigned(1 downto 0)) return std_logic is
+   begin
+      if u = 3 then
+         return '0';
+      end if;
+      return e(to_integer(u));
+   end function f_is_adf;
+
+   -- "unit u is a mounted simulated ADF drive" (the read/commit precondition)
+   function f_is_mounted(e : std_logic_vector(2 downto 0);
+                         m : std_logic_vector(2 downto 0);
+                         u : unsigned(1 downto 0)) return std_logic is
+   begin
+      if u = 3 then
+         return '0';
+      end if;
+      return e(to_integer(u)) and m(to_integer(u));
+   end function f_is_mounted;
 
    type t_state is (
       ST_IDLE,          -- bus released, poll timer running
@@ -251,6 +323,25 @@ architecture synthesis of adf_track_engine is
    -- the dispatch into the ADF service (which would poison the read DMA).
    signal phys_stream  : std_logic := '0';
 
+   -- ADF read session ownership, the exact counterpart of phys_stream and for
+   -- the same reason: Paula binds trackrd to ONE unit for a whole DMA, but its
+   -- sel field is a priority encoder, so a change-poll click on another drive
+   -- makes one poll report a foreign unit mid-read. Without this latch the next
+   -- poll would re-dispatch the running DMA to that other drive and stream ITS
+   -- image into the buffer the first drive is filling - silently wrong data,
+   -- with nothing on the disk to show for it. While the latch is set the
+   -- serving unit is frozen; it is released when trackrd drops.
+   --
+   -- Sharp edge of the protocol, worth knowing before touching this: Paula's
+   -- encoder (paula_floppy.v:363) returns sel = 0 BOTH when df0 is selected and
+   -- when NO drive is selected, so those two states are indistinguishable in the
+   -- status word. The latch freezes whatever the first accepted poll of a
+   -- session reported, which is right for the case it exists for (a foreign
+   -- change-poll click mid-read) and would be wrong only if a read DMA were
+   -- armed with every drive deselected - which trackdisk does not do: it selects
+   -- the drive before writing DSKLEN and keeps it selected for the transfer.
+   signal adf_stream   : std_logic := '0';
+
    -- serve-from-sync gate (the round-6 root cause): ADKCON WORDSYNC is 0 in
    -- this system (hardware-measured; the ADF path works because its stream
    -- starts at a sector boundary), so Paula stores from the very FIRST word
@@ -276,13 +367,20 @@ architecture synthesis of adf_track_engine is
    signal sig_ses      : unsigned(7 downto 0) := (others => '0');
    signal phys_din_q   : std_logic_vector(15 downto 0) := (others => '0');
 
-   -- disk service state
-   signal track_eff    : unsigned(7 downto 0);          -- clamped requested track
-   signal track_prev   : unsigned(7 downto 0);
-   signal track_valid  : std_logic;                     -- track_prev holds a real value
-   signal sector       : unsigned(3 downto 0);          -- 0..10
-   signal sector_next  : unsigned(3 downto 0);          -- rotation continuation
-   signal fetch_idx    : unsigned(7 downto 0);          -- 0..255 word within the sector
+   -- disk service state. track_eff / sector / fetch_idx belong to the ONE
+   -- serve that is in flight; the rotation continuation is per unit, so two
+   -- drives reading in alternation keep their own head and sector position
+   -- (a shared sector_next would make each drive resume where the other one
+   -- stopped, which shows up as random sector-order corruption).
+   signal serve_unit   : unsigned(1 downto 0) := (others => '0');  -- unit of the current serve
+   signal track_eff    : unsigned(7 downto 0) := (others => '0');  -- clamped requested track
+   type t_track_array  is array (0 to 3) of unsigned(7 downto 0);
+   type t_sector_array is array (0 to 3) of unsigned(3 downto 0);
+   signal track_prev   : t_track_array := (others => (others => '0'));
+   signal track_valid  : std_logic_vector(3 downto 0) := (others => '0');  -- track_prev is real
+   signal sector       : unsigned(3 downto 0) := (others => '0');  -- 0..10
+   signal sector_next  : t_sector_array := (others => (others => '0'));  -- rotation continuation
+   signal fetch_idx    : unsigned(7 downto 0) := (others => '0');  -- word 0..255 in the sector
 
    -- data checksum lanes (accumulated during fetch)
    signal dc0, dc1, dc2, dc3 : std_logic_vector(7 downto 0);
@@ -308,29 +406,34 @@ architecture synthesis of adf_track_engine is
    type t_wd_mode is (WD_HUNT, WD_HDR, WD_DATA);
    signal wd_mode      : t_wd_mode := WD_HUNT;
    signal in_drain     : std_logic := '0';             -- decoder state is live
-   signal drain_commit : std_logic := '0';             -- '1' = drain belongs to the ADF unit
-                                                       -- (physical-unit drains stay pure
+   signal drain_unit   : unsigned(1 downto 0) := (others => '0');  -- unit that owns the drain
+   signal drain_commit : std_logic := '0';             -- '1' = drain belongs to a simulated
+                                                       -- drive (physical-unit drains stay pure
                                                        -- discard: sync hunt disabled, so the
                                                        -- decoder can never commit them)
-   signal wr_track_lat : unsigned(7 downto 0);         -- physical track at drain entry
+   signal wr_track_lat : unsigned(7 downto 0) := (others => '0');  -- physical track at drain entry
    signal wd_idx       : unsigned(9 downto 0);         -- word index within a section
    signal winf_odd     : std_logic_vector(31 downto 0);-- info odd bytes: fmt,trk,sec,gap
    signal whd_fmt      : std_logic_vector(7 downto 0); -- decoded header: format (0xFF)
    signal whd_track    : std_logic_vector(7 downto 0); -- decoded header: track
-   signal whd_sector   : unsigned(7 downto 0);         -- decoded header: sector (0..10)
+   signal whd_sector   : unsigned(7 downto 0) := (others => '0');  -- decoded header: sector 0..10
    signal whd_gap      : unsigned(7 downto 0);         -- decoded header: sectors to gap
    signal wck0, wck1, wck2, wck3 : std_logic_vector(7 downto 0);  -- computed cksum lanes
    signal wst0, wst1, wst2, wst3 : std_logic_vector(7 downto 0);  -- stored cksum lanes
 
-   -- dirty-track bookkeeping + event scanner (see p_dirty_scan)
-   signal dirty_pend      : std_logic_vector(165 downto 0) := (others => '0');
+   -- dirty-track bookkeeping + event scanner (see p_dirty_scan), one pending
+   -- bitmap per simulated drive
+   type t_dirty_array is array (0 to 2) of std_logic_vector(165 downto 0);
+   signal dirty_pend      : t_dirty_array := (others => (others => '0'));
    signal dirty_set_valid : std_logic := '0';
-   signal dirty_set_track : unsigned(7 downto 0);
+   signal dirty_set_track : unsigned(7 downto 0) := (others => '0');
+   signal dirty_set_unit  : unsigned(1 downto 0) := (others => '0');
    type t_scan is (SC_SCAN, SC_SETTLE, SC_WAIT);
    signal scan_state   : t_scan := SC_SCAN;
+   signal scan_unit    : natural range 0 to 2 := 0;
    signal scan_idx     : unsigned(7 downto 0) := (others => '0');
    signal settle_cnt   : unsigned(4 downto 0);
-   signal wr_req       : std_logic := '0';
+   signal wr_req       : std_logic_vector(2 downto 0) := (others => '0');
 
    -- sector buffer: 256x16, byte-swapped to 68k order (even file byte in bits 15:8).
    -- MUST stay LUTRAM (BRAM is full, see CLAUDE.md rule 3). Accessed ONLY via the
@@ -341,7 +444,7 @@ architecture synthesis of adf_track_engine is
    -- synthesis run 3 with a read expression at the io_din_o assignment sites).
    type t_secbuf is array (0 to 255) of std_logic_vector(15 downto 0);
    signal secbuf       : t_secbuf;
-   signal secbuf_raddr : unsigned(7 downto 0);           -- primed one word ahead
+   signal secbuf_raddr : unsigned(7 downto 0) := (others => '0');  -- primed one word ahead
    signal secbuf_q     : std_logic_vector(15 downto 0);  -- registered read data
    attribute ram_style : string;
    attribute ram_style of secbuf : signal is "distributed";
@@ -354,7 +457,7 @@ architecture synthesis of adf_track_engine is
    -- combine, the commit pass streams the buffer to HyperRAM).
    type t_wrbuf is array (0 to 255) of std_logic_vector(15 downto 0);
    signal wrbuf        : t_wrbuf;
-   signal wrbuf_raddr  : unsigned(7 downto 0);
+   signal wrbuf_raddr  : unsigned(7 downto 0) := (others => '0');
    signal wrbuf_q      : std_logic_vector(15 downto 0);
    attribute ram_style of wrbuf : signal is "distributed";
 
@@ -476,6 +579,9 @@ begin
       variable v_byte_hi   : std_logic_vector(7 downto 0);   -- even file byte (68k high)
       variable v_byte_lo   : std_logic_vector(7 downto 0);   -- odd file byte (68k low)
       variable v_sel       : std_logic_vector(1 downto 0);   -- selected unit (status bits 15:14)
+      variable v_unit      : unsigned(1 downto 0);           -- the same, as an index
+      variable v_drain     : std_logic;                      -- in_drain after the ownership guard
+      variable v_serve     : unsigned(1 downto 0);           -- unit the read service will use
       variable v_present   : std_logic_vector(3 downto 0);   -- announce: per-unit present nibble
       variable v_writable  : std_logic_vector(3 downto 0);   -- announce: per-unit writable nibble
 
@@ -544,19 +650,22 @@ begin
                elsif bus_grant_i = '1' then
                   io_fpga_o <= '1';
                   -- drive-status word 0x1000|{writable[3:0],present[3:0]},
-                  -- per-unit nibbles from the drive map: the ADF unit's
-                  -- present = mounted, writable only while the firmware has
-                  -- write-back armed (WBC WR_EN); the physical unit's
-                  -- present from the real disk-change latch, writable NEVER
-                  -- (read-only milestone - the real /WPROT level reaches
-                  -- CIA-A through the paula_floppy mux regardless). Re-sent
-                  -- every poll cycle - Paula wipes it on every Amiga reset.
+                  -- per-unit nibbles from the drive configuration: a
+                  -- simulated drive's present = mounted, writable only while
+                  -- the firmware has write-back armed for THAT drive (WBC
+                  -- WR_EN); the physical unit's present from the real
+                  -- disk-change latch, writable NEVER (read-only milestone -
+                  -- the real /WPROT level reaches CIA-A through the
+                  -- paula_floppy mux regardless). Re-sent every poll cycle -
+                  -- Paula wipes it on every Amiga reset.
                   v_present  := (others => '0');
                   v_writable := (others => '0');
-                  if adf_en_i = '1' then
-                     v_present(to_integer(unsigned(adf_unit_i)))  := disk_mounted_i;
-                     v_writable(to_integer(unsigned(adf_unit_i))) := disk_mounted_i and write_en_i;
-                  end if;
+                  for u in 0 to 2 loop
+                     if adf_en_i(u) = '1' then
+                        v_present(u)  := disk_mounted_i(u);
+                        v_writable(u) := disk_mounted_i(u) and write_en_i(u);
+                     end if;
+                  end loop;
                   if phys_en_i = '1' then
                      v_present(to_integer(unsigned(phys_unit_i))) := phys_present_i;
                   end if;
@@ -599,13 +708,40 @@ begin
             -- the write-drain: see the spec's WDRAIN race analysis)
             when ST_POLL_EVAL0 =>
                if xfer_done = '1' then
-                  status <= xfer_resp;
-                  v_sel  := xfer_resp(15 downto 14);
-                  if not (adf_en_i = '1' and v_sel = adf_unit_i)
+                  status    <= xfer_resp;
+                  v_sel     := xfer_resp(15 downto 14);
+                  v_unit    := unsigned(v_sel);
+                  v_drain   := in_drain;
+
+                  -- UNIT OWNERSHIP GUARD. An open write drain belongs to
+                  -- exactly one unit; the decoder holds that unit's header,
+                  -- checksum lanes, half-decoded sector and commit track. As
+                  -- soon as Paula selects a different unit, all of that is
+                  -- meaningless - and worse, feeding the other unit's frame
+                  -- into it would produce a checksum-valid sector that the
+                  -- commit path writes into the FIRST unit's image. Abort in
+                  -- EVERY wd_mode, not just while hunting, and not keyed on
+                  -- the track number. v_drain carries the decision into the
+                  -- rest of this cycle, because in_drain only clears at the
+                  -- next edge. The price of being unconditional is that a
+                  -- transient foreign sel sample (Paula's sel field is a
+                  -- priority encoder) costs the sector that was mid-decode;
+                  -- trackdisk verifies a track after writing it and retries.
+                  -- Losing a sector is recoverable, committing it into the
+                  -- wrong drive's image is not.
+                  if in_drain = '1' and v_unit /= drain_unit then
+                     in_drain <= '0';
+                     wd_mode  <= WD_HUNT;
+                     v_drain  := '0';
+                  end if;
+
+                  if not (f_is_adf(adf_en_i, v_unit) = '1')
                      and not (phys_en_i = '1' and v_sel = phys_unit_i)
                      and not (phys_stream = '1' and xfer_resp(8) = '1'
+                              and xfer_resp(9) = '0')
+                     and not (adf_stream = '1' and xfer_resp(8) = '1'
                               and xfer_resp(9) = '0') then
-                     -- neither of our units selected: not ours - leave the
+                     -- none of our units selected: not ours - leave the
                      -- request pending (MiSTer-identical). Exception: while
                      -- a physical stream session is in flight (trackrd
                      -- still up), a transient foreign sel sample must not
@@ -618,10 +754,12 @@ begin
                      state       <= ST_CLOSE;
                   elsif xfer_resp(9) = '1' then
                      -- write requested: drain it (trackwr was 1 at w0, so w1 cannot arm a read).
-                     -- Only ADF-unit drains may decode and commit; a physical-unit drain is a
-                     -- pure discard (drain_commit gates the sync hunt below)
-                     track_valid <= '0';           -- any write invalidates the rotation state
-                     if in_drain = '1' and wd_mode = WD_HUNT
+                     -- Only drains owned by a simulated drive may decode and commit; a
+                     -- physical-unit drain is a pure discard (drain_commit gates the sync
+                     -- hunt below)
+                     track_valid(to_integer(v_unit)) <= '0';   -- a write invalidates the
+                                                               -- rotation state of ITS unit
+                     if v_drain = '1' and wd_mode = WD_HUNT
                         and unsigned(xfer_resp(7 downto 0)) /= wr_track_lat then
                         -- head stepped while hunting: end this drain pass
                         -- (FindSync :294-295); re-entered with the new track
@@ -633,18 +771,15 @@ begin
                         delay_cnt   <= C_GAP_DELAY;
                         state       <= ST_CLOSE;
                      else
-                        if in_drain = '0' then
+                        if v_drain = '0' then
                            -- fresh drain: latch the physical track (MiSTer:
                            -- drive->track = c2), the owning unit, and re-arm
                            -- the decoder
                            in_drain     <= '1';
                            wd_mode      <= WD_HUNT;
                            wr_track_lat <= unsigned(xfer_resp(7 downto 0));
-                           if adf_en_i = '1' and v_sel = adf_unit_i then
-                              drain_commit <= '1';
-                           else
-                              drain_commit <= '0';
-                           end if;
+                           drain_unit   <= v_unit;
+                           drain_commit <= f_is_adf(adf_en_i, v_unit);
                         end if;
                         hdr_cnt  <= "00";
                         io_din_o <= x"0000";
@@ -693,14 +828,35 @@ begin
                            end if;
                            phys_stream <= '1';
                            state_after <= ST_PHYS_OPEN;
-                        elsif adf_en_i = '1' and disk_mounted_i = '1'
-                           and unsigned(disk_tracks_i) /= 0 then -- /=0 guaranteed by the
-                           state_after <= ST_SERVE;              -- validator; belt-and-braces
-                        else                                     -- for the tracks-1 clamp
-                           state_after <= ST_IDLE;
+                        else
+                           -- ADF service. On a NEW session the unit Paula
+                           -- selected at w0 is latched into serve_unit and
+                           -- everything downstream (fetch address, track clamp,
+                           -- mid-stream abort) uses that latch instead of
+                           -- re-reading the sel bits. While a session is
+                           -- already running the latch is FROZEN, so a
+                           -- transient foreign sel cannot re-point the running
+                           -- DMA at another drive's image.
+                           if adf_stream = '1' then
+                              v_serve := serve_unit;
+                           else
+                              v_serve := unsigned(status(15 downto 14));
+                           end if;
+                           if f_is_mounted(adf_en_i, disk_mounted_i, v_serve) = '1'
+                              and f_tracks(disk_tracks_i, v_serve) /= 0 then
+                              -- (tracks /= 0 is guaranteed by the mount
+                              -- validator; belt-and-braces for the clamp below)
+                              serve_unit  <= v_serve;
+                              adf_stream  <= '1';
+                              state_after <= ST_SERVE;
+                           else
+                              adf_stream  <= '0';
+                              state_after <= ST_IDLE;
+                           end if;
                         end if;
                      else
                         phys_stream <= '0';
+                        adf_stream  <= '0';           -- trackrd dropped: session over
                         state_after <= ST_IDLE;
                      end if;
                      io_fpga_o <= '0';
@@ -930,11 +1086,18 @@ begin
                                  v_ck1 := wck1 and x"55";
                                  v_ck2 := (wck2 xor v_hi) and x"55";
                                  v_ck3 := (wck3 xor v_lo) and x"55";
+                                 -- every image-side gate is evaluated for the
+                                 -- unit that OWNS this drain, never for a
+                                 -- "current" unit: by the time the last data
+                                 -- word arrives, Paula may already be polling
+                                 -- someone else
                                  if v_ck0 = wst0 and v_ck1 = wst1
                                     and v_ck2 = wst2 and v_ck3 = wst3
                                     and whd_track = std_logic_vector(wr_track_lat)
-                                    and wr_track_lat < unsigned(disk_tracks_i)
-                                    and write_en_i = '1' and disk_mounted_i = '1' then
+                                    and wr_track_lat < f_tracks(disk_tracks_i, drain_unit)
+                                    and drain_commit = '1'
+                                    and write_en_i(to_integer(drain_unit)) = '1'
+                                    and disk_mounted_i(to_integer(drain_unit)) = '1' then
                                     fetch_idx   <= (others => '0');  -- commit index
                                     state_after <= ST_WCOMMIT_ADDR;
                                  else
@@ -975,8 +1138,10 @@ begin
                avm_write_o     <= '1';
                -- byte-swap back to HyperRAM packing (even file byte in 7:0)
                avm_writedata_o <= wrbuf_q(7 downto 0) & wrbuf_q(15 downto 8);
+               -- the pool of the unit that owns this drain - the whole point
+               -- of latching drain_unit
                avm_address_o   <= std_logic_vector(
-                                    resize(unsigned(G_BASE_ADDRESS), 32)
+                                    resize(C_BASE(to_integer(drain_unit)), 32)
                                     + resize(wr_track_lat * to_unsigned(C_TRACK_WORDS, 12), 32)
                                     + resize(whd_sector(3 downto 0) * to_unsigned(C_WORDS_PER_SECTOR, 9), 32)
                                     + resize(fetch_idx, 32));
@@ -985,6 +1150,7 @@ begin
                   if fetch_idx = C_WORDS_PER_SECTOR - 1 then
                      dirty_set_valid <= '1';        -- sector is in HyperRAM:
                      dirty_set_track <= wr_track_lat;  -- queue the dirty track
+                     dirty_set_unit  <= drain_unit;    -- for the owning drive
                      delay_cnt       <= C_GAP_DELAY;
                      state           <= ST_POLL_OPEN;  -- drain on (next sector)
                   else
@@ -996,17 +1162,19 @@ begin
             -- read service: clamp the requested track, pick the start sector
             when ST_SERVE =>
                v_track_req := unsigned(status(7 downto 0));
-               if v_track_req >= unsigned(disk_tracks_i) then
-                  v_track_req := unsigned(disk_tracks_i) - 1;
+               if v_track_req >= f_tracks(disk_tracks_i, serve_unit) then
+                  v_track_req := f_tracks(disk_tracks_i, serve_unit) - 1;
                end if;
                track_eff <= v_track_req;
-               if track_valid = '0' or v_track_req /= track_prev then
+               if track_valid(to_integer(serve_unit)) = '0'
+                  or v_track_req /= track_prev(to_integer(serve_unit)) then
                   sector      <= (others => '0'); -- track change: restart at sector 0
-                  sector_next <= (others => '0');
-                  track_prev  <= v_track_req;
-                  track_valid <= '1';
+                  sector_next(to_integer(serve_unit)) <= (others => '0');
+                  track_prev(to_integer(serve_unit))  <= v_track_req;
+                  track_valid(to_integer(serve_unit)) <= '1';
                else
-                  sector <= sector_next;          -- same track: rotation continuation
+                  sector <= sector_next(to_integer(serve_unit));   -- same track:
+                                                    -- rotation continuation of THIS unit
                end if;
                fetch_idx <= (others => '0');
                dc0 <= (others => '0');
@@ -1020,7 +1188,7 @@ begin
             when ST_FETCH_ISSUE =>
                avm_read_o    <= '1';
                avm_address_o <= std_logic_vector(
-                                  resize(unsigned(G_BASE_ADDRESS), 32)
+                                  resize(C_BASE(to_integer(serve_unit)), 32)
                                   + resize(track_eff * to_unsigned(C_TRACK_WORDS, 12), 32)
                                   + resize(sector * to_unsigned(C_WORDS_PER_SECTOR, 9), 32)
                                   + resize(fetch_idx, 32));
@@ -1072,13 +1240,29 @@ begin
                   case hdr_cnt is
                      when "10" =>                  -- w0: status
                         v_track_new := unsigned(xfer_resp(7 downto 0));
-                        if v_track_new >= unsigned(disk_tracks_i) then
-                           v_track_new := unsigned(disk_tracks_i) - 1;
+                        if v_track_new >= f_tracks(disk_tracks_i, serve_unit) then
+                           v_track_new := f_tracks(disk_tracks_i, serve_unit) - 1;
                         end if;
-                        if xfer_resp(15 downto 14) /= adf_unit_i or xfer_resp(8) = '0'
-                           or xfer_resp(9) = '1' or disk_mounted_i = '0'
-                           or unsigned(disk_tracks_i) = 0 then
-                           -- aborted / throttled / direction change: back to polling
+                        -- the sel bits must still name the unit this stream was
+                        -- started for - compared against the LATCHED serving unit,
+                        -- so a second simulated drive polling in between aborts the
+                        -- stream instead of silently inheriting it
+                        if xfer_resp(8) = '0'
+                           or xfer_resp(9) = '1'
+                           or f_is_mounted(adf_en_i, disk_mounted_i, serve_unit) = '0'
+                           or f_tracks(disk_tracks_i, serve_unit) = 0 then
+                           -- the DMA really ended (or the disk vanished): drop
+                           -- the session and go back to the poll cadence
+                           adf_stream  <= '0';
+                           state_after <= ST_IDLE;
+                           io_fpga_o   <= '0';
+                           delay_cnt   <= C_GAP_DELAY;
+                           state       <= ST_CLOSE;
+                        elsif unsigned(xfer_resp(15 downto 14)) /= serve_unit then
+                           -- a foreign unit was sampled mid-stream. Close this
+                           -- frame, but KEEP the session: the next poll finds
+                           -- adf_stream set and resumes serving the same unit
+                           -- instead of handing the DMA to the other drive.
                            state_after <= ST_IDLE;
                            io_fpga_o   <= '0';
                            delay_cnt   <= C_GAP_DELAY;
@@ -1119,7 +1303,7 @@ begin
             when ST_STREAM_DATA =>
                if xfer_done = '1' then
                   if word_cnt = word_total - 1 then
-                     sector_next <= (sector + 1) mod 11;
+                     sector_next(to_integer(serve_unit)) <= (sector + 1) mod 11;
                      state_after <= ST_SERVE;      -- next sector (re-checks status first)
                      io_fpga_o   <= '0';
                      delay_cnt   <= C_GAP_DELAY;
@@ -1291,12 +1475,17 @@ begin
          ---------------------------------------------------------------------
          -- note: the ST_PHYS_* states are deliberately NOT in the unmount
          -- abort list - the physical drive works without any ADF mounted
+         -- the unmount test looks at the unit that owns the state in question:
+         -- the serving unit while reading, the draining unit while committing.
+         -- Ejecting a disk from an idle drive must not disturb another one.
          if reset_i = '1' or bus_grant_i = '0'
-            or (disk_mounted_i = '0' and (state = ST_SERVE or state = ST_FETCH_ISSUE
-                                          or state = ST_FETCH_WAIT
-                                          or state = ST_WCOMMIT_ADDR
-                                          or state = ST_WCOMMIT_READ
-                                          or state = ST_WCOMMIT_ISSUE)) then
+            or (f_is_mounted(adf_en_i, disk_mounted_i, serve_unit) = '0'
+                and (state = ST_SERVE or state = ST_FETCH_ISSUE
+                     or state = ST_FETCH_WAIT))
+            or (f_is_mounted(adf_en_i, disk_mounted_i, drain_unit) = '0'
+                and (state = ST_WCOMMIT_ADDR
+                     or state = ST_WCOMMIT_READ
+                     or state = ST_WCOMMIT_ISSUE)) then
             io_fpga_o    <= '0';
             io_strobe_o  <= '0';
             avm_read_o   <= '0';
@@ -1307,19 +1496,23 @@ begin
             wd_mode      <= WD_HUNT;
             phys_rd_en_o <= '0';
             phys_stream  <= '0';
+            adf_stream   <= '0';
             sig_state    <= SG_IDLE;              -- freeze a torn signature
             state        <= ST_IDLE;
             delay_cnt    <= G_POLL_DELAY;
             if reset_i = '1' then
-               track_valid <= '0';
-               sector_next <= (others => '0');
+               track_valid <= (others => '0');
+               sector_next <= (others => (others => '0'));
             end if;
          end if;
 
-         -- a fresh mount always restarts the rotation state
-         if disk_mounted_i = '0' then
-            track_valid <= '0';
-         end if;
+         -- a fresh mount always restarts the rotation state of THAT drive
+         for u in 0 to 2 loop
+            if disk_mounted_i(u) = '0' then
+               track_valid(u) <= '0';
+            end if;
+         end loop;
+         track_valid(3) <= '0';                    -- unit 3 is never a drive
 
       end if;
    end process fsm_proc;
@@ -1336,6 +1529,14 @@ begin
    -- must survive an Amiga reboot (the SD flush continues right through it).
    ---------------------------------------------------------------------------
    wr_req_o <= wr_req;
+
+   -- "an Avalon transaction is in flight or one state away" - see the port
+   -- comment. ST_SERVE and ST_WCOMMIT_ADDR/READ are included precisely so
+   -- that this rises BEFORE avm_read_o / avm_write_o do.
+   avm_busy_o <= '1' when state = ST_SERVE or state = ST_FETCH_ISSUE
+                       or state = ST_FETCH_WAIT or state = ST_WCOMMIT_ADDR
+                       or state = ST_WCOMMIT_READ or state = ST_WCOMMIT_ISSUE
+                 else '0';
 
    -- live DSKSYNC towards the front-end bit-aligner (registered in fsm_proc;
    -- quasi-static: it changes only when Amiga software writes the register)
@@ -1358,13 +1559,20 @@ begin
       if rising_edge(clk_main_i) then
          case scan_state is
             when SC_SCAN =>
-               if dirty_pend(to_integer(scan_idx)) = '1' then
+               -- walk track 0..165 of one drive, then move on to the next
+               -- drive: a busy drive can therefore never starve the others
+               if dirty_pend(scan_unit)(to_integer(scan_idx)) = '1' then
                   wr_track_o <= std_logic_vector(scan_idx);
-                  dirty_pend(to_integer(scan_idx)) <= '0';
+                  dirty_pend(scan_unit)(to_integer(scan_idx)) <= '0';
                   settle_cnt <= (others => '1');     -- 31 clks >> CDC latency
                   scan_state <= SC_SETTLE;
                elsif scan_idx = 165 then
                   scan_idx <= (others => '0');
+                  if scan_unit = 2 then
+                     scan_unit <= 0;
+                  else
+                     scan_unit <= scan_unit + 1;
+                  end if;
                else
                   scan_idx <= scan_idx + 1;
                end if;
@@ -1372,19 +1580,19 @@ begin
             when SC_SETTLE =>                        -- payload settles at the
                settle_cnt <= settle_cnt - 1;         -- far side of the CDC
                if settle_cnt = 0 then
-                  wr_req     <= not wr_req;
-                  scan_state <= SC_WAIT;
+                  wr_req(scan_unit) <= not wr_req(scan_unit);
+                  scan_state        <= SC_WAIT;
                end if;
 
             when SC_WAIT =>
-               if wr_ack_i = wr_req then
+               if wr_ack_i(scan_unit) = wr_req(scan_unit) then
                   scan_state <= SC_SCAN;             -- re-checks the same index
                end if;                               -- first (re-dirty case)
          end case;
 
          -- a commit in the same cycle wins over the scanner's clear
          if dirty_set_valid = '1' then
-            dirty_pend(to_integer(dirty_set_track)) <= '1';
+            dirty_pend(to_integer(dirty_set_unit))(to_integer(dirty_set_track)) <= '1';
          end if;
       end if;
    end process p_dirty_scan;

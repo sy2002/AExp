@@ -576,7 +576,114 @@ _HLP_S5         SUB     1, R1                   ; one more item done
 _HLP_S_RET      MOVE    OPTM_SCOUNT, R0         ; store in variable
                 MOVE    R8, @R0
 
-                SYSCALL(leave, 1)
+                ; M2M-UPSTREAM osm-deps
+                ; Validate the dependent-menu-entry declarations (OPTM_DEP, see
+                ; optm_deps.asm) once at boot. Every failure is an authoring
+                ; error in config.vhd, hence a fatal. The masked groups, the raw
+                ; dependency words and the special-line flags (help lines, which
+                ; are not part of the masked groups window) are materialized into
+                ; transient MENU_HEAP scratch behind the init record - HELP_MENU
+                ; rebuilds that area on every menu open, so this costs no
+                ; permanent heap, only OPTM_STRUCTSIZE + 3 * OPTM_ICOUNT words at
+                ; boot. Mount-drive, cursor-start and LOAD_ROM lines are NOT
+                ; special: the per-drive mount lines of this core are exactly the
+                ; lines that have to be dependent.
+                RSUB    OPTM_DEPS_PROBE, 1      ; does config.vhd support it?
+                RBRA    _HLP_DEPS_RET, !C       ; no: nothing to validate
+
+                MOVE    OPTM_ICOUNT, R7         ; R7: amount of menu items (N)
+                MOVE    @R7, R7
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    M2M$CONFIG, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+
+                MOVE    M2M$CFG_OPTM_GROUPS, @R0 ; masked groups -> scratch base
+                MOVE    M2M$RAMROM_DATA, R8
+                MOVE    HEAP, R9
+                ADD     OPTM_STRUCTSIZE, R9
+                MOVE    R7, R10
+                SYSCALL(memcpy, 1)
+
+                MOVE    M2M$CFG_OPTM_DEPS, @R0  ; raw dependencies -> base + N
+                MOVE    M2M$RAMROM_DATA, R8
+                MOVE    HEAP, R9
+                ADD     OPTM_STRUCTSIZE, R9
+                ADD     R7, R9
+                MOVE    R7, R10
+                SYSCALL(memcpy, 1)
+
+                MOVE    M2M$CFG_OPTM_HELP, @R0  ; help flags -> special base + 2N
+                MOVE    M2M$RAMROM_DATA, R8
+                MOVE    HEAP, R9
+                ADD     OPTM_STRUCTSIZE, R9
+                ADD     R7, R9
+                ADD     R7, R9
+                MOVE    R7, R10
+                SYSCALL(memcpy, 1)
+
+                MOVE    HEAP, R8                ; R8: masked groups array
+                ADD     OPTM_STRUCTSIZE, R8
+                MOVE    R7, R9                  ; R9: amount of menu items (N)
+                MOVE    R8, R10                 ; R10: dependency array (base + N)
+                ADD     R7, R10
+                MOVE    R10, R11                ; R11: special array (base + 2N)
+                ADD     R7, R11
+                RSUB    OPTM_DEPS_VAL, 1
+                RBRA    _HLP_DEPS_RET, !C       ; valid: done
+
+                MOVE    R10, R0                 ; R0: offending item index
+                MOVE    R9, R1                  ; R1: error class
+                MOVE    ERR_F_DEPMOTHER, R8
+                CMP     0, R1
+                RBRA    _HLP_DEPFAT, Z
+                MOVE    ERR_F_DEPIDX, R8
+                CMP     1, R1
+                RBRA    _HLP_DEPFAT, Z
+                MOVE    ERR_F_DEPMIX, R8
+                CMP     2, R1
+                RBRA    _HLP_DEPFAT, Z
+                MOVE    ERR_F_DEPCHAIN, R8
+                CMP     3, R1
+                RBRA    _HLP_DEPFAT, Z
+                MOVE    ERR_F_DEPSPECIAL, R8
+_HLP_DEPFAT     MOVE    R0, R9                  ; R9: offending line as err code
+                RBRA    FATAL, 1
+
+_HLP_DEPS_RET   SYSCALL(leave, 1)
+                RET
+
+; ----------------------------------------------------------------------------
+; M2M-UPSTREAM osm-deps
+; OPTM_DEPS_PROBE: Detect whether config.vhd supports the dependency feature
+;
+; Reads the magic word at the out-of-band address 0xFFF of the SEL_OPTM_DEPS
+; window. A config.vhd that knows the feature returns 0x2DEF (dependency
+; format 2: 4-bit item MASK); an older one hits the unknown-selector default
+; and returns 0xEEEE, and a format-1 config.vhd (single item index) returns
+; 0x1DEF - both are treated as feature-off, because this firmware interprets
+; bits 11-8 as a mask. Lives here rather than in optm_deps.asm so that file
+; stays free of config-device dependencies and emulator-testable in isolation.
+;
+; Input:  none
+; Output: C=1 feature available (config.vhd returned 0x2DEF), C=0 otherwise.
+;         All registers are preserved.
+; ----------------------------------------------------------------------------
+
+OPTM_DEPS_PROBE INCRB
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    M2M$CONFIG, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    M2M$CFG_OPTM_DEPS, @R0
+                MOVE    M2M$RAMROM_DATA, R0
+                ADD     0x0FFF, R0              ; magic word at address 0xFFF
+                MOVE    @R0, R0
+                CMP     0x2DEF, R0
+                RBRA    _ODP_ON, Z
+                AND     0xFFFB, SR              ; clear Carry: feature off
+                DECRB
+                RET
+_ODP_ON         OR      0x0004, SR              ; set Carry: feature on
+                DECRB
                 RET
 
 ; ----------------------------------------------------------------------------

@@ -331,22 +331,25 @@ signal main_adf_avm_burstcount    : std_logic_vector( 7 downto 0);
 signal main_adf_avm_readdata      : std_logic_vector(15 downto 0);
 signal main_adf_avm_readdatavalid : std_logic;
 signal main_adf_avm_waitrequest   : std_logic;
-signal main_adf_mounted           : std_logic;
-signal main_adf_tracks            : std_logic_vector(7 downto 0);
-signal main_adf_writable          : std_logic;
-signal main_adf_dirty             : std_logic;
+-- Simulated ADF drives, one bit / byte per Amiga unit (index 0 = df0)
+signal main_adf_mounted           : std_logic_vector(2 downto 0);
+signal main_adf_tracks            : std_logic_vector(23 downto 0);  -- 3 x 8 bit, unit u at 8u+7 .. 8u
+signal main_adf_writable          : std_logic_vector(2 downto 0);
+signal main_adf_dirty             : std_logic_vector(2 downto 0);
+signal main_adf_any_dirty         : std_logic;
 signal main_adf_wr_track          : std_logic_vector(7 downto 0);
-signal main_adf_wr_req            : std_logic;
-signal main_adf_wr_ack            : std_logic;
+signal main_adf_wr_req            : std_logic_vector(2 downto 0);
+signal main_adf_wr_ack            : std_logic_vector(2 downto 0);
 
--- Hardware Floppy (main_clk side): drive-map combo decode, CIA-B taps from
--- minimig, conditioned real drive status (CDC'd from the 50 MHz front-end
--- below) and the reconstructed word stream towards the track engine
-signal main_hwf_combo             : std_logic_vector(1 downto 0);  -- {single_drive, hw_is_df0}
+-- Drive configuration (main_clk side): the decoded Drive Settings radios,
+-- the CIA-B taps from minimig, the conditioned real drive status (CDC'd from
+-- the 50 MHz front-end below) and the reconstructed word stream to the engine
+signal main_drv_mode              : std_logic_vector(5 downto 0);  -- 2 bits per unit, see C_DRV_*
+signal main_drv_count             : std_logic_vector(1 downto 0);  -- number of Amiga units minus one
+signal main_drv_map               : std_logic_vector(7 downto 0);  -- {count, mode per unit}
 signal main_hwf_en                : std_logic;                     -- physical unit exists
 signal main_hwf_unit              : std_logic_vector(1 downto 0);  -- physical unit
-signal main_adf_en                : std_logic;                     -- ADF drive exists
-signal main_adf_unit              : std_logic_vector(1 downto 0);  -- ADF unit
+signal main_adf_en                : std_logic_vector(2 downto 0);  -- unit is a simulated ADF drive
 signal main_hwf_ctrl              : std_logic_vector(7 downto 0);  -- {motor_n,sel3..0_n,side,direc,step_n}
 signal main_hwf_motor_on          : std_logic_vector(3 downto 0);
 signal main_hwf_selected          : std_logic := '0';
@@ -394,17 +397,25 @@ signal qnice_kick_we_l        : std_logic;
 signal qnice_kick_q_u         : std_logic_vector(7 downto 0);
 signal qnice_kick_q_l         : std_logic_vector(7 downto 0);
 
--- ADF mount buffer device 0x0103 (adf_mount_wrapper)
-signal qnice_adf_ce           : std_logic;
-signal qnice_adf_data         : std_logic_vector(15 downto 0);
-signal qnice_adf_wait         : std_logic;
-signal qnice_adf_mounted      : std_logic;
-signal qnice_adf_tracks       : std_logic_vector(7 downto 0);
-signal qnice_adf_write_en     : std_logic;
-signal qnice_adf_any_dirty    : std_logic;
+-- ADF mount buffer devices 0x0103 / 0x0105 / 0x0106 (three adf_mount_wrapper
+-- instances, index 0 = df0). The dirty-track event carries a per-drive request
+-- toggle and a SHARED track payload: the engine serves one event at a time, so
+-- the payload is stable for the whole round trip of the selected drive.
+type t_adf_byte is array (0 to 2) of std_logic_vector( 7 downto 0);
+type t_adf_word is array (0 to 2) of std_logic_vector(15 downto 0);
+type t_adf_addr is array (0 to 2) of std_logic_vector(31 downto 0);
+type t_adf_be   is array (0 to 2) of std_logic_vector( 1 downto 0);
+
+signal qnice_adf_ce           : std_logic_vector(2 downto 0);
+signal qnice_adf_data         : t_adf_word;
+signal qnice_adf_wait         : std_logic_vector(2 downto 0);
+signal qnice_adf_mounted      : std_logic_vector(2 downto 0);
+signal qnice_adf_tracks       : t_adf_byte;
+signal qnice_adf_write_en     : std_logic_vector(2 downto 0);
+signal qnice_adf_any_dirty    : std_logic_vector(2 downto 0);
 signal qnice_adf_wrt_track    : std_logic_vector(7 downto 0);
-signal qnice_adf_wrt_req      : std_logic;
-signal qnice_adf_wrt_ack      : std_logic;
+signal qnice_adf_wrt_req      : std_logic_vector(2 downto 0);
+signal qnice_adf_wrt_ack      : std_logic_vector(2 downto 0);
 
 -- Hardware Floppy front-end (physical_fdd_top runs on qnice_clk; every
 -- magnetic constant is hardware-proven at exactly 50 MHz) + diag device 0x0104
@@ -481,85 +492,116 @@ signal hr_flp_avm_readdata        : std_logic_vector(15 downto 0);
 signal hr_flp_avm_readdatavalid   : std_logic;
 signal hr_flp_avm_waitrequest     : std_logic;
 
--- ADF mount wrapper's Avalon master (the QNICE->hr CDC lives inside the wrapper)
-signal hr_adf_avm_write           : std_logic;
-signal hr_adf_avm_read            : std_logic;
-signal hr_adf_avm_address         : std_logic_vector(31 downto 0);
-signal hr_adf_avm_writedata       : std_logic_vector(15 downto 0);
-signal hr_adf_avm_byteenable      : std_logic_vector( 1 downto 0);
-signal hr_adf_avm_burstcount      : std_logic_vector( 7 downto 0);
-signal hr_adf_avm_readdata        : std_logic_vector(15 downto 0);
-signal hr_adf_avm_readdatavalid   : std_logic;
-signal hr_adf_avm_waitrequest     : std_logic;
+-- The three ADF mount wrappers' Avalon masters (each wrapper contains its own
+-- QNICE->hr CDC), one entry per drive
+signal hr_adf_avm_write           : std_logic_vector(2 downto 0);
+signal hr_adf_avm_read            : std_logic_vector(2 downto 0);
+signal hr_adf_avm_address         : t_adf_addr;
+signal hr_adf_avm_writedata       : t_adf_word;
+signal hr_adf_avm_byteenable      : t_adf_be;
+signal hr_adf_avm_burstcount      : t_adf_byte;
+signal hr_adf_avm_readdata        : t_adf_word;
+signal hr_adf_avm_readdatavalid   : std_logic_vector(2 downto 0);
+signal hr_adf_avm_waitrequest     : std_logic_vector(2 downto 0);
+
+-- flattened arbiter interface (avm_arbit_general uses packed vectors)
+signal hr_arb_write               : std_logic_vector(3 downto 0);
+signal hr_arb_read                : std_logic_vector(3 downto 0);
+signal hr_arb_address             : std_logic_vector(4 * 32 - 1 downto 0);
+signal hr_arb_writedata           : std_logic_vector(4 * 16 - 1 downto 0);
+signal hr_arb_byteenable          : std_logic_vector(4 *  2 - 1 downto 0);
+signal hr_arb_burstcount          : std_logic_vector(4 *  8 - 1 downto 0);
+signal hr_arb_readdata            : std_logic_vector(4 * 16 - 1 downto 0);
+signal hr_arb_readdatavalid       : std_logic_vector(3 downto 0);
+signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
 ---------------------------------------------------------------------------------------------
 
--- (the " df0:%s" mount item at line 2, the hardware-role text at line 3 and
--- the " Configure Drives" submenu head at line 4 are handled by the Shell /
--- firmware and need no C_MENU constant here)
+-- (the three " dfN:%s" mount items at lines 2/4/6 and the " Drive Settings"
+-- submenu head at line 8 are handled by the Shell / firmware and need no
+-- C_MENU constant here; their hardware-drive twin lines 3/5/7 are TEXT)
 -- ALL C_MENU_* constants below are additionally scraped by
 -- CORE/m2m-rom/make_rom.sh into the autogenerated osm_const.asm (as
 -- AEXP_OSM_*), so the firmware never hardcodes menu line numbers.
 -- Keep them single-line for the awk scraper.
--- The Configure Drives block at lines 3..12 shifted every entry below it by
--- 10 lines vs the pre-Hardware-Floppy layout.
+-- The drive block at lines 2..30 shifted every entry below it by 18 lines vs
+-- the single-simulated-drive layout.
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 
--- Configure Drives radio (drive-map combos, Hardware Floppy feature): which
--- Amiga units the ADF drive and the MEGA65's real internal drive occupy.
--- Line 7 carries OPTM_G_STDSEL = the default (df0: ADF, df1: Hardware).
--- Decoded below into the 2-bit combo code {single_drive, hw_is_df0}:
--- A="00" df0:ADF df1:HW, B="01" df0:HW df1:ADF, C="10" df0:ADF only,
--- D="11" df0:HW only (no ADF drive). A change triggers the amiga_cold_boot
--- reset (drive count is reset-latched in Paula and AmigaOS enumerates units
--- at boot). The firmware rewrites the labels of menu lines 2+3 to match
--- (HWF_LABEL_SYNC; see config.vhd's DRIVE LINES comment).
-constant C_MENU_HWFC_ADF_HW   : natural :=  7;
-constant C_MENU_HWFC_HW_ADF   : natural :=  8;
-constant C_MENU_HWFC_ADF_OFF  : natural :=  9;
-constant C_MENU_HWFC_HW_OFF   : natural := 10;
+-- Drive Settings submenu. Two radios decide the floppy configuration:
+--
+--   * "Drives" (lines 12..14, line 14 = OPTM_G_STDSEL = three drives) is how
+--     many Amiga units exist. Paula latches the drive count at reset and
+--     AmigaOS enumerates units at boot, so a change cold-boots the emulated
+--     Amiga through amiga_cold_boot.
+--   * one mode radio per unit: "Disk Image" (a simulated ADF drive) or
+--     "Hardware Floppy" (the MEGA65 internal mechanism, at most one unit) or
+--     "Off". df0 always exists and therefore has no Off item; for df1 and df2
+--     the Off item is what the Drives radio swaps in (menu dependency), which
+--     is also what hides that drive's twin lines in the main menu.
+--
+-- Decoded below into main_drv_mode (two bits per unit, see C_DRV_*) plus the
+-- derived drive count. The firmware keeps these two radios consistent in
+-- OSM_SEL_POST; the HDL never has to repair an inconsistent combination, it
+-- just decodes what it is given.
+constant C_MENU_DRIVES_1      : natural := 12;
+constant C_MENU_DRIVES_2      : natural := 13;
+constant C_MENU_DRIVES_3      : natural := 14;
+constant C_MENU_DF0_IMG       : natural := 17;
+constant C_MENU_DF0_HW        : natural := 18;
+constant C_MENU_DF1_IMG       : natural := 21;
+constant C_MENU_DF1_HW        : natural := 22;
+constant C_MENU_DF1_OFF       : natural := 23;
+constant C_MENU_DF2_IMG       : natural := 26;
+constant C_MENU_DF2_HW        : natural := 27;
+constant C_MENU_DF2_OFF       : natural := 28;
 
-constant C_MENU_HDMI_16_9_50  : natural := 19;
-constant C_MENU_HDMI_4_3_50   : natural := 20;
-constant C_MENU_HDMI_5_4_50   : natural := 21;
+-- per-unit drive mode, two bits each in main_drv_mode (unit u at 2u+1 downto 2u)
+constant C_DRV_IMAGE          : std_logic_vector(1 downto 0) := "00";  -- simulated ADF drive
+constant C_DRV_HW             : std_logic_vector(1 downto 0) := "01";  -- the MEGA65 mechanism
+constant C_DRV_OFF            : std_logic_vector(1 downto 0) := "10";  -- unit does not exist
+
+constant C_MENU_HDMI_16_9_50  : natural := 37;
+constant C_MENU_HDMI_4_3_50   : natural := 38;
+constant C_MENU_HDMI_5_4_50   : natural := 39;
 
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
-constant C_MENU_FLT_NO_FILTER     : natural := 27;
-constant C_MENU_FLT_SHARP         : natural := 28;
-constant C_MENU_FLT_BICUBIC       : natural := 29;
-constant C_MENU_FLT_SMOOTH        : natural := 30;
-constant C_MENU_FLT_LANCZOS       : natural := 31;
-constant C_MENU_FLT_SCANLINES     : natural := 32;
-constant C_MENU_FLT_CRT_SVIDEO    : natural := 33;
-constant C_MENU_FLT_CRT_COMPOSITE : natural := 34;
+constant C_MENU_FLT_NO_FILTER     : natural := 45;
+constant C_MENU_FLT_SHARP         : natural := 46;
+constant C_MENU_FLT_BICUBIC       : natural := 47;
+constant C_MENU_FLT_SMOOTH        : natural := 48;
+constant C_MENU_FLT_LANCZOS       : natural := 49;
+constant C_MENU_FLT_SCANLINES     : natural := 50;
+constant C_MENU_FLT_CRT_SVIDEO    : natural := 51;
+constant C_MENU_FLT_CRT_COMPOSITE : natural := 52;
 
 -- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
 -- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
-constant C_MENU_HDMI_FF       : natural := 37;
+constant C_MENU_HDMI_FF       : natural := 55;
 
-constant C_MENU_VGA_STD       : natural := 41;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 45;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 46;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+constant C_MENU_VGA_STD       : natural := 59;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 63;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 64;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
--- OSM Scaling follows the C64 layout: line 53 (100%, default) maps to bit 0,
--- while line 61 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
-subtype C_MENU_OSM_SCALING is natural range 61 downto 53;
+-- OSM Scaling follows the C64 layout: line 71 (100%, default) maps to bit 0,
+-- while line 79 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
+subtype C_MENU_OSM_SCALING is natural range 79 downto 71;
 
--- Volume radio (master volume, 5% steps): line 70 (100%, default) down to line 90
+-- Volume radio (master volume, 5% steps): line 88 (100%, default) down to line 108
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 90 downto 70;
+subtype C_MENU_VOLUME is natural range 108 downto 88;
 
--- Stereo crossfeed radio ("Stereo: %s" submenu): line 96 (Full Stereo, default)
--- down to line 99 (Mono). Decoded below into main_stereo_mix using MiSTer's
+-- Stereo crossfeed radio ("Stereo: %s" submenu): line 114 (Full Stereo, default)
+-- down to line 117 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 99 downto 96;
+subtype C_MENU_STEREO is natural range 117 downto 114;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -567,31 +609,31 @@ subtype C_MENU_STEREO is natural range 99 downto 96;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 102;
-constant C_MENU_LEDFILT       : natural := 103;
+constant C_MENU_A500FILT      : natural := 120;
+constant C_MENU_LEDFILT       : natural := 121;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 108 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 126 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 107;
+constant C_MENU_KBD_AMIGA     : natural := 125;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 112 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 130 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 112;
-constant C_MENU_OSMKEY_F11    : natural := 113;
-constant C_MENU_OSMKEY_F13    : natural := 114;
-constant C_MENU_OSMKEY_COMBO  : natural := 115;
+constant C_MENU_OSMKEY_HELP   : natural := 130;
+constant C_MENU_OSMKEY_F11    : natural := 131;
+constant C_MENU_OSMKEY_F13    : natural := 132;
+constant C_MENU_OSMKEY_COMBO  : natural := 133;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 119;
+constant C_MENU_SLOWRAM       : natural := 137;
 
 begin
 
@@ -681,8 +723,12 @@ begin
    -- While unflushed ADF writes exist the LED is forced ON and turns YELLOW -
    -- "do not power off yet" - and back to green once the background flush is
    -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
-   main_drive_led_o     <= main_fdd_led or main_adf_dirty;
-   main_drive_led_col_o <= x"FFFF00" when main_adf_dirty = '1' else x"00FF00";
+   main_drive_led_o     <= main_fdd_led or main_adf_any_dirty;
+   main_drive_led_col_o <= x"FFFF00" when main_adf_any_dirty = '1' else x"00FF00";
+
+   -- "unflushed writes exist" is the OR across all simulated drives: the LED
+   -- must stay yellow until the last drive is clean
+   main_adf_any_dirty   <= '1' when main_adf_dirty /= "000" else '0';
 
    -- OSM-open key selection (issue #8): decode the "OSM: %s" radio into m2m_keyb's
    -- selected-key inputs. main_osm_control_i is static in the core clock domain
@@ -731,27 +777,81 @@ begin
       end loop;
    end process stereo_decode_proc;
 
-   -- Hardware Floppy drive map: decode the Configure Drives radio into the
-   -- combo code {single_drive, hw_is_df0}. The fall-through default is
-   -- combo A (df0: ADF, df1: Hardware - the OPTM_G_STDSEL line), so the
-   -- core behaves per the standard map even while QNICE is still booting.
-   hwf_combo_decode : process (main_osm_control_i)
+   -- Drive Settings decode. Each Amiga unit gets a two-bit mode; the drive
+   -- count comes from the Drives radio and is clamped so that a unit which the
+   -- count does not cover is Off no matter what its own radio says (the
+   -- firmware enforces the same thing in the menu, this is the belt).
+   -- Fall-through defaults reproduce the OPTM_G_STDSEL lines, so the core
+   -- behaves per the standard configuration while QNICE is still booting.
+   drv_decode : process (main_osm_control_i)
+      variable v_count : natural range 1 to 3;
+      variable v_mode  : std_logic_vector(1 downto 0);
+      variable v_phys  : std_logic;
    begin
-      if main_osm_control_i(C_MENU_HWFC_HW_ADF) = '1' then
-         main_hwf_combo <= "01";                            -- B: df0 HW, df1 ADF
-      elsif main_osm_control_i(C_MENU_HWFC_ADF_OFF) = '1' then
-         main_hwf_combo <= "10";                            -- C: df0 ADF only
-      elsif main_osm_control_i(C_MENU_HWFC_HW_OFF) = '1' then
-         main_hwf_combo <= "11";                            -- D: df0 HW only
+      if main_osm_control_i(C_MENU_DRIVES_1) = '1' then
+         v_count := 1;
+      elsif main_osm_control_i(C_MENU_DRIVES_2) = '1' then
+         v_count := 2;
       else
-         main_hwf_combo <= "00";                            -- A: df0 ADF, df1 HW (default)
+         v_count := 3;                                      -- OPTM_G_STDSEL default
       end if;
-   end process hwf_combo_decode;
+      main_drv_count <= std_logic_vector(to_unsigned(v_count - 1, 2));
 
-   main_hwf_en   <= '0' when main_hwf_combo = "10" else '1';       -- no physical unit in C
-   main_adf_en   <= '0' when main_hwf_combo = "11" else '1';       -- no ADF drive in D
-   main_hwf_unit <= "0" & not main_hwf_combo(0);                   -- HW: df0 in B/D, df1 in A
-   main_adf_unit <= "0" & main_hwf_combo(0);                       -- ADF: the other unit
+      main_hwf_en   <= '0';
+      main_hwf_unit <= "00";
+      v_phys        := '0';
+
+      for u in 0 to 2 loop
+         if u = 0 then
+            if main_osm_control_i(C_MENU_DF0_HW) = '1' then
+               v_mode := C_DRV_HW;
+            else
+               v_mode := C_DRV_IMAGE;                       -- OPTM_G_STDSEL default
+            end if;
+         elsif u = 1 then
+            if main_osm_control_i(C_MENU_DF1_OFF) = '1' then
+               v_mode := C_DRV_OFF;
+            elsif main_osm_control_i(C_MENU_DF1_HW) = '1' then
+               v_mode := C_DRV_HW;
+            else
+               v_mode := C_DRV_IMAGE;                       -- OPTM_G_STDSEL default
+            end if;
+         else
+            if main_osm_control_i(C_MENU_DF2_OFF) = '1' then
+               v_mode := C_DRV_OFF;
+            elsif main_osm_control_i(C_MENU_DF2_IMG) = '1' then
+               v_mode := C_DRV_IMAGE;
+            else
+               v_mode := C_DRV_HW;                          -- OPTM_G_STDSEL default
+            end if;
+         end if;
+
+         if u >= v_count then
+            v_mode := C_DRV_OFF;                            -- beyond the drive count
+         end if;
+
+         -- only one physical mechanism exists: the lowest unit asking for it wins
+         if v_mode = C_DRV_HW then
+            if v_phys = '1' then
+               v_mode := C_DRV_IMAGE;
+            else
+               v_phys        := '1';
+               main_hwf_en   <= '1';
+               main_hwf_unit <= std_logic_vector(to_unsigned(u, 2));
+            end if;
+         end if;
+
+         main_drv_mode(2 * u + 1 downto 2 * u) <= v_mode;
+         if v_mode = C_DRV_IMAGE then
+            main_adf_en(u) <= '1';
+         else
+            main_adf_en(u) <= '0';
+         end if;
+      end loop;
+   end process drv_decode;
+
+   -- what the cold-boot controller watches: the complete floppy topology
+   main_drv_map <= main_drv_count & main_drv_mode;
 
    -- Memory topology is guest state, so changing it must be a cold boot from
    -- Kickstart's perspective; the Hardware Floppy drive map is treated the
@@ -762,7 +862,7 @@ begin
       port map (
          clk_i             => main_clk,
          slow_ram_i        => main_osm_control_i(C_MENU_SLOWRAM),
-         hwf_map_i         => main_hwf_combo,
+         drv_map_i         => main_drv_map,
          amiga_reset_o     => amiga_cold_reset,
          chip_scrub_o      => amiga_chip_scrub,
          chip_scrub_addr_o => amiga_chip_scrub_addr
@@ -772,7 +872,9 @@ begin
    i_main : entity work.main
       generic map (
          G_VDNUM              => C_VDNUM,
-         G_ADF_BASE_ADDRESS   => C_HMAP_ADF_DF0(9 downto 0) & x"000"
+         G_ADF_BASE_DF0       => C_HMAP_ADF_DF0(9 downto 0) & x"000",
+         G_ADF_BASE_DF1       => C_HMAP_ADF_DF1(9 downto 0) & x"000",
+         G_ADF_BASE_DF2       => C_HMAP_ADF_DF2(9 downto 0) & x"000"
       )
       port map (
          clk_main_i           => main_clk,
@@ -831,8 +933,8 @@ begin
          pwr_led_o            => main_pwr_led,
          fdd_led_o            => main_fdd_led,
 
-         -- ADF floppy: mount status, write-back arming, dirty-track events
-         -- and the HyperRAM read/write port
+         -- Simulated ADF drives: per-unit mount status, write-back arming,
+         -- dirty-track events and the shared HyperRAM read/write port
          adf_mounted_i        => main_adf_mounted,
          adf_tracks_i         => main_adf_tracks,
          adf_writable_i       => main_adf_writable,
@@ -863,10 +965,11 @@ begin
          -- topology is installed before Kickstart rebuilds its memory list.
          slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
 
-         -- Hardware Floppy: drive map, CIA-B taps, conditioned real drive
-         -- status and the reconstructed word stream (front-end below)
+         -- Floppy configuration, plus the Hardware Floppy CIA-B taps,
+         -- conditioned real drive status and reconstructed word stream
+         -- (front-end below)
+         drv_count_i          => main_drv_count,
          hwf_adf_en_i         => main_adf_en,
-         hwf_adf_unit_i       => main_adf_unit,
          hwf_phys_unit_i      => main_hwf_unit,
          hwf_phys_en_i        => main_hwf_en,
          hwf_fdd_ctrl_o       => main_hwf_ctrl,
@@ -997,9 +1100,12 @@ begin
    -- Device map (QNICE dev_addr is a BYTE address into the Amiga memories;
    -- even byte = data bits 15:8 (lane U), odd byte = bits 7:0 (lane L)):
    --   0x0100  C_DEV_AMIGA_KICK  256 KB  Kickstart ROM (mandatory auto-load target)
-   --   0x0103  C_DEV_AMIGA_ADF0  ADF mount buffer in HyperRAM + CSR window 0xFFFF
+   --   0x0103  C_DEV_AMIGA_ADF0  df0 ADF mount buffer in HyperRAM + CSR window 0xFFFF
    --           (adf_mount_wrapper packs its own byte order - byte address bit 0
    --           selects the HyperRAM word's LOW byte lane for EVEN addresses)
+   --   0x0104  C_DEV_AMIGA_FDD   Hardware Floppy diagnostics (read-only bank)
+   --   0x0105  C_DEV_AMIGA_ADF1  df1 ADF mount buffer
+   --   0x0106  C_DEV_AMIGA_ADF2  df2 ADF mount buffer
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
    -- signal declarations above); their device IDs stay reserved in globals.vhd.
    ---------------------------------------------------------------------------------------------
@@ -1012,7 +1118,7 @@ begin
 
       qnice_kick_we_u  <= '0';
       qnice_kick_we_l  <= '0';
-      qnice_adf_ce     <= '0';
+      qnice_adf_ce     <= "000";
 
       case qnice_dev_id_i is
 
@@ -1026,9 +1132,19 @@ begin
             end if;
 
          when C_DEV_AMIGA_ADF0 =>
-            qnice_adf_ce     <= qnice_dev_ce_i;
-            qnice_dev_data_o <= qnice_adf_data;
-            qnice_dev_wait_o <= qnice_adf_wait;
+            qnice_adf_ce(0)  <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_adf_data(0);
+            qnice_dev_wait_o <= qnice_adf_wait(0);
+
+         when C_DEV_AMIGA_ADF1 =>
+            qnice_adf_ce(1)  <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_adf_data(1);
+            qnice_dev_wait_o <= qnice_adf_wait(1);
+
+         when C_DEV_AMIGA_ADF2 =>
+            qnice_adf_ce(2)  <= qnice_dev_ce_i;
+            qnice_dev_data_o <= qnice_adf_data(2);
+            qnice_dev_wait_o <= qnice_adf_wait(2);
 
          -- Hardware Floppy diagnostics: register bank, no wait (the single
          -- writable register 0x1F lives in the process below)
@@ -1286,17 +1402,12 @@ begin
    begin
       if rising_edge(main_clk) then
          if main_hwf_en = '1' then
-            if main_hwf_unit = "01" then
-               v_sel_n := main_hwf_ctrl(4);                  -- _sel1
-            else
-               v_sel_n := main_hwf_ctrl(3);                  -- _sel0
-            end if;
+            -- main_hwf_ctrl bits 6..3 are _sel3.._sel0, so the select line of
+            -- unit u sits at bit 3 + u. df2 is the DEFAULT hardware unit, so
+            -- getting this wrong leaves the real drive completely unselected.
+            v_sel_n := main_hwf_ctrl(3 + to_integer(unsigned(main_hwf_unit)));
             f_selecta_o <= v_sel_n;
-            if main_hwf_unit = "01" then
-               f_motora_o <= not main_hwf_motor_on(1);
-            else
-               f_motora_o <= not main_hwf_motor_on(0);
-            end if;
+            f_motora_o  <= not main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
             f_side1_o   <= main_hwf_ctrl(2) xor main_hwf_sideinv;  -- side (verify on hardware)
             f_stepdir_o <= main_hwf_ctrl(1);                 -- direc: '1' = toward track 0
             if v_sel_n = '0' then
@@ -1317,7 +1428,7 @@ begin
       end if;
    end process hwf_pins_proc;
 
-   main_hwf_motor <= main_hwf_motor_on(1) when main_hwf_unit = "01" else main_hwf_motor_on(0);
+   main_hwf_motor <= main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
 
    -- The read front-end: pins -> conditioner -> gaps -> adaptive quantiser ->
    -- raw-bit rebuild/DSKSYNC aligner -> word FIFO. Control context and the
@@ -1422,14 +1533,39 @@ begin
          dst_data_o(5) => main_hwf_present
       ); -- i_cdc_hwf_status
 
-   -- drive map for the diag device, decoded in the QNICE domain (same OSM
-   -- bits as the main-domain decode; the diag reads it CDC-free).
-   -- Encoding {unit[1:0], enable} of the PHYSICAL drive:
-   -- A/B/D have it enabled (df1/df0/df0), C has it off.
-   qnice_hwf_map3 <= "001" when qnice_osm_control_i(C_MENU_HWFC_HW_ADF) = '1' else
-                     "000" when qnice_osm_control_i(C_MENU_HWFC_ADF_OFF) = '1' else
-                     "001" when qnice_osm_control_i(C_MENU_HWFC_HW_OFF) = '1' else
-                     "011";                                  -- combo A (default): df1
+   -- drive map for the diag device, decoded in the QNICE domain (same OSM bits
+   -- and the same rules as drv_decode above; the diag reads it CDC-free).
+   -- Encoding {unit[1:0], enable} of the PHYSICAL drive: the lowest unit whose
+   -- mode radio says "Hardware Floppy" and that the drive count still covers.
+   qnice_hwf_map3_decode : process (qnice_osm_control_i)
+      variable v_count : natural range 1 to 3;
+      variable v_hw    : boolean;
+   begin
+      if qnice_osm_control_i(C_MENU_DRIVES_1) = '1' then
+         v_count := 1;
+      elsif qnice_osm_control_i(C_MENU_DRIVES_2) = '1' then
+         v_count := 2;
+      else
+         v_count := 3;
+      end if;
+
+      qnice_hwf_map3 <= "000";                               -- no physical unit
+      for u in 2 downto 0 loop
+         if u = 0 then
+            v_hw := qnice_osm_control_i(C_MENU_DF0_HW) = '1';
+         elsif u = 1 then
+            v_hw := qnice_osm_control_i(C_MENU_DF1_HW) = '1';
+         else
+            -- df2 defaults to Hardware Floppy (OPTM_G_STDSEL), so "neither of
+            -- the other two items" is the default state while QNICE boots
+            v_hw := qnice_osm_control_i(C_MENU_DF2_IMG) = '0' and
+                    qnice_osm_control_i(C_MENU_DF2_OFF) = '0';
+         end if;
+         if v_hw and u < v_count then
+            qnice_hwf_map3 <= std_logic_vector(to_unsigned(u, 2)) & '1';
+         end if;
+      end loop;
+   end process qnice_hwf_map3_decode;
 
    i_physical_fdd_diag : entity work.physical_fdd_diag
       port map (
@@ -1473,49 +1609,73 @@ begin
    ---------------------------------------------------------------------------------------------
    -- ADF floppy: HyperRAM plumbing
    --
-   -- Two Avalon masters share the framework's hr_core_* port (100 MHz hr_clk):
-   --   * the mount wrapper (QNICE device 0x0103): Shell streams the ADF into
-   --     HyperRAM at load time; contains its own QNICE->hr avm_fifo CDC
-   --   * the track engine's read chain from main.vhd (post avm_cache), crossed
-   --     main->hr by the avm_fifo below
+   -- Four Avalon masters share the framework's hr_core_* port (100 MHz hr_clk):
+   --   * one mount wrapper per simulated drive (QNICE devices 0x0103 / 0x0105 /
+   --     0x0106): the Shell streams an ADF into that drive's HyperRAM pool at
+   --     load time; each wrapper contains its own QNICE->hr avm_fifo CDC
+   --   * the track engine's read/write chain from main.vhd (post avm_cache),
+   --     crossed main->hr by the avm_fifo below
    -- Pattern and generics follow C64MEGA65 (REU + mount buffer chains).
+   --
+   -- Elaboration-time guards for the HyperRAM map in globals.vhd: the drive
+   -- pools must start above the framework/ascal region, each pool must hold a
+   -- maximum-size ADF, and the pools must be ordered and guarded.
    ---------------------------------------------------------------------------------------------
 
-   i_adf_mount_wrapper : entity work.adf_mount_wrapper
-      generic map (
-         G_BASE_ADDRESS => C_HMAP_ADF_DF0(9 downto 0) & x"000"
-      )
-      port map (
-         qnice_clk_i          => qnice_clk_i,
-         qnice_rst_i          => qnice_rst_i,
-         qnice_addr_i         => qnice_dev_addr_i,
-         qnice_data_i         => qnice_dev_data_i,
-         qnice_ce_i           => qnice_adf_ce,
-         qnice_we_i           => qnice_dev_we_i,
-         qnice_data_o         => qnice_adf_data,
-         qnice_wait_o         => qnice_adf_wait,
+   assert C_ADF_POOL_BYTES >= C_ADF_MAX_SIZE
+      report "HyperRAM: an ADF pool is smaller than the largest accepted image"
+      severity failure;
 
-         qnice_disk_mounted_o => qnice_adf_mounted,
-         qnice_disk_tracks_o  => qnice_adf_tracks,
+   assert unsigned(C_HMAP_ADF_DF0) >= 256
+      report "HyperRAM: the df0 pool overlaps the 2 MB ascal framebuffer"
+      severity failure;
 
-         qnice_write_en_o     => qnice_adf_write_en,
-         qnice_any_dirty_o    => qnice_adf_any_dirty,
-         qnice_wrt_track_i    => qnice_adf_wrt_track,
-         qnice_wrt_req_i      => qnice_adf_wrt_req,
-         qnice_wrt_ack_o      => qnice_adf_wrt_ack,
+   assert unsigned(C_HMAP_ADF_DF0_GUARD) < unsigned(C_HMAP_ADF_DF1) and
+          unsigned(C_HMAP_ADF_DF1_GUARD) < unsigned(C_HMAP_ADF_DF2) and
+          unsigned(C_HMAP_ADF_DF2_GUARD) < unsigned(C_HMAP_TOP_GUARD) and
+          unsigned(C_HMAP_TOP_GUARD)     < unsigned(C_HMAP_SIZE)
+      report "HyperRAM: the drive pools are not ordered and guarded"
+      severity failure;
 
-         hr_clk_i             => hr_clk_i,
-         hr_rst_i             => hr_rst_i,
-         hr_write_o           => hr_adf_avm_write,
-         hr_read_o            => hr_adf_avm_read,
-         hr_address_o         => hr_adf_avm_address,
-         hr_writedata_o       => hr_adf_avm_writedata,
-         hr_byteenable_o      => hr_adf_avm_byteenable,
-         hr_burstcount_o      => hr_adf_avm_burstcount,
-         hr_readdata_i        => hr_adf_avm_readdata,
-         hr_readdatavalid_i   => hr_adf_avm_readdatavalid,
-         hr_waitrequest_i     => hr_adf_avm_waitrequest
-      ); -- i_adf_mount_wrapper
+   gen_adf_wrapper : for u in 0 to 2 generate
+      constant C_POOL : std_logic_vector(15 downto 0) := C_HMAP_ADF_POOLS(u);
+   begin
+      i_adf_mount_wrapper : entity work.adf_mount_wrapper
+         generic map (
+            G_BASE_ADDRESS => C_POOL(9 downto 0) & x"000"
+         )
+         port map (
+            qnice_clk_i          => qnice_clk_i,
+            qnice_rst_i          => qnice_rst_i,
+            qnice_addr_i         => qnice_dev_addr_i,
+            qnice_data_i         => qnice_dev_data_i,
+            qnice_ce_i           => qnice_adf_ce(u),
+            qnice_we_i           => qnice_dev_we_i,
+            qnice_data_o         => qnice_adf_data(u),
+            qnice_wait_o         => qnice_adf_wait(u),
+
+            qnice_disk_mounted_o => qnice_adf_mounted(u),
+            qnice_disk_tracks_o  => qnice_adf_tracks(u),
+
+            qnice_write_en_o     => qnice_adf_write_en(u),
+            qnice_any_dirty_o    => qnice_adf_any_dirty(u),
+            qnice_wrt_track_i    => qnice_adf_wrt_track,
+            qnice_wrt_req_i      => qnice_adf_wrt_req(u),
+            qnice_wrt_ack_o      => qnice_adf_wrt_ack(u),
+
+            hr_clk_i             => hr_clk_i,
+            hr_rst_i             => hr_rst_i,
+            hr_write_o           => hr_adf_avm_write(u),
+            hr_read_o            => hr_adf_avm_read(u),
+            hr_address_o         => hr_adf_avm_address(u),
+            hr_writedata_o       => hr_adf_avm_writedata(u),
+            hr_byteenable_o      => hr_adf_avm_byteenable(u),
+            hr_burstcount_o      => hr_adf_avm_burstcount(u),
+            hr_readdata_i        => hr_adf_avm_readdata(u),
+            hr_readdatavalid_i   => hr_adf_avm_readdatavalid(u),
+            hr_waitrequest_i     => hr_adf_avm_waitrequest(u)
+         ); -- i_adf_mount_wrapper
+   end generate gen_adf_wrapper;
 
    ---------------------------------------------------------------------------------------------
    -- HDMI flicker-free core-speed FSM (issue #12), hr_clk domain
@@ -1556,56 +1716,62 @@ begin
          dst_data_o(0) => hr_hdmi_ff
       ); -- i_cdc_hdmi_ff
 
-   -- mount + write-back status into the core clock domain (slowly varying
-   -- flags + track count; covered by M2M/common.xdc's cdc_stable constraint)
+   -- mount + write-back status of all three drives into the core clock domain
+   -- (slowly varying flags + track counts; covered by M2M/common.xdc's
+   -- cdc_stable constraint). One instance for all drives: the drives are
+   -- independent, so a per-bit settling skew between them is harmless.
    i_cdc_adf_mount : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 33,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i                 => qnice_clk_i,
+         src_data_i( 7 downto  0)  => qnice_adf_tracks(0),
+         src_data_i(15 downto  8)  => qnice_adf_tracks(1),
+         src_data_i(23 downto 16)  => qnice_adf_tracks(2),
+         src_data_i(26 downto 24)  => qnice_adf_mounted,
+         src_data_i(29 downto 27)  => qnice_adf_write_en,
+         src_data_i(32 downto 30)  => qnice_adf_any_dirty,
+         dst_clk_i                 => main_clk,
+         dst_data_o(23 downto  0)  => main_adf_tracks,
+         dst_data_o(26 downto 24)  => main_adf_mounted,
+         dst_data_o(29 downto 27)  => main_adf_writable,
+         dst_data_o(32 downto 30)  => main_adf_dirty
+      ); -- i_cdc_adf_mount
+
+   -- dirty-track event channel main->qnice: two-phase toggle handshake, now
+   -- with one request toggle per drive and a SHARED track payload. The engine
+   -- holds the track number stable, waits ~1 us, THEN flips the toggle of the
+   -- owning drive (and the payload stays put until that ack round trip
+   -- completes), so cdc_stable's per-bit settling can never deliver a torn
+   -- payload with a fresh toggle, and the two idle drives see no edge at all.
+   -- Ack returns the same way. All three instances are covered by the
+   -- common.xdc cdc_stable set_max_delay constraint.
+   i_cdc_adf_wrt_evt : entity work.cdc_stable
       generic map (
          G_DATA_SIZE    => 11,
          G_REGISTER_SRC => true
       )
       port map (
-         src_clk_i               => qnice_clk_i,
-         src_data_i(7 downto 0)  => qnice_adf_tracks,
-         src_data_i(8)           => qnice_adf_mounted,
-         src_data_i(9)           => qnice_adf_write_en,
-         src_data_i(10)          => qnice_adf_any_dirty,
-         dst_clk_i               => main_clk,
-         dst_data_o(7 downto 0)  => main_adf_tracks,
-         dst_data_o(8)           => main_adf_mounted,
-         dst_data_o(9)           => main_adf_writable,
-         dst_data_o(10)          => main_adf_dirty
-      ); -- i_cdc_adf_mount
-
-   -- dirty-track event channel main->qnice: two-phase toggle handshake. The
-   -- engine holds the track number stable, waits ~1 us, THEN flips the req
-   -- toggle (and the payload stays put until the ack round trip completes),
-   -- so cdc_stable's per-bit settling can never deliver a torn payload with
-   -- a fresh toggle. Ack returns the same way. All three instances are
-   -- covered by the common.xdc cdc_stable set_max_delay constraint.
-   i_cdc_adf_wrt_evt : entity work.cdc_stable
-      generic map (
-         G_DATA_SIZE    => 9,
-         G_REGISTER_SRC => true
-      )
-      port map (
-         src_clk_i               => main_clk,
-         src_data_i(7 downto 0)  => main_adf_wr_track,
-         src_data_i(8)           => main_adf_wr_req,
-         dst_clk_i               => qnice_clk_i,
-         dst_data_o(7 downto 0)  => qnice_adf_wrt_track,
-         dst_data_o(8)           => qnice_adf_wrt_req
+         src_clk_i                => main_clk,
+         src_data_i( 7 downto 0)  => main_adf_wr_track,
+         src_data_i(10 downto 8)  => main_adf_wr_req,
+         dst_clk_i                => qnice_clk_i,
+         dst_data_o( 7 downto 0)  => qnice_adf_wrt_track,
+         dst_data_o(10 downto 8)  => qnice_adf_wrt_req
       ); -- i_cdc_adf_wrt_evt
 
    i_cdc_adf_wrt_ack : entity work.cdc_stable
       generic map (
-         G_DATA_SIZE    => 1,
+         G_DATA_SIZE    => 3,
          G_REGISTER_SRC => true
       )
       port map (
          src_clk_i               => qnice_clk_i,
-         src_data_i(0)           => qnice_adf_wrt_ack,
+         src_data_i(2 downto 0)  => qnice_adf_wrt_ack,
          dst_clk_i               => main_clk,
-         dst_data_o(0)           => main_adf_wr_ack
+         dst_data_o(2 downto 0)  => main_adf_wr_ack
       ); -- i_cdc_adf_wrt_ack
 
    -- track engine read chain: main_clk -> hr_clk (domain resets - never the
@@ -1644,47 +1810,63 @@ begin
          m_avm_readdatavalid_i => hr_flp_avm_readdatavalid
       ); -- i_avm_fifo_adf
 
-   -- round-robin per whole transaction; the two masters never compete in
-   -- practice (mount writes while the engine is idle and vice versa)
-   i_avm_arbit_adf : entity work.avm_arbit
+   -- Flatten the four masters into the packed arbiter interface. Slave 0 is
+   -- the track engine (the only latency-sensitive one - Paula is waiting for
+   -- its sector), slaves 1..3 are the three mount wrappers, which only run
+   -- while the Shell streams an image from the SD card.
+   hr_arb_write <= hr_adf_avm_write & hr_flp_avm_write;
+   hr_arb_read  <= hr_adf_avm_read  & hr_flp_avm_read;
+
+   hr_arb_address(31 downto 0)      <= hr_flp_avm_address;
+   hr_arb_writedata(15 downto 0)    <= hr_flp_avm_writedata;
+   hr_arb_byteenable(1 downto 0)    <= hr_flp_avm_byteenable;
+   hr_arb_burstcount(7 downto 0)    <= hr_flp_avm_burstcount;
+   hr_flp_avm_readdata              <= hr_arb_readdata(15 downto 0);
+   hr_flp_avm_readdatavalid         <= hr_arb_readdatavalid(0);
+   hr_flp_avm_waitrequest           <= hr_arb_waitrequest(0);
+
+   gen_arb_flatten : for u in 0 to 2 generate
+      hr_arb_address(32 * (u + 2) - 1 downto 32 * (u + 1)) <= hr_adf_avm_address(u);
+      hr_arb_writedata(16 * (u + 2) - 1 downto 16 * (u + 1)) <= hr_adf_avm_writedata(u);
+      hr_arb_byteenable(2 * (u + 2) - 1 downto 2 * (u + 1)) <= hr_adf_avm_byteenable(u);
+      hr_arb_burstcount(8 * (u + 2) - 1 downto 8 * (u + 1)) <= hr_adf_avm_burstcount(u);
+      hr_adf_avm_readdata(u)      <= hr_arb_readdata(16 * (u + 2) - 1 downto 16 * (u + 1));
+      hr_adf_avm_readdatavalid(u) <= hr_arb_readdatavalid(u + 1);
+      hr_adf_avm_waitrequest(u)   <= hr_arb_waitrequest(u + 1);
+   end generate gen_arb_flatten;
+
+   -- round-robin per whole transaction; the masters never compete in practice
+   -- (a mount streams while the engine is idle and vice versa)
+   i_avm_arbit_adf : entity work.avm_arbit_general
       generic map (
-         G_PREFER_SWAP  => false,
+         G_NUM_SLAVES   => 4,
+         G_FREQ_HZ      => 100_000_000,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => hr_clk_i,
-         rst_i                  => hr_rst_i,
+         clk_i                 => hr_clk_i,
+         rst_i                 => hr_rst_i,
 
-         s0_avm_write_i         => hr_flp_avm_write,
-         s0_avm_read_i          => hr_flp_avm_read,
-         s0_avm_address_i       => hr_flp_avm_address,
-         s0_avm_writedata_i     => hr_flp_avm_writedata,
-         s0_avm_byteenable_i    => hr_flp_avm_byteenable,
-         s0_avm_burstcount_i    => hr_flp_avm_burstcount,
-         s0_avm_readdata_o      => hr_flp_avm_readdata,
-         s0_avm_readdatavalid_o => hr_flp_avm_readdatavalid,
-         s0_avm_waitrequest_o   => hr_flp_avm_waitrequest,
+         s_avm_write_i         => hr_arb_write,
+         s_avm_read_i          => hr_arb_read,
+         s_avm_address_i       => hr_arb_address,
+         s_avm_writedata_i     => hr_arb_writedata,
+         s_avm_byteenable_i    => hr_arb_byteenable,
+         s_avm_burstcount_i    => hr_arb_burstcount,
+         s_avm_readdata_o      => hr_arb_readdata,
+         s_avm_readdatavalid_o => hr_arb_readdatavalid,
+         s_avm_waitrequest_o   => hr_arb_waitrequest,
 
-         s1_avm_write_i         => hr_adf_avm_write,
-         s1_avm_read_i          => hr_adf_avm_read,
-         s1_avm_address_i       => hr_adf_avm_address,
-         s1_avm_writedata_i     => hr_adf_avm_writedata,
-         s1_avm_byteenable_i    => hr_adf_avm_byteenable,
-         s1_avm_burstcount_i    => hr_adf_avm_burstcount,
-         s1_avm_readdata_o      => hr_adf_avm_readdata,
-         s1_avm_readdatavalid_o => hr_adf_avm_readdatavalid,
-         s1_avm_waitrequest_o   => hr_adf_avm_waitrequest,
-
-         m_avm_write_o          => hr_core_write_o,
-         m_avm_read_o           => hr_core_read_o,
-         m_avm_address_o        => hr_core_address_o,
-         m_avm_writedata_o      => hr_core_writedata_o,
-         m_avm_byteenable_o     => hr_core_byteenable_o,
-         m_avm_burstcount_o     => hr_core_burstcount_o,
-         m_avm_readdata_i       => hr_core_readdata_i,
-         m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
-         m_avm_waitrequest_i    => hr_core_waitrequest_i
+         m_avm_write_o         => hr_core_write_o,
+         m_avm_read_o          => hr_core_read_o,
+         m_avm_address_o       => hr_core_address_o,
+         m_avm_writedata_o     => hr_core_writedata_o,
+         m_avm_byteenable_o    => hr_core_byteenable_o,
+         m_avm_burstcount_o    => hr_core_burstcount_o,
+         m_avm_readdata_i      => hr_core_readdata_i,
+         m_avm_readdatavalid_i => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i   => hr_core_waitrequest_i
       ); -- i_avm_arbit_adf
 
 end architecture synthesis;

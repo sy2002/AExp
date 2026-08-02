@@ -133,6 +133,10 @@ constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     --
 -- drive's slot so that any future maintenance probe address stays in its own region.
 constant C_HMAP_ADF_SLOT      : natural := 128;                               -- windows per drive slot
 
+-- The three pool bases indexed by Amiga unit, for the generate loops in mega65.vhd
+type hmap_pool_array is array (0 to 2) of std_logic_vector(15 downto 0);
+constant C_HMAP_ADF_POOLS     : hmap_pool_array := (C_HMAP_ADF_DF0, C_HMAP_ADF_DF1, C_HMAP_ADF_DF2);
+
 -- ADF geometry: the single source of truth for hardware AND firmware. make_rom.sh scrapes
 -- these into globals.asm so the firmware size gate can never drift from the map.
 -- Keep each of them on ONE line - the awk scraper is line-based.
@@ -225,13 +229,14 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- device, the generated HANDLE_RM_FILE<n> / HNDL_RM_FILES table, the firmware drive
 -- index, and the Paula unit. Occurrence 0 = df0, 1 = df1, 2 = df2 everywhere.
 --
--- STILL ONE for now: the df1/df2 entries are added together with their OSM mount
--- lines, their adf_mount_wrapper instances and the device decode in mega65.vhd. This
--- count must never exceed the number of OPTM_G_LOAD_ROM lines in config.vhd - the
--- Shell resolves a manual id to a menu line via CRTROM_M_GI and goes fatal if there
--- is none.
-constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+-- This count must never exceed the number of OPTM_G_LOAD_ROM lines in config.vhd -
+-- the Shell resolves a manual id to a menu line via CRTROM_M_GI and goes fatal if
+-- there is none. It may be smaller than the number of drives only if the surplus
+-- mount lines are removed from config.vhd as well.
+constant C_CRTROMS_MAN_NUM       : natural := 3;                                       -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF0,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF1,
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF2,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

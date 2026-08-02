@@ -34,21 +34,31 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
 - `WIP-V2-A2` — Hardware Floppy read: works "OK-ish", real disks mount and
   browse, but old/marginal media still produce errors.
 - **`WIP-V2-A3` — MULTIPLE SIMULATED DRIVES (the current alpha, in
-  progress).** Three Amiga units `df0`/`df1`/`df2`, each either a
-  read/write ADF disk image or the Hardware Floppy (at most one). New
-  per-drive OSM lines driven by the backported M2M menu-dependency
-  feature, a `Drive Settings` submenu with a `Drives 1/2/3` radio, three
-  `adf_mount_wrapper` instances with their own guarded HyperRAM pools, a
-  unit-tagged `adf_track_engine`, and per-drive firmware write-back.
+  progress; the HDL, the menu and the framework are DONE and statically
+  verified in the working tree, the per-drive firmware write-back is
+  not).** Three Amiga units `df0`/`df1`/`df2`, each either a read/write
+  ADF disk image or the Hardware Floppy (at most one). The drive index IS
+  the Amiga unit now: per-drive twin lines in the main menu (a mount line
+  and a hardware-status TEXT line) whose visibility comes from the
+  backported M2M menu-dependency feature, a `Drive Settings` submenu with
+  a `Drives 1/2/3` radio plus one mode radio per drive, three
+  `adf_mount_wrapper` instances with their own guarded HyperRAM pools
+  behind a 4-way `avm_arbit_general`, and a unit-tagged
+  `adf_track_engine` whose write drain aborts the moment Paula selects a
+  different unit. **Until the firmware write-back becomes per-drive,
+  df1 and df2 are announced WRITE-PROTECTED** (only df0 ever arms
+  `WR_EN`) - a second armed drive would flush one drive's tracks through
+  the single file handle into another drive's file.
   **The authoritative working document is
   `.research/HANDOVER-multi-drive.md`** - read it before touching the
-  floppy stack; it carries the design rationale, the defect classes to
-  avoid (above all the untagged write drain, which would write one drive
-  into another drive's image) and the ordered work list.
+  floppy stack; it carries the design rationale, what is already in the
+  tree, the defect classes to avoid (above all the untagged write drain,
+  which would write one drive into another drive's image), the ordered
+  remaining work and the verification recipes.
   Note that `CORE_VERSION` drives `CFG_FILE`, so the OSM settings file on
   the SD card becomes `/amiga/aexp-WIP-V2-A3.cfg` - regenerate it with
-  `M2M/tools/make_config.sh` (see hard rule 10). The
-  `doc/inofficial.md` row for A3 is added at packaging time, because
+  `M2M/tools/make_config.sh` (see hard rule 10; `OPTM_SIZE` is now 142).
+  The `doc/inofficial.md` row for A3 is added at packaging time, because
   `make_release.py check_inofficial_md` requires a real commit hash.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
@@ -147,12 +157,16 @@ the deep material lives in `doc/` (see "Key documents").
 - One core clock: **28.375 MHz** (PAL ideal 28.37516, −5.6 ppm), MMCM in
   `CORE/vhdl/clk.vhd` (100 MHz × 56.750 / 5 / 40). No 113.5 MHz clock —
   everything SDRAM/turbo/AGA that needed it is out of scope.
-- Floppy: TWO drive units. The ADF drive (read/write ADF mount from the
-  OSM, image staged in HyperRAM at word 0x200000 = `C_HMAP_ADF_DF0`) and
-  the Hardware Floppy = the MEGA65's internal mechanism reading real Amiga
-  DD disks (read-only milestone). The OSM "Configure Drives" submenu picks
-  one of four combos: df0:ADF+df1:Hardware (default), df0:Hardware+df1:ADF,
-  df0:ADF only, df0:Hardware only (no ADF drive). **ADF read AND write are
+- Floppy: up to THREE drive units `df0`/`df1`/`df2` (WIP-V2-A3; Version 1
+  shipped one). Each unit is either a simulated ADF drive (read/write ADF
+  mount from the OSM, image staged in its own HyperRAM pool
+  `C_HMAP_ADF_DF0/1/2` at words 0x200000/0x280000/0x300000) or the
+  Hardware Floppy = the MEGA65's internal mechanism reading real Amiga DD
+  disks (read-only milestone, at most one unit). The OSM "Drive Settings"
+  submenu holds a `Drives 1/2/3` radio and one Disk Image / Hardware
+  Floppy / Off radio per drive; the main menu shows one line per drive,
+  swapped between the mount item and a hardware-status text by the M2M
+  menu-dependency layer. **ADF read AND write are
   RELEASED and work: they shipped in Version 1 (tag `V1`, 2026-07-23) and
   have been in daily use since. Do not treat the ADF drive as unproven** -
   `VERSIONS.md` lists "One floppy drive (df0:): read/write standard 880 KB
@@ -171,8 +185,10 @@ the deep material lives in `doc/` (see "Key documents").
   drive LED yellow while dirty. Design + review findings:
   `.research/INTEGRATION-SPEC-floppy-adf-write.md` (the arm-state
   invariant in §5a is load-bearing). Announced write-protected until
-  the firmware arms WR_EN, on SD change, and while remounting.
-  No df1..df3, no IDE. Keyboard + joysticks + mouse work.
+  the firmware arms WR_EN, on SD change, and while remounting - which is
+  also why df1 and df2 are read-only until the firmware write-back
+  becomes per-drive (see the WIP-V2-A3 entry above).
+  No IDE. Keyboard + joysticks + mouse work.
 - Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
   HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →
   `CORE/vhdl/audio_filters.vhd` (bit-faithful Minimig.sv port reusing M2M's
@@ -222,19 +238,11 @@ the deep material lives in `doc/` (see "Key documents").
   = ready → drive-ID 0xFFFFFFFF for df1:; motor on = 505 ms + 2 qualified
   index edges + index freshness = eject detection). Diag device 0x0104
   (`physical_fdd_diag`, QNICE domain, CDC-free — the bring-up instrument).
-  The menu STRUCTURE is fully static (config.vhd, zero M2M involvement):
-  line 2 = the ADF mount item " df0:%s", line 3 = a TEXT line showing the
-  hardware drive's role, line 4 = the Configure Drives submenu head (no
-  %s). Only the LABELS of lines 2+3 follow the combo, rewritten by the
-  firmware alone: `HWF_LABEL_SYNC` (m2m-rom.asm), SELF-HEALING from
-  HANDLE_CORE_IO (ticks inside all OSM wait loops), compares two
-  FIXED-WIDTH heap fields (4-char unit prefix "df0:"/"df1:"/"ADF:" +
-  21-char role text) against the current combo and on mismatch patches
-  the heap and repaints - but only when the main menu view is on screen
-  (M2M$CSR OSM bit + OPTM_MENULEVEL=0 + not OSM_SUB_ACTIVE). Boot-safe:
-  combo read straight from M2M$CFM_DATA (M2M$GET_SETTING would fatal
-  before menu init), bounded heap scan, RAMROM-transparent. No
-  OSM_SEL_POST hook needed. A positional REORDER of the lines is
+  The A2 menu had a static two-line structure whose LABELS a firmware
+  routine (`HWF_LABEL_SYNC`) rewrote in the menu heap to follow the
+  selected combo. **That routine is GONE in WIP-V2-A3**: the M2M
+  menu-dependency layer swaps whole lines now, which is what the twin
+  pairs are. A positional REORDER of the lines is
   impossible within the framework invariants and was HARDWARE-REFUTED on
   R3 (fatal 0x001F on submenu exit): submenu blocks are contiguity-defined
   (head..closer) and CFM bit i is positionally bound to line i.
@@ -345,7 +353,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with SEVEN sanctioned
+- `M2M/` — the framework. **NEVER modify**, with EIGHT sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -393,6 +401,19 @@ the deep material lives in `doc/` (see "Key documents").
   issue-#90 pattern: board top → core direct, `framework.vhd` untouched);
   f_motorb/f_selectb/f_wdata/f_wgate stay tied '1'. sy2002-approved
   2026-07-26.
+  (8) `osm-deps` — SMART MENU DEPENDENCIES, backported from C64MEGA65 issue
+  #229 (dependency format 2): a menu line can be tagged in config.vhd with
+  `OPTM_DEP`/`OPTM_DEP2` so that it is only visible while one of the items
+  of a "mother" group is selected. New `M2M/rom/optm_deps.asm`, plus
+  `M2M$CFG_OPTM_DEPS`, `OPTM_IR_DEPS`, the third visibility pass in
+  `_OPTM_STRUCT`, the live redraw and cursor normalisation in `_OPTM_RUN`,
+  the `OPTM_SELECT` carry guard, the boot validator call and the five
+  `ERR_F_DEP*` strings. Every line is unconditionally visible when
+  config.vhd does not serve the feature probe, so other cores are
+  unaffected. AExp needs it for the per-drive twin lines: this instance
+  additionally allows dependent `OPTM_G_LOAD_ROM` lines, PARTIALLY VISIBLE
+  radio groups and two-level chains, which is why `OPTM_DEPS_VAL` classes
+  2 and 3 are weaker here than in the C64 original (reasons in its header).
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).

@@ -174,6 +174,20 @@ ERR_F_MENUNGRP  .ASCII_P "config.vhd: No selected menu group item\n"
                 .ASCII_W "found within submenu.\n"
 ERR_F_NEWLINE   .ASCII_P "config.vhd: Each line in OPTM_ITEMS needs\n"
                 .ASCII_W "to be terminated by a newline character.\n"
+
+; M2M-UPSTREAM osm-deps: the five authoring errors OPTM_DEPS_VAL can find in
+; the OPTM_DEP() / OPTM_DEP2() tags of OPTM_GROUPS. The fatal screen shows the
+; offending menu line as the error code.
+ERR_F_DEPMOTHER .ASCII_P "config.vhd: An OPTM_DEP() refers to a\n"
+                .ASCII_W "mother group that does not exist.\n"
+ERR_F_DEPIDX    .ASCII_P "config.vhd: An OPTM_DEP() item index is\n"
+                .ASCII_W "out of range for its mother group.\n"
+ERR_F_DEPMIX    .ASCII_P "config.vhd: The members of one menu group\n"
+                .ASCII_W "must all depend on the same mother group.\n"
+ERR_F_DEPCHAIN  .ASCII_P "config.vhd: An OPTM_DEP() must not refer\n"
+                .ASCII_W "to the group of the line that carries it.\n"
+ERR_F_DEPSPECIAL .ASCII_P "config.vhd: OPTM_DEP() is not allowed on\n"
+                .ASCII_W "a submenu, close or help line.\n"
 ERR_F_MENUDRV   .ASCII_P "config.vhd: More menu items have the\n"
                 .ASCII_P "attribute OPTM_G_MOUNT_DRV than there are\n"
                 .ASCII_P "virtual drives configured in globals.vhd\n"

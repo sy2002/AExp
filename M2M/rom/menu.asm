@@ -618,6 +618,42 @@ OPTM_RUN        SYSCALL(enter, 1)
                 MOVE    OPTM_STRUCT, R7         ; remember pointer to struct.
                 MOVE    SP, @R7
 
+                ; M2M-UPSTREAM osm-deps
+                ; Normalize the entry cursor position. Since dependency format 2
+                ; a dependent line may be selectable and may even carry
+                ; OPTM_G_START (the per-drive mount lines), so the position we
+                ; are entered with - the remembered one, the start one, or the
+                ; one carried over a submenu switch or a dependency redraw - can
+                ; be hidden right now. The first thing the main loop does is a
+                ; screen-coordinate conversion, which goes FATAL on a line that
+                ; the current level does not show, so walk forward (with
+                ; wrap-around) to the next visible AND selectable line instead.
+                ; R0 = amount of menu items, R1 = groups array, R2 = cursor,
+                ; SP+3 = the structure array behind its size word.
+                MOVE    R0, R9                  ; R9: guard, at most N tries
+_OPTM_RUN_INI   MOVE    SP, R7                  ; structure word of position R2
+                ADD     3, R7
+                ADD     R2, R7
+                MOVE    @R7, R7
+                SHL     1, R7                   ; bit 15: shown at this level?
+                RBRA    _OPTM_RUN_INIA, !C      ; no: advance
+                MOVE    R1, R7                  ; GROUPS[R2]
+                ADD     R2, R7
+                MOVE    @R7, R7
+                MOVE    R7, R8                  ; submenu labels are selectable
+                AND     OPTM_SUBMENU, R8
+                RBRA    _OPTM_RUN_INID, !Z
+                AND     0x00FF, R7              ; group id != 0: selectable
+                RBRA    _OPTM_RUN_INID, !Z
+_OPTM_RUN_INIA  ADD     1, R2                   ; next flat position
+                CMP     R0, R2                  ; wrap around at the end
+                RBRA    _OPTM_RUN_INIB, !Z
+                XOR     R2, R2
+_OPTM_RUN_INIB  SUB     1, R9                   ; a menu without any selectable
+                RBRA    _OPTM_RUN_INI, !Z       ; line cannot happen, but never
+                XOR     R2, R2                  ; loop forever either
+_OPTM_RUN_INID  MOVE    R2, R3                  ; old selected item = current
+
                 ; Main loop
 _OPTM_RUN_SEL   MOVE    SP, R8                  ; update (SP+1), i.e. update..
                 ADD     3, R8                   ; ..the pointer to the curr..
@@ -819,7 +855,17 @@ _OPTM_RUN_6C    MOVE    R8, R11                 ; R11: remember selection key
                 MOVE    R11, R10                ; selection key
                 MOVE    OPTM_CLBK_SEL, R7       ; call callback
                 RSUB    _OPTM_CALL, 1
-                
+
+                ; M2M-UPSTREAM osm-deps
+                ; A single-select item was just switched off. If its group is the
+                ; mother of a dependent line, the set of visible lines changed and
+                ; the level has to be redrawn. Read the group word back from the
+                ; array instead of trusting a register across the callback.
+                MOVE    R1, R8
+                ADD     R2, R8
+                MOVE    @R8, R8
+                RSUB    OPTM_DEPS_AFFECTS, 1
+                RBRA    _OPTM_RUN_SM_4, C       ; mother changed: redraw level
                 RBRA    _OPTM_RUN_SEL, 1        ; continue main loop of menu
 
                 ; proceed in case of multi-sel. with the not yet selected item
@@ -863,25 +909,34 @@ _OPTM_RUN_7     CMP     R4, R0                  ; R4 < R0 (size of structure)
 
                 MOVE    OPTM_TEMP, R8           ; save R10
                 MOVE    R10, @R8
+                MOVE    0, @R12                 ; unselect in OPTM_IR_STDSEL
 
+                ; M2M-UPSTREAM osm-deps
+                ; Since dependency format 2 the members of one group may carry
+                ; different dependencies, so a group can be PARTIALLY visible
+                ; (AExp swaps the "Off" item of a drive against its two normal
+                ; items). Deselecting such a member must still happen in the
+                ; model above - otherwise two members stay selected and
+                ; OPTM_DEP_OK reads the wrong one - but there is nothing to
+                ; unpaint for a line that is not on screen, and the coordinate
+                ; conversion would go fatal on it.
                 MOVE    R10, R8                 ; transform flat lst itm pos..
                 RSUB    _OPTM_R_F2M, 1          ; ..into relative list pos..
-                RBRA    _OPTM_R_FATAL, C        ; failed? fatal!                
+                RBRA    _OPTM_RUN_7A, C         ; hidden: model updated, no paint
                 MOVE    OPTM_Y, R7              ; ..and then..
                 ADD     @R7, R8                 ; transform into screen coord
                 ADD     1, R8                   ; add 1 because of top frame
                 MOVE    R8, R10                 ; R10: OPTM_FP_PRINTXY y coord
 
                 MOVE    OPTM_FP_PRINTXY, R7     ; delete marker at current pos
-                MOVE    R11, @--SP              ; save R11            
+                MOVE    R11, @--SP              ; save R11
                 MOVE    OPTM_MENULEVEL, R11     ; R11: current (sub)menu level
                 MOVE    @R11, R11
-                MOVE    0, @R12
                 MOVE    _OPTM_RUN_SPCE, R8      ; R8: use space char to delete
                 RSUB    _OPTM_CALL, 1
 
                 MOVE    @SP++, R11              ; restore R11
-                MOVE    OPTM_TEMP, R8           ; restore R10
+_OPTM_RUN_7A    MOVE    OPTM_TEMP, R8           ; restore R10
                 MOVE    @R8, R10
 
 _OPTM_RUN_8     ADD     1, R10                  ; y-pos + 1
@@ -949,8 +1004,23 @@ _OPTM_RUN_15    DECRB
                 RSUB    _OPTM_CALL, 1
 
                 CMP     OPTM_CLOSE, R6          ; Close?
-                RBRA    _OPTM_RUN_SEL, !Z       ; no: continue menu loop
-                MOVE    R2, R8                  ; yes: return selected item               
+                RBRA    _OPTM_RUN_SCHG, !Z      ; no: check for a structure change
+                MOVE    R2, R8                  ; yes: return selected item
+                RBRA    _OPTM_RUN_RET, 1
+
+                ; M2M-UPSTREAM osm-deps
+                ; A radio selection or a single-select toggle just changed the
+                ; menu state. If the changed group is the mother of a dependent
+                ; line, the set of visible lines may have changed, so redraw the
+                ; current level. The cursor stays on the just-selected mother
+                ; line, which is by construction visible, so the restart is safe.
+                ; Without dependencies OPTM_DEPS_AFFECTS always reports "no".
+_OPTM_RUN_SCHG  MOVE    R1, R8                  ; group word of the changed line
+                ADD     R2, R8
+                MOVE    @R8, R8
+                RSUB    OPTM_DEPS_AFFECTS, 1
+                RBRA    _OPTM_RUN_SM_4, C       ; mother changed: redraw level
+                RBRA    _OPTM_RUN_SEL, 1        ; otherwise continue menu loop
 
 _OPTM_RUN_RET   MOVE    OPTM_STRUCT, R7         ; important to reset to zero..
                 MOVE    0, @R7                  ; b/c it is also used as flag
@@ -1000,6 +1070,9 @@ _OPTM_RUN_SM_2  ADD     1, R2                   ; next item
                 MOVE    @R6, R7
                 AND     0x00FF, R7              ; selectable item?
                 RBRA    _OPTM_RUN_SM_2, Z       ; no: continue to search
+                MOVE    R2, R8                  ; M2M-UPSTREAM osm-deps: honor
+                RSUB    OPTM_DEP_OK, 1          ; dependency visibility - keep
+                RBRA    _OPTM_RUN_SM_2, !C      ; searching past a hidden line
                 RBRA    _OPTM_RUN_SM_4, 1
 
                 ; Fatal: No selectable menu item found
@@ -1046,13 +1119,22 @@ OPTM_SELECT     SYSCALL(enter, 1)
 
                 MOVE    OPTM_F_MS_SLCT, R9
                 RSUB    _OPTM_R_F2M_O, 1        ; convert R8 to screen coord.
+                RBRA    _OPTM_SELECT_R, C       ; M2M-UPSTREAM osm-deps: the index
+                                                ; is not part of the currently
+                                                ; active (sub)menu - which since
+                                                ; dependency format 2 also means
+                                                ; "hidden right now". Tolerate it
+                                                ; and draw nothing; without this
+                                                ; guard the cursor bar lands on
+                                                ; whatever row the failed scan
+                                                ; happened to count to.
 
                 ; Select menu item
                 MOVE    OPTM_FP_SELECT, R7      ; select line
                 MOVE    OPTM_SEL_SEL, R9        ; R8 contains screen coords.
                 RSUB    _OPTM_CALL, 1
 
-                SYSCALL(leave, 1)
+_OPTM_SELECT_R  SYSCALL(leave, 1)
                 RET
 
 ; ----------------------------------------------------------------------------

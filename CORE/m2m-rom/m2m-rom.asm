@@ -106,8 +106,13 @@ FILTER_FILES    INCRB
 
                 CMP     CTX_LOAD_ROM, R10       ; only filter in the ADF
                 RBRA    _FFILES_RET_0, !Z       ; load context
-                CMP     OPTM_G_ADF, R11         ; menu item " ADF:%s"?
-                RBRA    _FFILES_RET_0, !Z
+                MOVE    R8, R1                  ; R1: keep the directory entry
+                MOVE    R11, R8                 ; one of the three mount items?
+                RSUB    IS_ADF_GROUP, 1         ; (branch on C before anything
+                RBRA    _FFILES_ADF, C          ; else can touch the flags)
+                MOVE    R1, R8
+                RBRA    _FFILES_RET_0, 1
+_FFILES_ADF     MOVE    R1, R8                  ; restore the directory entry
 
                 MOVE    ADF_FILE_EXT, R9        ; only show .adf files
                 RSUB    M2M$CHK_EXT, 1          ; preserves R8/R9/R10
@@ -150,10 +155,22 @@ PREP_LOAD_IMAGE INCRB
 
                 CMP     CTX_LOAD_ROM, R9        ; only guard the ADF load
                 RBRA    _PREP_LI_OK, !Z
-                CMP     OPTM_G_ADF, R10
-                RBRA    _PREP_LI_OK, !Z
+                MOVE    R8, R5                  ; R5: keep the new file handle
+                MOVE    R10, R8                 ; one of the three mount items?
+                RSUB    IS_ADF_GROUP, 1         ; (branch on C before anything
+                RBRA    _PREP_LI_ADF, C         ; else can touch the flags)
+                MOVE    R5, R8
+                RBRA    _PREP_LI_OK, 1
+_PREP_LI_ADF    MOVE    R5, R8                  ; restore the file handle
 
-                ; ADF context confirmed: BEFORE anything else, force-flush all
+                ; The write-back belongs to df0 alone (see its section header),
+                ; so only a df0 mount has anything to flush and to disarm. The
+                ; SIZE GATE below runs for every drive: without it an oversized
+                ; file would stream past the HyperRAM pool of that drive.
+                CMP     AEXP_OPTM_G_ADF0, R10
+                RBRA    _PREP_LI_SIZE, !Z
+
+                ; df0 mount: BEFORE anything else, force-flush all
                 ; unsaved writes of the currently mounted disk - the streaming
                 ; that follows overwrites the HyperRAM image, and the Shell
                 ; has already re-opened HANDLE_RM_FILE1 for the NEW file
@@ -197,36 +214,30 @@ _PREP_LI_FLD    MOVE    ADF_FDH_VALID, R4
 
                 MOVE    R3, R8                  ; restore the file handle
 
-                MOVE    R8, R0                  ; R0: file size low word
+_PREP_LI_SIZE   MOVE    R8, R0                  ; R0: file size low word
                 MOVE    R8, R1                  ; R1: file size high word
                 ADD     FAT32$FDH_SIZE_LO, R0
                 MOVE    @R0, R0
                 ADD     FAT32$FDH_SIZE_HI, R1
                 MOVE    @R1, R1
 
-                ; valid range: 901,120 (0x000DC000) .. 934,912 (0x000E4400).
-                ; QNICE CMP sets N for UNSIGNED src>dst (V is the signed one),
-                ; so plain compares would work for any value; the bit masks
-                ; below are used purely for clarity/symmetry.
-                CMP     0x000D, R1              ; high word 0x000D?
-                RBRA    _PREP_LI_HID, Z
-                CMP     0x000E, R1              ; high word 0x000E?
-                RBRA    _PREP_LI_BAD, !Z
+                ; Valid range: C_ADF_MIN_SIZE .. C_ADF_MAX_SIZE from
+                ; globals.vhd, scraped into globals.asm by make_rom.sh so this
+                ; gate can never drift from the HyperRAM map and the track
+                ; engine geometry. A plain unsigned 32-bit range compare,
+                ; high word first: QNICE CMP sets N for an unsigned src > dst
+                ; (V is the signed one).
+                CMP     ADF_MIN_SIZE_HI, R1     ; minimum > file: too small
+                RBRA    _PREP_LI_BAD, N
+                RBRA    _PREP_LI_MAX, !Z        ; minimum < file: minimum met
+                CMP     ADF_MIN_SIZE_LO, R0     ; equal high word: compare low
+                RBRA    _PREP_LI_BAD, N
 
-                ; high word 0x000E: low word must be <= 0x4400
-                MOVE    R0, R2
-                AND     0x8000, R2              ; lo >= 0x8000 can never be ok
-                RBRA    _PREP_LI_BAD, !Z
-                CMP     0x4400, R0              ; both positive: exact compare
-                RBRA    _PREP_LI_OK, N          ; lo <  0x4400: OK
-                RBRA    _PREP_LI_OK, Z          ; lo == 0x4400: OK
-                RBRA    _PREP_LI_BAD, 1         ; lo >  0x4400: too big
-
-                ; high word 0x000D: low word must be >= 0xC000
-_PREP_LI_HID    MOVE    R0, R2
-                AND     0xC000, R2              ; >= 0xC000 iff bits 15+14 set
-                CMP     0xC000, R2
-                RBRA    _PREP_LI_BAD, !Z
+_PREP_LI_MAX    CMP     R1, ADF_MAX_SIZE_HI     ; file > maximum: too big
+                RBRA    _PREP_LI_BAD, N
+                RBRA    _PREP_LI_OK, !Z         ; file < maximum: maximum met
+                CMP     R0, ADF_MAX_SIZE_LO     ; equal high word: compare low
+                RBRA    _PREP_LI_BAD, N
 
 _PREP_LI_OK     XOR     R8, R8                  ; no errors
                 XOR     R9, R9                  ; image type hardcoded to 0
@@ -317,7 +328,7 @@ OSM_SEL_POST    INCRB
                 ; Amiga keeps running. The user sees the new filter from the
                 ; next frame.
                 CMP     AEXP_OPTM_G_FILTER, R8
-                RBRA    _OSM_SP_SCR, !Z
+                RBRA    _OSM_SP_DRV, !Z
                 RSUB    LOAD_HDMI_FILTER, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
@@ -327,6 +338,36 @@ OSM_SEL_POST    INCRB
                 ; reload takes -- the OSM is frozen meanwhile because QNICE
                 ; serves the menu synchronously -- then repaint the original
                 ; label with no "=" checkmark left behind.
+                ; Drive Settings: keep the "Drives" count radio and the three
+                ; per-drive mode radios consistent. The HDL decode is defensive
+                ; about an inconsistent combination, but the MENU must not show
+                ; one: a drive beyond the count has to sit on its "Off" item,
+                ; because that item is what the count radio swaps in (menu
+                ; dependency), and it is also what hides the two lines of that drive
+                ; in the main menu. And only one physical mechanism exists, so
+                ; "Hardware Floppy" has to be stolen from the other drives.
+                ; Everything else - the Amiga cold boot, the twin-line
+                ; visibility, the live redraw - happens in the HDL and in the
+                ; framework; this is purely about the model staying sane.
+_OSM_SP_DRV     CMP     AEXP_OPTM_G_DRIVES, R8
+                RBRA    _OSM_SP_DRVM, !Z
+                RSUB    DRV_ENFORCE_COUNT, 1
+                RBRA    _OSM_SEL_POST_R, 1
+
+_OSM_SP_DRVM    CMP     AEXP_OPTM_G_DF0MODE, R8
+                RBRA    _OSM_SP_DRVM1, !Z
+                XOR     R8, R8                    ; R8: the drive that changed
+                RBRA    _OSM_SP_DRVS, 1
+_OSM_SP_DRVM1   CMP     AEXP_OPTM_G_DF1MODE, R8
+                RBRA    _OSM_SP_DRVM2, !Z
+                MOVE    1, R8
+                RBRA    _OSM_SP_DRVS, 1
+_OSM_SP_DRVM2   CMP     AEXP_OPTM_G_DF2MODE, R8
+                RBRA    _OSM_SP_SCR, !Z
+                MOVE    2, R8
+_OSM_SP_DRVS    RSUB    DRV_STEAL_HW, 1
+                RBRA    _OSM_SEL_POST_R, 1
+
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 RBRA    _OSM_SEL_POST_R, !Z
 
@@ -388,12 +429,6 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
                 RSUB    OPTM_SELECT, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
-                ; (the Configure Drives combo radio needs NO handling here:
-                ; the HDL cold-boots the Amiga on its own, and the df0:/df1:
-                ; labels of menu lines 2+3 are healed by HWF_LABEL_SYNC from
-                ; HANDLE_CORE_IO, which also ticks inside the key-wait
-                ; loop of the submenu - see the header of that routine)
-
 _OSM_SEL_POST_R XOR     R8, R8
                 XOR     R9, R9
                 DECRB
@@ -452,6 +487,15 @@ CUSTOM_MSG      XOR     R8, R8
 ; HANDLE_IO, chunked to stay responsive, still-open FAT32 handle, errors are
 ; fatal) against our non-vdrives device. Full design:
 ; doc/floppy-adf.md
+;
+; SCOPE: the write-back state below is single-instance and belongs to df0
+; (AEXP_DEV_ADF0). df1 and df2 mount and read their own images, but their
+; write-back is never armed, so their mount wrappers hold WR_EN = 0: the track
+; engine announces those units write-protected and drains their writes without
+; committing them, exactly like the Hardware Floppy unit. Arming them needs the
+; state below to become an array indexed by drive and FLUSH_ADF_STEP to take a
+; drive index - until then the arming must stay confined to df0, because a
+; second armed drive would flush through this one file handle.
 ; ----------------------------------------------------------------------------
 
 ; ADF_WB_INIT: called once from START_FIRMWARE, before the Shell starts.
@@ -613,9 +657,6 @@ HANDLE_CORE_IO  SYSCALL(enter, 1)
                 AND     SCR_TICK_MASK, R5
                 RBRA    _HCIO_NODET, !Z
                 RSUB    DETECT_SCREEN_MODE, 1     ; detect + apply on a mode change
-                RSUB    HWF_LABEL_SYNC, 1         ; heal the df0:/df1: menu labels
-                                                  ; (same 1/8 cadence; RAMROM-
-                                                  ; transparent like the detector)
 
                 ; be transparent about the active RAMROM device selection
 _HCIO_NODET     MOVE    M2M$RAMROM_DEV, R0
@@ -1107,222 +1148,164 @@ _ADF_UM_DIS     MOVE    ADF_FDH_VALID, R0
 _ADF_UM_RET     DECRB
                 RET
 
+
 ; ----------------------------------------------------------------------------
-; Hardware Floppy: dynamic df0:/df1: labels (Configure Drives)
+; Drive Settings: keep the drive count and the per-drive modes consistent
 ; ----------------------------------------------------------------------------
 
-; HWF_LABEL_SYNC: menu lines 2 (the ADF mount item " df0:%s") and 3 (the
-; hardware-role text " df1: Hardware Floppy") carry labels that depend on
-; the selected Configure Drives combo. The menu STRUCTURE is fully static
-; (config.vhd - reordering is impossible within the framework invariants,
-; hardware-proven), so only two FIXED-WIDTH label fields are rewritten in
-; the menu heap:
-;   * the 4-char unit prefix of line 2: "df0:" / "df1:" / "ADF:"
-;   * the 21-char text field of line 3
-; HELP_MENU rebuilds the heap from the config ROM on EVERY menu open,
-; wiping any patch - therefore this routine is SELF-HEALING: called from
-; HANDLE_CORE_IO (which ticks inside all OSM wait loops), it compares the
-; heap fields against the labels the current combo expects and, on a
-; mismatch, patches the heap and - only when the main menu view is actually
-; on screen (OSM visible, menu level 0, no browser/help sub-activity) -
-; repaints the two lines. Every other draw (submenu exit, cursor moves)
-; reads the freshly patched heap. Boot-safe: the combo is read straight
-; from M2M$CFM_DATA (M2M$GET_SETTING would go FATAL before the menu system
-; is initialized) and the line scan is bounded (the heap holds garbage
-; before the first menu open; a patch into the reserved region is
-; harmless). RAMROM-transparent (SCR$PRINTSTRXY changes the selection).
+; IS_ADF_GROUP: is this menu group id one of the three ADF mount items?
 ;
-; Combo encoding (flat menu lines 7..10 = M2M$CFM_DATA bank 0 bits 7..10):
-;   0 = df0: ADF      df1: Hardware  (default; bit 7 or no bit at all)
-;   1 = df0: Hardware df1: ADF       (bit 8)
-;   2 = df0: ADF      df1: Off       (bit 9)
-;   3 = df0: Hardware df1: Off       (bit 10; no ADF drive - the mount
-;                                     line reads " ADF:" then)
+; The Shell hands the plain group id to FILTER_FILES and PREP_LOAD_IMAGE, and
+; every drive needs its OWN mount group (a manual CRT/ROM line is bound to its
+; id by its position in the static array). Both callbacks have to accept all
+; three, otherwise the extension filter and the file-size guard silently apply
+; to df0 only - and an oversized file streamed into df1 would run past the
+; HyperRAM pool of that drive.
 ;
-; Input:  none    Output: none    All registers preserved.
-HWF_LABEL_SYNC  SYSCALL(enter, 1)
-
-                ; be transparent about the active RAMROM device selection
-                MOVE    M2M$RAMROM_DEV, R1
-                MOVE    @R1, R11
-                MOVE    M2M$RAMROM_4KWIN, R1
-                MOVE    @R1, R12
-
-                ; current combo -> R7 (plain CFM read; boot-safe)
-                MOVE    M2M$CFM_ADDR, R0
-                MOVE    0, @R0
-                MOVE    M2M$CFM_DATA, R0
-                MOVE    @R0, R0                 ; R0: CFM bank 0, bits 15..0
-                XOR     R7, R7                  ; combo 0 (default)
-                MOVE    R0, R1
-                AND     0x0100, R1              ; bit 8: df0 HW, df1 ADF
-                RBRA    _HWFS_CHK2, Z
-                MOVE    1, R7
-                RBRA    _HWFS_LOC, 1
-_HWFS_CHK2      MOVE    R0, R1
-                AND     0x0200, R1              ; bit 9: df0 ADF, df1 Off
-                RBRA    _HWFS_CHK3, Z
-                MOVE    2, R7
-                RBRA    _HWFS_LOC, 1
-_HWFS_CHK3      MOVE    R0, R1
-                AND     0x0400, R1              ; bit 10: df0 HW, df1 Off
-                RBRA    _HWFS_LOC, Z
-                MOVE    3, R7
-
-                ; locate heap line 2: skip two "\n" pairs in the items-string
-                ; copy (bounded scan - garbage-safe before the first open)
-_HWFS_LOC       MOVE    HEAP, R0
-                ADD     OPTM_STRUCTSIZE, R0     ; R0: items string on the heap
-                MOVE    2, R1                   ; newline pairs to skip
-                MOVE    32, R2                  ; scan bound
-_HWFS_SCAN      MOVE    @R0++, R3
-                SUB     1, R2
-                RBRA    _HWFS_RET, Z            ; bound hit: heap not built yet
-                CMP     0x005C, R3              ; backslash ...
-                RBRA    _HWFS_SCAN, !Z
-                CMP     0x006E, @R0             ; ... followed by 'n'?
-                RBRA    _HWFS_SCAN, !Z
-                ADD     1, R0                   ; skip the 'n'
-                SUB     1, R1
-                RBRA    _HWFS_SCAN, !Z
-                MOVE    R0, R6                  ; R6: line 2 start
-
-                ; compare the line-2 prefix (4 chars after the leading space)
-                MOVE    HWF_L2_TAB, R1
-                ADD     R7, R1
-                MOVE    @R1, R1                 ; R1: " df?:" table string
-                MOVE    R6, R2
-                ADD     1, R2
-                MOVE    R1, R3
-                ADD     1, R3
-                MOVE    4, R4
-                XOR     R5, R5                  ; R5: stale flag
-_HWFS_C2        MOVE    @R3++, R8
-                CMP     @R2++, R8
-                RBRA    _HWFS_C2A, Z
-                MOVE    1, R5
-_HWFS_C2A       SUB     1, R4
-                RBRA    _HWFS_C2, !Z
-
-                ; locate line 3 (one more "\n" pair; R2 = behind the prefix)
-                MOVE    R2, R0
-                MOVE    16, R4                  ; scan bound (line-2 tail)
-_HWFS_SCAN3     MOVE    @R0++, R3
-                SUB     1, R4
-                RBRA    _HWFS_RET, Z
-                CMP     0x005C, R3
-                RBRA    _HWFS_SCAN3, !Z
-                CMP     0x006E, @R0
-                RBRA    _HWFS_SCAN3, !Z
-                ADD     1, R0                   ; R0: line 3 start
-
-                ; compare the 21-char line-3 field
-                MOVE    HWF_L3_TAB, R1
-                ADD     R7, R1
-                MOVE    @R1, R1                 ; R1: 23-char table string
-                MOVE    R0, R2
-                MOVE    R1, R3
-                MOVE    21, R4
-_HWFS_C3        MOVE    @R3++, R8
-                CMP     @R2++, R8
-                RBRA    _HWFS_C3A, Z
-                MOVE    1, R5
-_HWFS_C3A       SUB     1, R4
-                RBRA    _HWFS_C3, !Z
-
-                CMP     0, R5                   ; labels already correct?
-                RBRA    _HWFS_RET, Z
-
-                ; patch the heap: line-2 prefix (4 chars) ...
-                MOVE    HWF_L2_TAB, R1
-                ADD     R7, R1
-                MOVE    @R1, R1
-                ADD     1, R1                   ; skip the leading space
-                MOVE    R6, R2
-                ADD     1, R2
-                MOVE    4, R4
-_HWFS_P2        MOVE    @R1++, @R2++
-                SUB     1, R4
-                RBRA    _HWFS_P2, !Z
-
-                ; ... and the line-3 field (21 chars incl. leading space)
-                MOVE    HWF_L3_TAB, R1
-                ADD     R7, R1
-                MOVE    @R1, R1
-                MOVE    R0, R2
-                MOVE    21, R4
-_HWFS_P3        MOVE    @R1++, @R2++
-                SUB     1, R4
-                RBRA    _HWFS_P3, !Z
-
-                ; repaint - only when the MAIN menu view is on screen
-                MOVE    M2M$CSR, R1
-                MOVE    @R1, R1
-                AND     M2M$CSR_OSM, R1
-                RBRA    _HWFS_RET, Z            ; OSM not visible
-                MOVE    OSM_SUB_ACTIVE, R1
-                CMP     1, @R1
-                RBRA    _HWFS_RET, Z            ; browser/help owns the screen
-                MOVE    OPTM_MENULEVEL, R1
-                CMP     0, @R1
-                RBRA    _HWFS_RET, !Z           ; a submenu view is showing
-
-                ; line 2: paint only the 5-char prefix (the %s-substituted
-                ; filename right of it is prefix-independent). line 3: paint
-                ; the full 23-char row (clears shorter texts).
-                MOVE    2, R8
-                MOVE    OPTM_F_MS_SLCT, R9      ; fatal context (unused on OK)
-                RSUB    _OPTM_R_F2M_O, 1        ; R8 = row; C=1 -> off-level
-                RBRA    _HWFS_RET, C
-                RSUB    _HWFS_XY, 1             ; R9/R10 := screen x/y
-                MOVE    HWF_L2_TAB, R8
-                ADD     R7, R8
-                MOVE    @R8, R8
-                RSUB    SCR$PRINTSTRXY, 1
-
-                MOVE    3, R8
-                MOVE    OPTM_F_MS_SLCT, R9
-                RSUB    _OPTM_R_F2M_O, 1
-                RBRA    _HWFS_RET, C
-                RSUB    _HWFS_XY, 1
-                MOVE    HWF_L3_TAB, R8
-                ADD     R7, R8
-                MOVE    @R8, R8
-                RSUB    SCR$PRINTSTRXY, 1
-
-_HWFS_RET       MOVE    M2M$RAMROM_4KWIN, R1    ; restore the RAMROM selection
-                MOVE    R12, @R1
-                MOVE    M2M$RAMROM_DEV, R1
-                MOVE    R11, @R1
-                SYSCALL(leave, 1)
+; Input:  R8: menu group id
+; Output: C=1 if it is a df0/df1/df2 mount item, C=0 otherwise.
+;         All registers preserved.
+IS_ADF_GROUP    INCRB
+                CMP     AEXP_OPTM_G_ADF0, R8
+                RBRA    _IAG_YES, Z
+                CMP     AEXP_OPTM_G_ADF1, R8
+                RBRA    _IAG_YES, Z
+                CMP     AEXP_OPTM_G_ADF2, R8
+                RBRA    _IAG_YES, Z
+                AND     0xFFFB, SR              ; clear Carry: not a mount item
+                DECRB
                 RET
-
-; helper: R8 = menu row -> R9 = screen x (OPTM_X+1), R10 = screen y
-; (OPTM_Y+row+1); preserves R8
-_HWFS_XY        INCRB
-                MOVE    OPTM_Y, R10
-                MOVE    @R10, R10
-                ADD     R8, R10
-                ADD     1, R10
-                MOVE    OPTM_X, R9
-                MOVE    @R9, R9
-                ADD     1, R9
+_IAG_YES        OR      0x0004, SR              ; set Carry
                 DECRB
                 RET
 
-; label tables: line-2 prefixes (5 chars incl. the leading space; the heap
-; patch uses chars 1..4, the paint uses all 5) and line-3 fields (exactly
-; 23 chars = the OSM content width; the heap patch uses chars 0..20)
-HWF_L2_TAB      .DW     HWF_L2_A, HWF_L2_B, HWF_L2_C, HWF_L2_D
-HWF_L3_TAB      .DW     HWF_L3_A, HWF_L3_B, HWF_L3_C, HWF_L3_D
-HWF_L2_A        .ASCII_W " df0:"
-HWF_L2_B        .ASCII_W " df1:"
-HWF_L2_C        .ASCII_W " df0:"
-HWF_L2_D        .ASCII_W " ADF:"
-HWF_L3_A        .ASCII_W " df1: Hardware Floppy  "
-HWF_L3_B        .ASCII_W " df0: Hardware Floppy  "
-HWF_L3_C        .ASCII_W " df1: Off              "
-HWF_L3_D        .ASCII_W " df0: Hardware Floppy  "
+; Menu line of each mode item, three words per drive: Disk Image, Hardware
+; Floppy, Off. df0 always exists and therefore has no Off item - 0xFFFF marks
+; that, and every loop below skips it.
+DRV_MODE_TAB    .DW AEXP_OSM_DF0_IMG, AEXP_OSM_DF0_HW, 0xFFFF
+                .DW AEXP_OSM_DF1_IMG, AEXP_OSM_DF1_HW, AEXP_OSM_DF1_OFF
+                .DW AEXP_OSM_DF2_IMG, AEXP_OSM_DF2_HW, AEXP_OSM_DF2_OFF
+
+; DRV_ENFORCE_COUNT: called after the "Drives" radio changed.
+;
+; A drive that the new count does not cover must sit on its Off item, and a
+; drive that just came back must leave it. The Off item is the one the count
+; radio swaps in through the menu dependency, so this is what makes the drive
+; appear in and disappear from the main menu. Note that we cannot simply hide
+; the mode radio instead: the main-menu twin lines depend on the MODE, not on
+; the count, and a dependent line may name only one mother group.
+;
+; Input:  none    Output: none    All registers preserved.
+DRV_ENFORCE_COUNT SYSCALL(enter, 1)
+
+                MOVE    1, R0                   ; R0: number of drives
+                MOVE    AEXP_OSM_DRIVES_2, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVEC_C3, Z
+                MOVE    2, R0
+                RBRA    _DRVEC_L, 1
+_DRVEC_C3       MOVE    AEXP_OSM_DRIVES_3, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVEC_L, Z
+                MOVE    3, R0
+
+_DRVEC_L        MOVE    1, R1                   ; R1: drive under inspection
+                                                ; (df0 always exists)
+_DRVEC_D        CMP     3, R1                   ; all drives done?
+                RBRA    _DRVEC_RET, Z
+                MOVE    DRV_MODE_TAB, R2        ; R2: &tab[drive]
+                MOVE    R1, R3
+                ADD     R3, R3                  ; three words per drive
+                ADD     R1, R3
+                ADD     R3, R2
+
+                ; QNICE CMP sets N for an unsigned src > dst, so this asks
+                ; "count > drive index", i.e. "the count still covers it"
+                CMP     R0, R1
+                RBRA    _DRVEC_OFF, !N          ; no: the drive is gone
+
+                ; the drive exists: leave Off if it is still selected
+                MOVE    R2, R4
+                ADD     2, R4
+                MOVE    @R4, R8                 ; Off item of this drive
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVEC_N, Z             ; not on Off: nothing to do
+                MOVE    @R2, R8                 ; select Disk Image instead
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+                RBRA    _DRVEC_N, 1
+
+                ; the drive does not exist any more: force it to Off - but only
+                ; if it is not already there. OPTM_SET goes FATAL when it is
+                ; asked to select the item of a menu group that is ALREADY the
+                ; selected one: its "unselect the other member" scan then finds
+                ; nothing and falls through into OPTM_F_MENUGRP.
+_DRVEC_OFF      MOVE    R2, R4
+                ADD     2, R4
+                MOVE    @R4, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVEC_N, !Z            ; already Off: nothing to do
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+
+_DRVEC_N        ADD     1, R1
+                RBRA    _DRVEC_D, 1
+
+_DRVEC_RET      SYSCALL(leave, 1)
+                RET
+
+; DRV_STEAL_HW: called after the mode radio of one drive changed.
+;
+; There is exactly one physical mechanism in a MEGA65, so if the drive that
+; just changed took "Hardware Floppy", every other drive that still claims it
+; has to fall back to "Disk Image" (clear-before-set, the C64MEGA65
+; _OSM_PRE_STEAL pattern). If it took something else, nothing is stolen.
+;
+; Input:  R8: the drive whose mode changed (0..2)
+; Output: R8/R9 undefined; all other registers preserved.
+DRV_STEAL_HW    SYSCALL(enter, 1)
+
+                MOVE    R8, R0                  ; R0: the drive that changed
+                MOVE    DRV_MODE_TAB, R1
+                MOVE    R0, R2
+                ADD     R2, R2
+                ADD     R0, R2
+                ADD     R2, R1                  ; R1: &tab[changed drive]
+                MOVE    R1, R3
+                ADD     1, R3
+                MOVE    @R3, R8                 ; its Hardware Floppy item
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVSH_RET, Z           ; not the hardware drive: done
+
+                XOR     R4, R4                  ; R4: drive to check
+_DRVSH_D        CMP     3, R4
+                RBRA    _DRVSH_RET, Z
+                CMP     R4, R0                  ; skip the drive that changed
+                RBRA    _DRVSH_N, Z
+                MOVE    DRV_MODE_TAB, R5
+                MOVE    R4, R6
+                ADD     R6, R6
+                ADD     R4, R6
+                ADD     R6, R5                  ; R5: &tab[drive]
+                MOVE    R5, R6
+                ADD     1, R6
+                MOVE    @R6, R8                 ; its Hardware Floppy item
+                RSUB    M2M$GET_SETTING, 1
+                CMP     0, R9
+                RBRA    _DRVSH_N, Z             ; does not claim it: leave alone
+                MOVE    @R5, R8                 ; hand it back a disk image
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+_DRVSH_N        ADD     1, R4
+                RBRA    _DRVSH_D, 1
+
+_DRVSH_RET      SYSCALL(leave, 1)
+                RET
 
 ; ----------------------------------------------------------------------------
 ; HDMI Filter dispatch
@@ -1859,10 +1842,6 @@ M2M$LOAD_POLYPHASE  SYSCALL(enter, 1)
 ; Core specific constants and strings
 ; ----------------------------------------------------------------------------
 
-; Menu group id of the " ADF:%s" mount item - MUST match OPTM_G_ADF in
-; config.vhd (the Shell passes the plain group id to the callbacks)
-OPTM_G_ADF      .EQU    1
-
 ; OSM menu constants are autogenerated by make_rom.sh (like in C64MEGA65):
 ; the AEXP_OSM_* line numbers are scraped from the C_MENU_* constants in
 ; ../vhdl/mega65.vhd and the AEXP_OPTM_G_* group ids from the OPTM_G_*
@@ -2046,21 +2025,26 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 124 menu items are a 1245-character string plus the 20-word
-; menu structure plus FOUR per-item arrays = 20 + 1245 + 1 + 4 x 124 + 1 =
-; 1763 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; LOG_HEAP2): the 142 menu items are a 1384-character string plus the 20-word
+; menu structure plus FOUR per-item arrays = 20 + 1384 + 1 + 4 x 142 + 1 =
+; 1974 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
 ; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
-; 12 x 25 = 300 words. Total demand is 2063 words, rounded up to the next
-; 128-word boundary: 2176 words, leaving 113 words headroom. Do not reserve a
+; 12 x 25 = 300 words. Total demand is 2274 words, rounded up to the next
+; 128-word boundary: 2304 words, leaving 30 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
 ; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
 ; manual-ROM counts grow, recalculate both budgets and rebalance the
 ; HEAP_SIZE constants below by the same delta.
+; .research/check_osm_menu.py recomputes all of this from config.vhd.
+;
+; HELP_MENU_INIT additionally borrows 20 + 3 x 142 = 446 words of this region
+; as transient scratch for the boot-time dependency validation (_HLP_DEPVAL in
+; M2M/rom/options.asm) - far below the permanent demand, so it never binds.
 ;
 ; The fourth per-item array and the 19th->20th structure word are the menu
 ; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
 ; 1 to 3 with the second and third simulated floppy drive.
-MENU_HEAP_SIZE  .EQU 2176
+MENU_HEAP_SIZE  .EQU 2304
 
 #ifndef RELEASE
 
@@ -2068,13 +2052,13 @@ MENU_HEAP_SIZE  .EQU 2176
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 4992                       ; 7168 - 2176 = 4992
+HEAP_SIZE       .EQU 4864                       ; 7168 - 2304 = 4864
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 28032                      ; 30208 - 2176 = 28032
+HEAP_SIZE       .EQU 27904                      ; 30208 - 2304 = 27904
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

@@ -24,7 +24,9 @@ use work.video_modes_pkg.all;
 entity main is
    generic (
       G_VDNUM                 : natural;                    -- amount of virtual drives
-      G_ADF_BASE_ADDRESS      : std_logic_vector(21 downto 0)  -- ADF image HyperRAM word base
+      G_ADF_BASE_DF0          : std_logic_vector(21 downto 0);  -- df0 image HyperRAM word base
+      G_ADF_BASE_DF1          : std_logic_vector(21 downto 0);  -- df1 image HyperRAM word base
+      G_ADF_BASE_DF2          : std_logic_vector(21 downto 0)   -- df2 image HyperRAM word base
    );
    port (
       clk_main_i              : in  std_logic;
@@ -89,16 +91,16 @@ entity main is
 
       -- ADF floppy mount status (from adf_mount_wrapper via mega65.vhd,
       -- already CDC'd to clk_main)
-      adf_mounted_i           : in  std_logic;
-      adf_tracks_i            : in  std_logic_vector(7 downto 0);
+      adf_mounted_i           : in  std_logic_vector( 2 downto 0);
+      adf_tracks_i            : in  std_logic_vector(23 downto 0);
 
       -- ADF write-back: arming flag (CDC'd like the mount status) and the
       -- dirty-track event channel (two-phase toggle handshake towards
       -- adf_mount_wrapper; the cdc_stable instances live in mega65.vhd)
-      adf_writable_i          : in  std_logic;
+      adf_writable_i          : in  std_logic_vector(2 downto 0);
       adf_wr_track_o          : out std_logic_vector(7 downto 0);
-      adf_wr_req_o            : out std_logic;
-      adf_wr_ack_i            : in  std_logic;
+      adf_wr_req_o            : out std_logic_vector(2 downto 0);
+      adf_wr_ack_i            : in  std_logic_vector(2 downto 0);
 
       -- ADF floppy image read/write port: Avalon-MM master in the clk_main
       -- domain (post avm_cache; mega65.vhd crosses it to the HyperRAM clock)
@@ -128,8 +130,8 @@ entity main is
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
       -- Drive map from the OSM "Configure Drives" radio (static in clk_main;
       -- changes trigger the amiga_cold_boot reset in mega65.vhd):
-      hwf_adf_en_i            : in  std_logic;                     -- '1' = ADF drive exists
-      hwf_adf_unit_i          : in  std_logic_vector(1 downto 0);  -- unit of the ADF drive
+      drv_count_i             : in  std_logic_vector(1 downto 0);  -- Amiga units minus one
+      hwf_adf_en_i            : in  std_logic_vector(2 downto 0);  -- unit is a simulated drive
       hwf_phys_unit_i         : in  std_logic_vector(1 downto 0);  -- unit of the physical drive
       hwf_phys_en_i           : in  std_logic;                     -- '1' = physical unit exists
       -- CIA-B drive-control taps towards the connector (pin driving lives in
@@ -428,6 +430,14 @@ architecture synthesis of main is
    -- outside its refill state, and (b) the engine cannot issue new reads until
    -- bus grant + poll delay (>> 1 ms), long after any residue has drained.
    signal adf_cache_rst    : std_logic;
+   signal adf_avm_busy     : std_logic;
+   signal adf_avm_write_int : std_logic;
+   signal adf_avm_read_int  : std_logic;
+   signal adf_mounted_q    : std_logic_vector(2 downto 0) := (others => '0');
+   signal adf_flush_req    : std_logic := '1';   -- flush once after power-up
+   constant C_ADF_QUIET    : natural := 15;      -- quiet clocks before a flush
+   signal adf_quiet        : natural range 0 to C_ADF_QUIET := 0;
+   signal adf_quiet_s      : std_logic;
 
    -- keyboard
    signal kbd_mouse_data   : std_logic_vector(7 downto 0);
@@ -633,7 +643,7 @@ begin
          -- two drives only when BOTH the ADF drive and the physical unit
          -- exist (Configure Drives combos A/B); the single-drive combos
          -- C/D announce one drive
-         floppy_drives_i  => "0" & (hwf_adf_en_i and hwf_phys_en_i),
+         floppy_drives_i  => drv_count_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,
@@ -658,7 +668,9 @@ begin
 
    i_adf_track_engine : entity work.adf_track_engine
       generic map (
-         G_BASE_ADDRESS => G_ADF_BASE_ADDRESS
+         G_BASE_DF0 => G_ADF_BASE_DF0,
+         G_BASE_DF1 => G_ADF_BASE_DF1,
+         G_BASE_DF2 => G_ADF_BASE_DF2
       )
       port map (
          clk_main_i          => clk_main_i,
@@ -672,10 +684,9 @@ begin
          wr_req_o            => adf_wr_req_o,
          wr_ack_i            => adf_wr_ack_i,
 
-         -- Hardware Floppy: drive map, real-disk presence and the
-         -- reconstructed word stream from the front-end (mega65.vhd)
+         -- Drive configuration, real-disk presence and the reconstructed
+         -- word stream from the front-end (mega65.vhd)
          adf_en_i            => hwf_adf_en_i,
-         adf_unit_i          => hwf_adf_unit_i,
          phys_unit_i         => hwf_phys_unit_i,
          phys_en_i           => hwf_phys_en_i,
          phys_present_i      => hwf_present_i,
@@ -696,6 +707,7 @@ begin
          io_dout_i           => io_dout,
          io_wait_i           => io_wait,
 
+         avm_busy_o          => adf_avm_busy,
          avm_write_o         => flp_avm_write,
          avm_read_o          => flp_avm_read,
          avm_address_o       => flp_avm_address,
@@ -711,7 +723,46 @@ begin
    -- 8-word HyperRAM bursts (the proven C64 REU value). The engine's sector
    -- commits pass through as single-word writes (write-through; a write hit
    -- updates the cache line, so read-back after write stays coherent)
-   adf_cache_rst <= amiga_rst or not adf_mounted_i;
+   --
+   -- The cache is SHARED by all three simulated drives, so it must be
+   -- invalidated whenever the Shell has streamed a new image into any drive's
+   -- pool - the stale line would otherwise serve up to eight words of the
+   -- previous image. A mount transition is exactly the observable event
+   -- (disk_mounted drops while the wrapper loads and returns when it is
+   -- validated), so any change of the mount vector arms a flush.
+   --
+   -- The flush must NOT happen while anything is in flight. Two things can be:
+   --   * the engine, which avm_cache would leave waiting forever for a burst
+   --     response that the reset threw away - avm_busy_o covers that, and it
+   --     rises one state before the first read/write is issued, which also
+   --     closes the race against an engine that starts fetching in the same
+   --     cycle the flush is decided;
+   --   * the cache itself, whose master-side write of the LAST word of a
+   --     committed sector may still be waiting for waitrequest to drop. The
+   --     reset clears m_avm_write_o, so that word would be silently dropped
+   --     and the .adf would end up with a torn sector. adf_quiet therefore
+   --     only counts up while the master side is idle as well, and the flush
+   --     waits for a run of quiet cycles.
+   p_adf_cache_flush : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         adf_mounted_q <= adf_mounted_i;
+         if adf_mounted_i /= adf_mounted_q then
+            adf_flush_req <= '1';
+         elsif adf_flush_req = '1' and adf_quiet = C_ADF_QUIET then
+            adf_flush_req <= '0';                 -- the reset below is asserted
+         end if;                                  -- during exactly this cycle
+
+         if adf_avm_busy = '1' or adf_avm_write_int = '1' or adf_avm_read_int = '1' then
+            adf_quiet <= 0;
+         elsif adf_quiet /= C_ADF_QUIET then
+            adf_quiet <= adf_quiet + 1;
+         end if;
+      end if;
+   end process p_adf_cache_flush;
+
+   adf_cache_rst <= amiga_rst or (adf_flush_req and adf_quiet_s);
+   adf_quiet_s   <= '1' when adf_quiet = C_ADF_QUIET else '0';
 
    i_avm_cache : entity work.avm_cache
       generic map (
@@ -732,8 +783,8 @@ begin
          s_avm_readdata_o      => flp_avm_readdata,
          s_avm_readdatavalid_o => flp_avm_readdatavalid,
          m_avm_waitrequest_i   => adf_avm_waitrequest_i,
-         m_avm_write_o         => adf_avm_write_o,
-         m_avm_read_o          => adf_avm_read_o,
+         m_avm_write_o         => adf_avm_write_int,
+         m_avm_read_o          => adf_avm_read_int,
          m_avm_address_o       => adf_avm_address_o,
          m_avm_writedata_o     => adf_avm_writedata_o,
          m_avm_byteenable_o    => adf_avm_byteenable_o,
@@ -741,6 +792,9 @@ begin
          m_avm_readdata_i      => adf_avm_readdata_i,
          m_avm_readdatavalid_i => adf_avm_readdatavalid_i
       ); -- i_avm_cache
+
+   adf_avm_write_o <= adf_avm_write_int;
+   adf_avm_read_o  <= adf_avm_read_int;
 
    ---------------------------------------------------------------------------
    -- Keyboard: MEGA65 keys -> raw Amiga scancode events
@@ -858,6 +912,7 @@ begin
 
    hwf_phys_mask <= "0001" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "00" else
                     "0010" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "01" else
+                    "0100" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "10" else
                     "0000";
 
    ---------------------------------------------------------------------------
