@@ -86,16 +86,63 @@ constant CHAR_MEM_SIZE        : natural := CHARS_DX * CHARS_DY;
 constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 
 ----------------------------------------------------------------------------------------------------------
--- HyperRAM memory map (in units of 4kW)
+-- HyperRAM memory map (in units of one 4 kW window = 4096 x 16 bit = 8 kB)
 ----------------------------------------------------------------------------------------------------------
 
--- The M2M framework's ascal framebuffer occupies bytes 0..2 MB (window 0x0000..
--- 0x00FF); ascal triple-buffering MUST stay off (mega65.vhd qnice_ascal_triplebuf_o
--- is tied '0'), otherwise the scaler would grow to 6 MB and overwrite the ADF.
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Reserved for the M2M framework
-constant C_HMAP_ADF_DF0       : std_logic_vector(15 downto 0) := x"0200";     -- df0: ADF disk image, 880-935 KB
-                                                                              -- packed 2 bytes/word (adf_mount_wrapper.vhd)
-constant C_HMAP_ADF_DF1       : std_logic_vector(15 downto 0) := x"0280";     -- reserved for a future df1 (+1 MB)
+-- GUARD DOCTRINE, adopted from C64MEGA65 (its globals.vhd; research issue #218 is still
+-- open, the theory lives in C64MEGA65/doc/issue_214_simreu_hyperram.md): every region is
+-- followed by an explicit one-window (8 kB) guard - or by enough unused space - so that a
+-- burst starting at the last legal word of a region can never reach the next region.
+--
+-- The overreach is not created by our clients but downstream of them, in shared M2M
+-- infrastructure, and is at most 8 words = 16 bytes:
+--   * avm_cache (main.vhd, G_CACHE_SIZE => 8) turns a read miss into an 8-word burst and
+--     additionally pre-fetches the next half line at cache_addr + 8 with burstcount 4,
+--     so it reaches up to +8 words past the word the engine actually asked for.
+--   * hyperram_errata.vhd turns every single-word write into a 2-word burst -> +1 word.
+--     adf_track_engine.vhd commits with burstcount x"01", so this applies to every
+--     one of its 256 sector writes.
+-- One guard window is 4096 words = 512x that worst case. The guard matters most for a
+-- 160-track image: 901,120 bytes = exactly 110 windows, i.e. it ends flush on a window
+-- boundary, so an end-of-image pre-fetch steps straight into the following window.
+--
+-- Note that the framework's own QNICE HyperRAM device (C_DEV_HYPERRAM = x"0004" in
+-- M2M/vhdl/qnice_wrapper.vhd) reaches the whole die with no bounds check. This core never
+-- uses it (every C_CRTROMS_* entry below is C_CRTROMTYPE_DEVICE), but it is the one path
+-- that could write outside the map.
+--
+-- The ascal framebuffer sits at RAMBASE 0 and is hardware-masked to
+-- 2**ceil(log2(VGA_DX*VGA_DY*3)) = 2 MB (ascal.vhd: avl_wadrs <= i_wadrs AND (RAMSIZE-1)),
+-- so it cannot grow into the disk images - UNLESS triple buffering is switched on, which
+-- would make it 6 MB and swallow all three pools. mega65.vhd ties qnice_ascal_triplebuf_o
+-- to '0'; keep it that way. mega65.vhd asserts the size relation at elaboration time.
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- M2M framework, 512 windows = 4 MB, ends x"01FF"
+                                                                              -- (ascal really needs only 256 windows = 2 MB)
+constant C_HMAP_ADF_DF0       : std_logic_vector(15 downto 0) := x"0200";     -- df0: ADF image pool, 115 windows, ends x"0272"
+constant C_HMAP_ADF_DF0_GUARD : std_logic_vector(15 downto 0) := x"0273";     -- 8 kB guard behind the df0 pool
+constant C_HMAP_ADF_DF1       : std_logic_vector(15 downto 0) := x"0280";     -- df1: ADF image pool, 115 windows, ends x"02F2"
+constant C_HMAP_ADF_DF1_GUARD : std_logic_vector(15 downto 0) := x"02F3";     -- 8 kB guard behind the df1 pool
+constant C_HMAP_ADF_DF2       : std_logic_vector(15 downto 0) := x"0300";     -- df2: ADF image pool, 115 windows, ends x"0372"
+constant C_HMAP_ADF_DF2_GUARD : std_logic_vector(15 downto 0) := x"0373";     -- 8 kB guard behind the df2 pool
+constant C_HMAP_TOP_GUARD     : std_logic_vector(15 downto 0) := x"03FF";     -- 8 kB guard at the top of the die: a burst past the
+                                                                              -- last region must never wrap around to x"0000"
+constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- total HyperRAM = 1024 windows = 8 MB
+
+-- Each drive owns a 128-window (1 MB) slot: 115 windows of image pool, one guard window,
+-- and 12 windows of reserved slack. The slack is deliberately kept inside the owning
+-- drive's slot so that any future maintenance probe address stays in its own region.
+constant C_HMAP_ADF_SLOT      : natural := 128;                               -- windows per drive slot
+
+-- ADF geometry: the single source of truth for hardware AND firmware. make_rom.sh scrapes
+-- these into globals.asm so the firmware size gate can never drift from the map.
+-- Keep each of them on ONE line - the awk scraper is line-based.
+constant C_ADF_TRACK_BYTES    : natural := 5632;                              -- 11 sectors x 512 bytes
+constant C_ADF_MIN_TRACKS     : natural := 160;                               -- 80 cylinders, both heads
+constant C_ADF_MAX_TRACKS     : natural := 166;                               -- 83 cylinders (Paula's step clamp)
+constant C_ADF_MIN_SIZE       : natural := C_ADF_MIN_TRACKS * C_ADF_TRACK_BYTES;   -- = 901,120 bytes
+constant C_ADF_MAX_SIZE       : natural := C_ADF_MAX_TRACKS * C_ADF_TRACK_BYTES;   -- = 934,912 bytes
+constant C_ADF_POOL_BYTES     : natural :=
+   (to_integer(unsigned(C_HMAP_ADF_DF0_GUARD)) - to_integer(unsigned(C_HMAP_ADF_DF0))) * 8192;  -- = 115*8192 = 942,080
 
 ----------------------------------------------------------------------------------------------------------
 -- QNICE device IDs of the Amiga core (must be >= 0x0100)
@@ -112,13 +159,26 @@ constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 constant C_DEV_AMIGA_CHIP     : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 
--- ADF mount buffer: byte-window bridge into HyperRAM plus the M2M CSR
--- protocol in window 0xFFFF; the OSM " df0:%s" / " df1:%s" mount item streams
--- the disk image here (adf_mount_wrapper.vhd)
-constant C_DEV_AMIGA_ADF      : std_logic_vector(15 downto 0) := x"0103";
+-- ADF mount buffers, one per Amiga drive unit: byte-window bridge into HyperRAM plus the
+-- M2M CSR protocol in window 0xFFFF and the write-back CSR in window 0xFFFE; the OSM
+-- " df0:%s" / " df1:%s" / " df2:%s" mount items stream the disk images here (three
+-- instances of adf_mount_wrapper.vhd, one per C_HMAP_ADF_DF* pool).
+--
+-- There are three of them even though at most two drives can be ADF drives at any one
+-- time: an OPTM_G_LOAD_ROM menu line is bound to its manual-CRT/ROM index by its position
+-- in the STATIC config array (M2M/rom/crts-and-roms.asm CRTROM_M_GI counts occurrences in
+-- M2M$CFG_OPTM_CRTROM and is blind to menu-dependency visibility). So every unit that can
+-- ever be an ADF drive needs its own permanently-bound mount line, hence its own device.
+-- Keep each constant on ONE line - make_rom.sh scrapes them.
+constant C_DEV_AMIGA_ADF0     : std_logic_vector(15 downto 0) := x"0103";
+constant C_DEV_AMIGA_ADF1     : std_logic_vector(15 downto 0) := x"0105";
+constant C_DEV_AMIGA_ADF2     : std_logic_vector(15 downto 0) := x"0106";
 
 -- Physical floppy diagnostics: read-only register bank of the Hardware Floppy
--- front-end (physical_fdd_diag.vhd) - the on-hardware bring-up instrument
+-- front-end (physical_fdd_diag.vhd) - the on-hardware bring-up instrument.
+-- Note that this sits BETWEEN the ADF devices: 0x0104 predates the second and third
+-- ADF drive and is not moved, because the diag register map is documented by number
+-- in .research/HANDOVER-hardware-floppy-round2.md.
 constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 
 ----------------------------------------------------------------------------------------------------------
@@ -128,7 +188,7 @@ constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 -- Virtual drive management system (handled by vdrives.vhd and the firmware)
 -- Permanently OFF for this core: Minimig's floppy does not speak the
 -- sd_*/img_mounted protocol that vdrives implements - ADF images are mounted
--- via the manual CRT/ROM loader below (C_DEV_AMIGA_ADF) and served to Paula
+-- via the manual CRT/ROM loader below (C_DEV_AMIGA_ADF*) and served to Paula
 -- by adf_track_engine.vhd over the IO_FPGA host channel instead.
 -- See doc/floppy-adf.md.
 type vd_buf_array is array(natural range <>) of std_logic_vector;
@@ -154,12 +214,24 @@ constant C_CRTROMTYPE_MANDATORY  : std_logic_vector(15 downto 0) := x"0003";
 constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 
 -- Manually loadable ROMs and cartridges as defined in config.vhd
--- Entry 0: the ADF disk image for df0, loaded via the OSM " ADF:%s" item into
--- the C_DEV_AMIGA_ADF device (DEVICE type: the device itself bridges to
--- HyperRAM and answers the CSR handshake - do NOT use C_CRTROMTYPE_HYPERRAM,
--- whose manual-load CSR handshake has no responder and hangs the Shell).
+-- Entry 0/1/2: the ADF disk images for df0/df1/df2, loaded via the OSM " df0:%s" /
+-- " df1:%s" / " df2:%s" mount items into the C_DEV_AMIGA_ADF0/1/2 devices (DEVICE type:
+-- the device itself bridges to HyperRAM and answers the CSR handshake - do NOT use
+-- C_CRTROMTYPE_HYPERRAM, whose manual-load CSR handshake has no responder and hangs
+-- the Shell).
+--
+-- THE ORDER IS LOAD-BEARING and must stay in sync across all five layers: the OSM
+-- OPTM_G_LOAD_ROM occurrence order in config.vhd, the manual id used here, the QNICE
+-- device, the generated HANDLE_RM_FILE<n> / HNDL_RM_FILES table, the firmware drive
+-- index, and the Paula unit. Occurrence 0 = df0, 1 = df1, 2 = df2 everywhere.
+--
+-- STILL ONE for now: the df1/df2 entries are added together with their OSM mount
+-- lines, their adf_mount_wrapper instances and the device decode in mega65.vhd. This
+-- count must never exceed the number of OPTM_G_LOAD_ROM lines in config.vhd - the
+-- Shell resolves a manual id to a menu line via CRTROM_M_GI and goes fatal if there
+-- is none.
 constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF,
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_AMIGA_ADF0,
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

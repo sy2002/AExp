@@ -457,6 +457,7 @@ constant SEL_OPTM_SAVING_STR  : std_logic_vector(15 downto 0) := x"030A";
 constant SEL_OPTM_HELP        : std_logic_vector(15 downto 0) := x"0310";
 constant SEL_OPTM_CRTROM      : std_logic_vector(15 downto 0) := x"0311";
 constant SEL_OPTM_CRTROM_STR  : std_logic_vector(15 downto 0) := x"0312";
+constant SEL_OPTM_DEPS        : std_logic_vector(15 downto 0) := x"0313";   -- M2M-UPSTREAM osm-deps
 
 -- !!! DO NOT TOUCH !!! Configuration constants for OPTM_GROUPS (shell.asm and menu.asm expect them to be like this)
 constant OPTM_G_TEXT       : integer := 16#00000#;         -- text that cannot be selected
@@ -473,8 +474,13 @@ constant OPTM_G_MOUNT_DRV  : integer := 16#08800#;        -- line item means: mo
 constant OPTM_G_HELP       : integer := 16#0A000#;        -- line item means: help screen; first occurance = WHS(1), second = WHS(2), ...
 constant OPTM_G_SUBMENU    : integer := 16#0C000#;        -- starts/ends a section that is treated as submenu
 constant OPTM_G_LOAD_ROM   : integer := 16#18000#;        -- line item means: load ROM; first occurance = rom 0, second = rom 1, ...
+constant OPTM_G_DEPENDENT  : integer := 16#20000000#;     -- dependent line (smart dependencies, see OPTM_DEP below): visible only
+                                                          -- while one of the mother-group items in a 4-bit item mask is selected (bit 29)
 
-constant OPTM_GTC          : natural := 17;                -- Amount of significant bits in OPTM_G_* constants
+constant OPTM_GTC          : natural := 30;                -- Amount of significant bits in OPTM_G_* constants (max 30: 2**31 overflows
+                                                           -- the integer range expression below); was 17 before the smart-dependencies
+                                                           -- feature. Raising it is bit-transparent: every existing decoder arm above
+                                                           -- indexes bits 0..16 of the widened vector unchanged.
 
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu: START YOUR CONFIGURATION BELOW THIS LINE
@@ -535,7 +541,7 @@ constant OPTM_DY           : natural := 33;
 -- M2M$GET_SETTING and programs ascal directly (ASCAL_USAGE=1).
 --
 -- DRIVE LINES 2 + 3 (Hardware Floppy): line 2 is the ADF mount item
--- (" df0:%s", manual CRT/ROM load into C_DEV_AMIGA_ADF), line 3 is a plain
+-- (" df0:%s", manual CRT/ROM load into C_DEV_AMIGA_ADF0), line 3 is a plain
 -- TEXT line showing the hardware drive's role, line 4 opens the Configure
 -- Drives submenu. The STRUCTURE is fully static; the firmware alone
 -- rewrites two fixed-width label fields in the menu heap (and repaints
@@ -718,6 +724,27 @@ constant OPTM_G_STEREO     : integer := 13;  -- stereo crossfeed radio (MiSTer a
 constant OPTM_G_A500FILT   : integer := 14;  -- A500 Filter toggle (fixed 4400 Hz low-pass); read in HDL (mega65.vhd)
 constant OPTM_G_LEDFILT    : integer := 15;  -- LED Filter toggle (CIA-A PA1 power-LED low-pass); read in HDL (mega65.vhd)
 constant OPTM_G_HWFLOPPY   : integer := 16;  -- Hardware Floppy drive map radio (Off/df0/df1); read in HDL (mega65.vhd) + firmware heap re-copy (OSM_SEL_POST)
+
+-- Smart dependencies (M2M-UPSTREAM osm-deps): tag a line so that it is only visible
+-- while one of the items of a "mother" group is selected. This is a pure VISIBILITY
+-- layer - a dependent line keeps its own osm_control bit, its own saved config-file
+-- byte and its own default state, so nothing about the C_MENU_* mapping in mega65.vhd
+-- or about osm_const.asm changes.
+--
+-- OPTM_DEP(m, i)         visible while item i of mother group m is selected
+-- OPTM_DEP2(m, i, j)     visible while item i OR item j of mother group m is selected
+--
+-- Items 0..3 ONLY: the item selector is a 4-bit mask (bits 28..25) and item 4 would
+-- collide with OPTM_G_DEPENDENT itself and overflow the integer range below. For a
+-- single-select mother, item 0 means "while it is off" and item 1 "while it is on".
+function OPTM_DEP(mother : natural; item : natural) return natural is
+begin
+   return OPTM_G_DEPENDENT + ((2 ** item) * 16#02000000#) + (mother * 16#00020000#);
+end function OPTM_DEP;
+function OPTM_DEP2(mother : natural; item_a : natural; item_b : natural) return natural is
+begin
+   return OPTM_G_DEPENDENT + ((2 ** item_a + 2 ** item_b) * 16#02000000#) + (mother * 16#00020000#);
+end function OPTM_DEP2;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -1003,6 +1030,22 @@ begin
             when SEL_OPTM_CRTROM       => data_o <= x"000" & "000" & std_logic(to_unsigned(OPTM_GROUPS(index), OPTM_GTC)(16));
             when SEL_OPTM_ICOUNT       => data_o <= x"00" & std_logic_vector(to_unsigned(OPTM_SIZE, 8));
             when SEL_OPTM_DIMENSIONS   => data_o <= getDXDY(OPTM_DX, OPTM_DY, index);
+
+            -- Smart dependencies (M2M-UPSTREAM osm-deps). Index 4095 is the feature
+            -- probe: a config.vhd without this arm falls through to "when others =>
+            -- null" and keeps the x"EEEE" pre-assignment, which OPTM_DEPS_PROBE reads
+            -- as "feature not available" - so the firmware stays compatible with an
+            -- older core. x"2DEF" selects dependency format 2 (4-bit item mask).
+            -- Served word: bit 12 = dependent flag, bits 11-8 = mother item mask,
+            -- bits 7-0 = mother group id.
+            when SEL_OPTM_DEPS         => if index = 4095 then
+                                             data_o <= x"2DEF";
+                                          else
+                                             data_o <= "000" &
+                                                std_logic(to_unsigned(OPTM_GROUPS(index), OPTM_GTC)(29)) &
+                                                std_logic_vector(to_unsigned(OPTM_GROUPS(index), OPTM_GTC)(28 downto 25)) &
+                                                std_logic_vector(to_unsigned(OPTM_GROUPS(index), OPTM_GTC)(24 downto 17));
+                                          end if;
 
             when others                => null;
          end case;

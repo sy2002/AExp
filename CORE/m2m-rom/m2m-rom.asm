@@ -189,7 +189,7 @@ _PREP_LI_FLD    MOVE    ADF_FDH_VALID, R4
                 MOVE    ADF_FL_STATE, R4
                 MOVE    0, @R4
                 MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 0 until the new
-                MOVE    AEXP_DEV_ADF, @R4       ; mount is complete
+                MOVE    AEXP_DEV_ADF0, @R4       ; mount is complete
                 MOVE    M2M$RAMROM_4KWIN, R4
                 MOVE    ADF_WBC_4KWIN, @R4
                 MOVE    ADF_WBC_CTRL, R4
@@ -446,7 +446,7 @@ CUSTOM_MSG      XOR     R8, R8
 ; The track engine (CORE/vhdl/adf_track_engine.vhd) MFM-decodes Amiga writes
 ; and commits verified sectors into the ADF image in HyperRAM; the mount
 ; wrapper (CORE/vhdl/adf_mount_wrapper.vhd) collects the affected tracks in
-; a dirty bitmap behind window ADF_WBC_4KWIN of device AEXP_DEV_ADF and runs
+; a dirty bitmap behind window ADF_WBC_4KWIN of device AEXP_DEV_ADF0 and runs
 ; the vdrives-style anti-thrashing countdown. The firmware side below mirrors
 ; the proven C64MEGA65 vdrives discipline (background flushing driven from
 ; HANDLE_IO, chunked to stay responsive, still-open FAT32 handle, errors are
@@ -484,7 +484,7 @@ ADF_WB_INIT     INCRB
                 MOVE    @R0, R1
 
                 MOVE    M2M$RAMROM_DEV, R0      ; ... into the WBC register
-                MOVE    AEXP_DEV_ADF, @R0
+                MOVE    AEXP_DEV_ADF0, @R0
                 MOVE    M2M$RAMROM_4KWIN, R0
                 MOVE    ADF_WBC_4KWIN, @R0
                 MOVE    ADF_WBC_ATDELAY, R0
@@ -652,7 +652,7 @@ _HCIO_KILL      MOVE    ADF_FDH_VALID, R4       ; already disabled: done
                 MOVE    ADF_FL_STATE, R4        ; abort a running session
                 MOVE    0, @R4
                 MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 0 (df0 reverts to
-                MOVE    AEXP_DEV_ADF, @R4       ; write-protected) and wipe
+                MOVE    AEXP_DEV_ADF0, @R4       ; write-protected) and wipe
                 MOVE    M2M$RAMROM_4KWIN, R4    ; the whole dirty bitmap
                 MOVE    ADF_WBC_4KWIN, @R4
                 MOVE    ADF_WBC_CTRL, R4
@@ -665,7 +665,7 @@ _HCIO_WIPE      MOVE    0xFFFF, @R4++           ; write-1-to-clear
                 RBRA    _HCIO_RET, 1
 
                 ; --- 2. mount tracking (PARSEST=READY rising edge) ---
-_HCIO_MOUNT     MOVE    AEXP_DEV_ADF, R8
+_HCIO_MOUNT     MOVE    AEXP_DEV_ADF0, R8
                 MOVE    CRTROM_CSR_PARSEST, R9
                 RSUB    CRTROM_CSR_R, 1         ; R10: parse status
                 CMP     CRTROM_CSR_PT_OK, R10
@@ -688,7 +688,7 @@ _HCIO_MOUNT     MOVE    AEXP_DEV_ADF, R8
                 MOVE    ADF_SD_SLOT, R5
                 MOVE    R4, @R5
                 MOVE    M2M$RAMROM_DEV, R4      ; WR_EN := 1
-                MOVE    AEXP_DEV_ADF, @R4
+                MOVE    AEXP_DEV_ADF0, @R4
                 MOVE    M2M$RAMROM_4KWIN, R4
                 MOVE    ADF_WBC_4KWIN, @R4
                 MOVE    ADF_WBC_CTRL, R4
@@ -747,7 +747,7 @@ FLUSH_ADF_STEP  INCRB
                 MOVE    R8, R4                  ; R4: force flag
 
                 MOVE    M2M$RAMROM_DEV, R8      ; select the WBC window
-                MOVE    AEXP_DEV_ADF, @R8
+                MOVE    AEXP_DEV_ADF0, @R8
                 MOVE    M2M$RAMROM_4KWIN, R8
                 MOVE    ADF_WBC_4KWIN, @R8
 
@@ -981,7 +981,7 @@ HANDLE_UNMOUNT_KEY INCRB
                 RBRA    _HUK_RET, !Z            ; other line -> bail
 
                 ; --- gate 3: is the ADF mounted? PARSEST == PT_OK ---
-                MOVE    AEXP_DEV_ADF, R8
+                MOVE    AEXP_DEV_ADF0, R8
                 MOVE    CRTROM_CSR_PARSEST, R9
                 RSUB    CRTROM_CSR_R, 1         ; R10 = parse status
                 CMP     CRTROM_CSR_PT_OK, R10
@@ -1031,7 +1031,7 @@ ADF_UNMOUNT     INCRB
                 ; Shell revert the ' ADF:' menu label for free via
                 ; CRTROM_MLST_GET (same mechanism as ST_LDNG at the start of
                 ; every load).
-                MOVE    AEXP_DEV_ADF, R8
+                MOVE    AEXP_DEV_ADF0, R8
                 MOVE    CRTROM_CSR_STATUS, R9
                 MOVE    CRTROM_CSR_ST_IDLE, R10
                 RSUB    CRTROM_CSR_W, 1
@@ -1067,7 +1067,7 @@ ADF_UNMOUNT     INCRB
                 RBRA    _ADF_UM_FLUSH, Z        ; same slot -> safe to flush
 
 _ADF_UM_DROP    MOVE    M2M$RAMROM_DEV, R0      ; card changed: drop the dirty
-                MOVE    AEXP_DEV_ADF, @R0       ; bitmap (write-1-to-clear) so a
+                MOVE    AEXP_DEV_ADF0, @R0       ; bitmap (write-1-to-clear) so a
                 MOVE    M2M$RAMROM_4KWIN, R0    ; later mount cannot flush stale
                 MOVE    ADF_WBC_4KWIN, @R0      ; tracks into the new file, then
                 MOVE    ADF_WBC_DIRTY0, R0      ; fall through to disarm
@@ -1098,7 +1098,7 @@ _ADF_UM_DIS     MOVE    ADF_FDH_VALID, R0
                 MOVE    ADF_FL_STATE, R0
                 MOVE    0, @R0
                 MOVE    M2M$RAMROM_DEV, R0      ; WR_EN := 0 (df0 write-protected)
-                MOVE    AEXP_DEV_ADF, @R0
+                MOVE    AEXP_DEV_ADF0, @R0
                 MOVE    M2M$RAMROM_4KWIN, R0
                 MOVE    ADF_WBC_4KWIN, @R0
                 MOVE    ADF_WBC_CTRL, R0
@@ -1872,7 +1872,7 @@ OPTM_G_ADF      .EQU    1
 ; ADF file extension (needs to be upper case)
 ADF_FILE_EXT    .ASCII_W ".ADF"
 
-; ADF write-back CSR (WBC): device AEXP_DEV_ADF (autogenerated into
+; ADF write-back CSR (WBC): device AEXP_DEV_ADF0 (autogenerated into
 ; osm_const.asm from globals.vhd), 4k window 0xFFFE - register map defined
 ; in CORE/vhdl/adf_mount_wrapper.vhd (keep in sync!)
 ADF_WBC_4KWIN   .EQU    0xFFFE              ; the write-back CSR window
@@ -2046,17 +2046,21 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 124 menu items are a 1245-character string plus the 19-word
-; menu structure plus three per-item arrays = 19 + 1245 + 1 + 3 x 124 + 1 =
-; 1638 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
-; per submenu (8), manual ROM (1) and vdrive (0) plus one scratch buffer =
-; 10 x 25 = 250 words. Total demand is 1888 words, rounded up to the next
-; 128-word boundary: 1920 words, leaving 32 words headroom. Do not reserve a
+; LOG_HEAP2): the 124 menu items are a 1245-character string plus the 20-word
+; menu structure plus FOUR per-item arrays = 20 + 1245 + 1 + 4 x 124 + 1 =
+; 1763 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
+; 12 x 25 = 300 words. Total demand is 2063 words, rounded up to the next
+; 128-word boundary: 2176 words, leaving 113 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
 ; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
 ; manual-ROM counts grow, recalculate both budgets and rebalance the
 ; HEAP_SIZE constants below by the same delta.
-MENU_HEAP_SIZE  .EQU 1920
+;
+; The fourth per-item array and the 19th->20th structure word are the menu
+; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
+; 1 to 3 with the second and third simulated floppy drive.
+MENU_HEAP_SIZE  .EQU 2176
 
 #ifndef RELEASE
 
@@ -2064,13 +2068,13 @@ MENU_HEAP_SIZE  .EQU 1920
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 5248                       ; 7168 - 1920 = 5248
+HEAP_SIZE       .EQU 4992                       ; 7168 - 2176 = 4992
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28.375k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 28288                      ; 30208 - 1920 = 28288
+HEAP_SIZE       .EQU 28032                      ; 30208 - 2176 = 28032
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

@@ -997,7 +997,7 @@ begin
    -- Device map (QNICE dev_addr is a BYTE address into the Amiga memories;
    -- even byte = data bits 15:8 (lane U), odd byte = bits 7:0 (lane L)):
    --   0x0100  C_DEV_AMIGA_KICK  256 KB  Kickstart ROM (mandatory auto-load target)
-   --   0x0103  C_DEV_AMIGA_ADF   ADF mount buffer in HyperRAM + CSR window 0xFFFF
+   --   0x0103  C_DEV_AMIGA_ADF0  ADF mount buffer in HyperRAM + CSR window 0xFFFF
    --           (adf_mount_wrapper packs its own byte order - byte address bit 0
    --           selects the HyperRAM word's LOW byte lane for EVEN addresses)
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
@@ -1025,7 +1025,7 @@ begin
                qnice_dev_data_o <= x"00" & qnice_kick_q_l;
             end if;
 
-         when C_DEV_AMIGA_ADF =>
+         when C_DEV_AMIGA_ADF0 =>
             qnice_adf_ce     <= qnice_dev_ce_i;
             qnice_dev_data_o <= qnice_adf_data;
             qnice_dev_wait_o <= qnice_adf_wait;

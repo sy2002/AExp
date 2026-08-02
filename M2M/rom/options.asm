@@ -126,6 +126,38 @@ _HLP_SSIC1      SUB     1, R4                   ; one less menu item to go
                 ADD     OPTM_IR_LINES, R8
                 MOVE    R9, @R8
 
+                ; M2M-UPSTREAM osm-deps
+                ; Copy the per-line dependency array to the heap and resolve it
+                ; in place, so that OPTM_DEP_OK can evaluate it cheaply while
+                ; the menu structure is built (see _OPTM_STRUCT in menu.asm).
+                ;
+                ; The array is allocated unconditionally, so the heap layout
+                ; never depends on whether config.vhd supports the feature. If
+                ; it does not, the selector returns the 0xEEEE pre-assignment
+                ; instead of the probe magic; the record entry is then set to 0
+                ; and every menu line stays unconditionally visible, i.e. the
+                ; behaviour of a core without dependencies is bit-identical.
+                ADD     R3, R2                  ; R2: free word behind lines
+                MOVE    M2M$CFG_OPTM_DEPS, @R0  ; select dependency window
+                MOVE    M2M$RAMROM_DATA, R8
+                MOVE    R8, R6                  ; R6: address of probe word
+                ADD     0x0FFF, R6              ; (index 4095 of the window)
+                MOVE    HEAP, R7                ; R7: &record[OPTM_IR_DEPS]
+                ADD     OPTM_IR_DEPS, R7
+                CMP     0x2DEF, @R6             ; dependency format 2?
+                RBRA    _HLP_DEPS_OFF, !Z       ; no: leave the feature off
+                MOVE    R2, R9                  ; R9: destination on the heap
+                MOVE    R3, R10                 ; R10: amount of menu items
+                SYSCALL(memcpy, 1)
+                MOVE    R9, @R7                 ; remember the array
+                MOVE    R9, R8                  ; R8: raw dependency array
+                MOVE    R12, R9                 ; R9: menu groups array
+                MOVE    R3, R10                 ; R10: amount of menu items
+                RSUB    OPTM_DEPS_RESOLVE, 1
+                RBRA    _HLP_DEPS_END, 1
+_HLP_DEPS_OFF   MOVE    0, @R7                  ; feature off: all lines shown
+_HLP_DEPS_END   MOVE    R3, R10                 ; R10: menu items counter
+
                 ; Calculate, if the menu is within its heap boundaries
                 MOVE    HEAP, R8
                 MOVE    R2, R9
@@ -810,7 +842,9 @@ OPT_MENU_DATA   .DW     SCR$CLR, SCR$PRINTFRAME, OPT_PRINTSTR, SCR$PRINTSTRXY
                 .DW     OPTM_CB_SEL, OPTM_CB_SHOW, FATAL,
                 .DW     M2M$OPT_SEL_MULTI, 0    ; selection char + zero term.:
                 .DW     M2M$OPT_SEL_SINGLE, 0   ; multi- and single-select
-                .DW     0, 0, 0, 0, 0           ; will be filled dynamically
+                .DW     0, 0, 0, 0, 0, 0        ; will be filled dynamically
+                                                ; (the last one is OPTM_IR_DEPS,
+                                                ; M2M-UPSTREAM osm-deps)
 
 ; Print function that handles everything incl. cursor pos and \n by itself
 ; R8 contains the string that shall be printed

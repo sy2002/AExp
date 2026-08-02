@@ -169,8 +169,13 @@ OPTM_IR_STDSEL  .EQU 17
 ; array of 0s and 1s to define horizontal separator lines
 OPTM_IR_LINES   .EQU 18
 
+; M2M-UPSTREAM osm-deps
+; pointer to the RESOLVED per-line dependency array (see optm_deps.asm), or 0
+; when the dependency feature is switched off / not supported by config.vhd
+OPTM_IR_DEPS    .EQU 19
+
 ; size of initialization record in words
-OPTM_STRUCTSIZE .EQU 19
+OPTM_STRUCTSIZE .EQU 20
 
 OPTM_NL         .DW  0x005C, 0x006E, 0x0000     ; \n
 
@@ -1368,6 +1373,53 @@ _OPTM_STRUCT_12 ADD     1, R7                   ; next list element
                 SUB     1, R4                   ; one less item to process
                 RBRA    _OPTM_STRUCT_9, !Z
 
+                ; M2M-UPSTREAM osm-deps
+                ; Third pass: hide every line whose menu dependency is not
+                ; satisfied (see optm_deps.asm).
+                ;
+                ; This MUST be a separate pass that runs AFTER the special-case
+                ; correction above - folding the test into _OPTM_STRUCT_5..8
+                ; silently does nothing on the main menu level. Reason: the
+                ; correction re-sets bit 15 on the first not-shown entry of a
+                ; region (_OPTM_STRUCT_10), and on the main-menu level
+                ; (R3 = 0) _OPTM_STRUCT_11 returns without ever clearing the
+                ; first-occurrence flag R5, so R5 stays 1 across main-menu
+                ; lines and a line hidden earlier would be made visible again
+                ; plus counted into R9. Clearing bit 15 here is safe because
+                ; nothing after this point re-derives it.
+                ;
+                ; When config.vhd does not support the feature, OPTM_IR_DEPS is
+                ; 0 and the whole pass is skipped, so this is a no-op for every
+                ; core that does not use dependencies.
+                MOVE    R8, R0                  ; R0: preserve the struct base
+                MOVE    @R8, R4                 ; R4: overall amount of items
+                MOVE    R8, R7                  ; R7: ptr. to curr. itm in lst
+                ADD     1, R7                   ; skip size info
+                XOR     R1, R1                  ; R1: flat menu line index
+
+                MOVE    OPTM_DATA, R2           ; is the feature active at all?
+                MOVE    @R2, R2                 ; (no init record: no)
+                RBRA    _OPTM_STRUCT_14, Z
+                ADD     OPTM_IR_DEPS, R2
+                MOVE    @R2, R2                 ; (no resolved array: no)
+                RBRA    _OPTM_STRUCT_14, Z
+
+_OPTM_STRUCT_13 MOVE    @R7, R6
+                AND     0x8000, R6              ; shown at this menu level?
+                RBRA    _OPTM_STRUCT_13A, Z     ; no: nothing to hide
+                MOVE    R1, R8                  ; R8: flat index of this line
+                RSUB    OPTM_DEP_OK, 1          ; preserves all registers
+                RBRA    _OPTM_STRUCT_13A, C     ; dependency satisfied: keep
+                AND     0x7FFF, @R7             ; not satisfied: hide the line
+                SUB     1, R9                   ; one less active item
+
+_OPTM_STRUCT_13A ADD    1, R7                   ; next list element
+                ADD     1, R1                   ; next flat index
+                CMP     R1, R4                  ; all lines processed?
+                RBRA    _OPTM_STRUCT_13, !Z
+
+_OPTM_STRUCT_14 MOVE    R0, R8                  ; restore the struct base
+
                 DECRB
                 RET
 
@@ -1476,3 +1528,12 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
 
                 DECRB
                 RET
+
+; ----------------------------------------------------------------------------
+; M2M-UPSTREAM osm-deps
+; Dependent menu entries ("smart dependencies"). Included here so that the menu
+; component stays self-contained: OPTM_DEP_OK is called from _OPTM_STRUCT above
+; and OPTM_DEPS_AFFECTS from the selection handling in _OPTM_RUN.
+; ----------------------------------------------------------------------------
+
+#include "optm_deps.asm"

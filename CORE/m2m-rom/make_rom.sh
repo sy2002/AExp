@@ -57,7 +57,11 @@ awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""
     echo ""
 } >> osm_const.asm
 
-awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_ADF", $0)}' ../vhdl/globals.vhd >> osm_const.asm
+# One symbol per ADF mount device: AEXP_DEV_ADF0/1/2 from C_DEV_AMIGA_ADF0/1/2.
+# The name is derived from the constant, so the pattern must be an EXACT per-constant
+# match - a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
+# and the assembler would fail on the duplicate.
+awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
 ##############################################################################
 # M2M framework: Generate globals.asm
