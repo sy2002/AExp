@@ -2025,19 +2025,19 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 142 menu items are a 1384-character string plus the 20-word
-; menu structure plus FOUR per-item arrays = 20 + 1384 + 1 + 4 x 142 + 1 =
-; 1974 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; LOG_HEAP2): the 146 menu items are a 1392-character string plus the 20-word
+; menu structure plus FOUR per-item arrays = 20 + 1392 + 1 + 4 x 146 + 1 =
+; 1998 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
 ; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
-; 12 x 25 = 300 words. Total demand is 2274 words, rounded up to the next
-; 128-word boundary: 2304 words, leaving 30 words headroom. Do not reserve a
+; 12 x 25 = 300 words. Total demand is 2298 words, rounded up to the next
+; 128-word boundary: 2304 words, leaving 6 words headroom. Do not reserve a
 ; large safety margin here: every word is taken directly from the file-browser
 ; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
 ; manual-ROM counts grow, recalculate both budgets and rebalance the
 ; HEAP_SIZE constants below by the same delta.
 ; .research/check_osm_menu.py recomputes all of this from config.vhd.
 ;
-; HELP_MENU_INIT additionally borrows 20 + 3 x 142 = 446 words of this region
+; HELP_MENU_INIT additionally borrows 20 + 3 x 146 = 458 words of this region
 ; as transient scratch for the boot-time dependency validation (_HLP_DEPVAL in
 ; M2M/rom/options.asm) - far below the permanent demand, so it never binds.
 ;

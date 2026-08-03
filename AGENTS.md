@@ -57,7 +57,7 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   remaining work and the verification recipes.
   Note that `CORE_VERSION` drives `CFG_FILE`, so the OSM settings file on
   the SD card becomes `/amiga/aexp-WIP-V2-A3.cfg` - regenerate it with
-  `M2M/tools/make_config.sh` (see hard rule 10; `OPTM_SIZE` is now 142).
+  `M2M/tools/make_config.sh` (see hard rule 10; `OPTM_SIZE` is now 146).
   The `doc/inofficial.md` row for A3 is added at packaging time, because
   `make_release.py check_inofficial_md` requires a real commit hash.
 
