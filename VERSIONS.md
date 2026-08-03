@@ -3,18 +3,18 @@ Version 2 - MONTH DAY, YEAR
 
 WORK-IN-PROGRES see doc/inofficial.md
 
-* Authentic A500 sound: A500 Filter + LED Filter (both default on)
-
-* Stereo Mix option
-
-* Master volume control (perceptual loudness taper)
-
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), each of them either a
   read/write `*.adf` disk image or the built-in MEGA65 drive. Choose how many
   drives you want and what each one is in the "Drive Settings" menu
 
 * Hardware Floppy: the built-in MEGA65 disk drive reads real Amiga disks
   (read-only, double density media only)
+
+* Authentic A500 sound: A500 Filter + LED Filter (both default on)
+
+* Stereo Mix option
+
+* Master volume control (perceptual loudness taper)
 
 Version 1 - July 26, 2026
 =========================
