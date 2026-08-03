@@ -52,6 +52,8 @@ PREFERRED_NAVIGATION = (
     (
         "Using the core",
         (
+            ("Floppy drives", "doc/drives.md"),
+            ("The Hardware Floppy", "doc/hardware_floppy.md"),
             ("Mouse and joystick", "doc/mouse.md"),
             ("Keyboard mappings", "doc/keyboard.md"),
             ("Video modes", "doc/video_modes.md"),

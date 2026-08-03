@@ -37,8 +37,10 @@ Features
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
   total; the Slow RAM can be switched off in the menu for the few games
   that need a chip-RAM-only A500
-* One floppy drive (`df0:`): mount standard 880 KB `*.adf` disk images
-  via the on-screen-menu, read and write
+* Up to three floppy drives (`df0:`, `df1:`, `df2:`): mount standard
+  880 KB `*.adf` disk images via the on-screen-menu, read and write — and
+  hand one of the drives to the MEGA65's own internal 3.5" drive to read
+  genuine Amiga disks (read-only)
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
@@ -80,15 +82,30 @@ on real hardware a part of the A501 — stays available either way.
 
 ### Floppy disks
 
-Press <kbd>Help</kbd> to open the menu and mount a `*.adf` image via the
-`ADF:` item. The disk boots after mounting. Disks are **read/write**: when
-the Amiga writes to a disk — saving a file, formatting, storing a high
-score — the change is written back to the `*.adf` file on your SD card.
+AExp gives the Amiga up to three floppy drives: `df0:`, `df1:` and `df2:`.
+Each one is either a **disk image** (an `*.adf` file on your SD card), the
+**Hardware Floppy** (the MEGA65's own internal 3.5" drive, reading genuine
+Amiga disks), or switched off. How many drives exist and what each of them
+is, you choose in the **Drive Settings** submenu of the options menu; a
+change there cold-boots the Amiga, because it has to re-detect its drives.
+Out of the box you get three: `df0:` and `df1:` as disk images, `df2:` as
+the Hardware Floppy.
 
-To **eject** the disk, open the menu with <kbd>Help</kbd>, move the highlight
-to the `ADF:` item and press <kbd>Space</kbd>. On
-an empty drive that same <kbd>Space</kbd> opens the file browser to mount a
-disk instead, so one key both mounts and ejects.
+Press <kbd>Help</kbd> to open the menu, which shows one line per existing
+drive: a disk image drive shows the mounted file name or `<Load>` when it is
+empty, a Hardware Floppy drive shows that instead. Move the highlight to a
+disk image drive and press <kbd>Space</kbd> to open the file browser and
+**mount** a `*.adf` image; a disk in `df0:` boots after mounting. On a drive
+that already holds a disk, that same <kbd>Space</kbd> **ejects** it, so one
+key both mounts and ejects.
+
+Disks are **read/write**: when the Amiga writes to a disk — saving a file,
+formatting, storing a high score — the change is written back to the
+`*.adf` file on your SD card. One rule surprises people: the same `*.adf`
+file cannot sit in two drives at the same time, and the core refuses the
+second mount. Each drive keeps its own copy of the disk and collects its
+own changes, so whichever drive saved last would quietly overwrite what the
+other one saved. If a program wants two disks, give it two files.
 
 Saving happens in the background, so the Amiga never stalls. The MEGA65's
 drive LED lights **green** during disk access — reading or writing — just like
@@ -99,6 +116,22 @@ off for a few seconds** before you unmount a disk, swap disks, reset, or switch
 the machine off — the yellow light can briefly come back on as more data is
 flushed. Switching off while it is yellow loses the not-yet-saved changes,
 exactly like ejecting a real floppy while its drive light is still on.
+
+The **Hardware Floppy** makes the MEGA65's built-in drive behave like a real
+Amiga drive: you put a genuine Amiga disk into the MEGA65 and the emulated
+Amiga reads it. It is **read-only** — nothing is ever written to a real disk,
+and Amiga programs see a write-protected drive — and it needs
+double-density (DD) media, which is what Amiga disks are. Only one drive can
+have it, since there is only one mechanism. This is an early feature: clean,
+well-kept disks mount and read, while old or marginal media produce read
+errors, so if one disk fails it is worth trying another. Read-only is exactly
+what you want for rescuing an old collection, by the way: put the real disk
+in one drive, an `*.adf` image in another, and copy across with the Amiga's
+own tools.
+
+The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
+[doc/hardware_floppy.md](doc/hardware_floppy.md) explains reading real Amiga
+disks, including what to expect from thirty-year-old media.
 
 ### Mouse and joystick
 
@@ -367,7 +400,8 @@ Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
-* Only one floppy drive (`df0:`)
+* Real Amiga disks in the MEGA65's internal drive can be read, but not
+  written
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
 
