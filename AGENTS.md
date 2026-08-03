@@ -439,7 +439,9 @@ the deep material lives in `doc/` (see "Key documents").
   path, so the "does the menu own the screen right now" question is left to the
   caller (AExp answers it with `M2M$CSR_OSM` + its own `OSM_SUB_ACTIVE` +
   `OPTM_MENULEVEL`). Getting that wrong is cosmetic, never fatal.
-  **Still needs sy2002 sign-off, like exception (4).**
+  sy2002-approved 2026-08-04. When this goes upstream it should grow the
+  `OPTM_FOREGROUND` flag of the C64 original, so the "does the menu own the
+  screen" test lives in the framework instead of in each caller.
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
