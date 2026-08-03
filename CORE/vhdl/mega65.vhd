@@ -558,6 +558,23 @@ constant C_MENU_DF2_IMG       : natural := 30;
 constant C_MENU_DF2_HW        : natural := 31;
 constant C_MENU_DF2_OFF       : natural := 32;
 
+-- Flat main-menu indexes of the six twin lines, one pair per drive: the mount
+-- line and its "Hardware Floppy" TEXT twin. These carry NO osm_control meaning
+-- - the HDL never reads them - they exist so that make_rom.sh can hand the
+-- firmware the line numbers it needs (the C64MEGA65 C_MENU_DRV8_1581_LN
+-- pattern): HANDLE_UNMOUNT_KEY tests them against OPTM_CUR_SEL to find out
+-- which drive the cursor is on, and HANDLE_CORE_IO patches the live hardware
+-- status into the TEXT lines. Declaring them here rather than hardcoding them
+-- in the firmware is what puts them under the cross-check of
+-- .research/check_osm_menu.py, which verifies every C_MENU_* against the TEXT
+-- of the line it addresses.
+constant C_MENU_DF0_MOUNT_LN  : natural := 2;
+constant C_MENU_DF0_HW_LN     : natural := 3;
+constant C_MENU_DF1_MOUNT_LN  : natural := 4;
+constant C_MENU_DF1_HW_LN     : natural := 5;
+constant C_MENU_DF2_MOUNT_LN  : natural := 6;
+constant C_MENU_DF2_HW_LN     : natural := 7;
+
 -- per-unit drive mode, two bits each in main_drv_mode (unit u at 2u+1 downto 2u)
 constant C_DRV_IMAGE          : std_logic_vector(1 downto 0) := "00";  -- simulated ADF drive
 constant C_DRV_HW             : std_logic_vector(1 downto 0) := "01";  -- the MEGA65 mechanism

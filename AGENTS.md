@@ -33,22 +33,35 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
 - `WIP-V2-A1` — audio filters (A500 + LED), Stereo Mix, master volume.
 - `WIP-V2-A2` — Hardware Floppy read: works "OK-ish", real disks mount and
   browse, but old/marginal media still produce errors.
-- **`WIP-V2-A3` — MULTIPLE SIMULATED DRIVES (the current alpha, in
-  progress; the HDL, the menu and the framework are DONE and statically
-  verified in the working tree, the per-drive firmware write-back is
-  not).** Three Amiga units `df0`/`df1`/`df2`, each either a read/write
-  ADF disk image or the Hardware Floppy (at most one). The drive index IS
-  the Amiga unit now: per-drive twin lines in the main menu (a mount line
-  and a hardware-status TEXT line) whose visibility comes from the
-  backported M2M menu-dependency feature, a `Drive Settings` submenu with
-  a `Drives 1/2/3` radio plus one mode radio per drive, three
+- **`WIP-V2-A3` — MULTIPLE SIMULATED DRIVES. The HDL, the menu and the
+  framework were R3-built (`5f2869d`: BRAM 364/365, WNS +0.120 ns) and
+  HARDWARE-VERIFIED on 2026-08-03 (boot from df0, Workbench Tools in df1,
+  a program reading both drives, the Hardware Floppy, and live drive-
+  configuration switching all work). The per-drive firmware write-back
+  followed on top and is statically verified but NOT yet synthesized or
+  hardware-tested.** Three Amiga units `df0`/`df1`/`df2`, each either a
+  read/write ADF disk image or the Hardware Floppy (at most one). The
+  drive index IS the Amiga unit: per-drive twin lines in the main menu (a
+  mount line and a hardware-status TEXT line) whose visibility comes from
+  the backported M2M menu-dependency feature, a `Drive Settings` submenu
+  with a `Drives 1/2/3` radio plus one mode radio per drive, three
   `adf_mount_wrapper` instances with their own guarded HyperRAM pools
   behind a 4-way `avm_arbit_general`, and a unit-tagged
   `adf_track_engine` whose write drain aborts the moment Paula selects a
-  different unit. **Until the firmware write-back becomes per-drive,
-  df1 and df2 are announced WRITE-PROTECTED** (only df0 ever arms
-  `WR_EN`) - a second armed drive would flush one drive's tracks through
-  the single file handle into another drive's file.
+  different unit. **All three drives are writable**: the eight write-back
+  variables are arrays indexed by the drive, each drive owns its own
+  FAT32 handle snapshot (`ADF_FDH0/1/2`), `FLUSH_ADF_STEP` takes a drive
+  index, and `HANDLE_CORE_IO` runs per-drive SD guards, per-drive mount
+  tracking and ONE round-robin flush slice per poll, so three armed
+  drives cost the main loop what one used to. Three rules keep it safe
+  and are load-bearing: a drive may only ever be flushed through ITS OWN
+  handle; the same image file may not be mounted into two drives at once
+  (`ADF_DUP_CHECK` rejects the second mount, because each drive holds its
+  own HyperRAM copy and the later flush would overwrite the earlier one);
+  and no handle may be left FAT32-DIRTY across a return to the main loop,
+  because the machine has exactly ONE sector buffer whose owner the
+  device handle tracks by ADDRESS, and the file browser steals it without
+  flushing.
   **The authoritative working document is
   `.research/HANDOVER-multi-drive.md`** - read it before touching the
   floppy stack; it carries the design rationale, what is already in the
@@ -180,14 +193,13 @@ the deep material lives in `doc/` (see "Key documents").
   per-track dirty bitmap + vdrives-style anti-thrash (2 s, config.vhd
   word 13) in `adf_mount_wrapper` window 0xFFFE ("WBC"); firmware
   flushes dirty tracks to the SD file in the background via the new
-  `HANDLE_CORE_IO` hook (512 B + fflush per slice, own FDH snapshot —
-  the Shell re-opens `HANDLE_RM_FILE1` before `PREP_LOAD_IMAGE`!);
-  drive LED yellow while dirty. Design + review findings:
+  `HANDLE_CORE_IO` hook (512 B + fflush per slice, one FDH snapshot PER
+  DRIVE — the Shell re-opens `HNDL_RM_FILES[n]` before `PREP_LOAD_IMAGE`!);
+  drive LED yellow while any drive is dirty. Design + review findings:
   `.research/INTEGRATION-SPEC-floppy-adf-write.md` (the arm-state
-  invariant in §5a is load-bearing). Announced write-protected until
-  the firmware arms WR_EN, on SD change, and while remounting - which is
-  also why df1 and df2 are read-only until the firmware write-back
-  becomes per-drive (see the WIP-V2-A3 entry above).
+  invariant in §5a is load-bearing and now has to hold PER DRIVE). A unit
+  is announced write-protected until the firmware arms its WR_EN, on SD
+  change, and while remounting.
   No IDE. Keyboard + joysticks + mouse work.
 - Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
   HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →
@@ -353,7 +365,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 ## Repository map
 
-- `M2M/` — the framework. **NEVER modify**, with EIGHT sanctioned
+- `M2M/` — the framework. **NEVER modify**, with NINE sanctioned
   exceptions (all testbeds for a later M2M upstream merge, tagged
   `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
   `video_fl_i` input through framework → av_pipeline → digital_pipeline
@@ -414,6 +426,20 @@ the deep material lives in `doc/` (see "Key documents").
   additionally allows dependent `OPTM_G_LOAD_ROM` lines, PARTIALLY VISIBLE
   radio groups and two-level chains, which is why `OPTM_DEPS_VAL` classes
   2 and 3 are weaker here than in the C64 original (reasons in its header).
+  (9) `live-text` — `OPTM_LIVE_TEXT` (+ its `_OPTM_LT_ISEND` helper) in
+  `M2M/rom/menu.asm`, backported from C64MEGA65, where it drives the live
+  status field of the `8:Internal 1581` line. It replaces a fixed-width slice
+  of one menu item in the writable `OPTM_IR_ITEMS` heap copy and repaints just
+  those characters when that line is visible; it never triggers the fatal menu
+  callback. AExp uses it for the live Hardware Floppy status in the three
+  `dfN:Hardware Floppy` twin lines. **Purely ADDITIVE** — nothing else in the
+  framework calls it, so every other core is byte-identical. One deliberate
+  difference to the C64 original: M2M V2.0.1 has no `OPTM_FOREGROUND` flag and
+  introducing one would mean touching `OPTM_RUN` and the selection-callback
+  path, so the "does the menu own the screen right now" question is left to the
+  caller (AExp answers it with `M2M$CSR_OSM` + its own `OSM_SUB_ACTIVE` +
+  `OPTM_MENULEVEL`). Getting that wrong is cosmetic, never fatal.
+  **Still needs sy2002 sign-off, like exception (4).**
   All other framework fixes
   go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
   Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
@@ -546,15 +572,18 @@ the deep material lives in `doc/` (see "Key documents").
     formula (from `HELP_MENU` in `M2M/rom/options.asm`): 19 (menu struct) +
     `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 3 ×
     `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
-    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A2 with the 124-item menu
-    (volume 72→103, audio filters + stereo mix 103→114, Hardware Floppy /
-    Configure Drives 114→124 = one more submenu) needs exactly 1888 words
-    and uses `MENU_HEAP_SIZE` 1920, headroom 32. For release,
-    AExp follows the C64 total of 30208 words: with `HEAP=0x8220` and stack
-    start `0xFEE0`, 1728 stack words remain versus 1536 required; the
-    file-browser heap is 28288 words. Recheck both live heap budgets and the
-    `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually whenever the
-    menu or firmware variables grow.
+    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A3 with the 146-item menu needs
+    exactly 2298 words and uses `MENU_HEAP_SIZE` 2304, headroom 6 —
+    `.research/check_osm_menu.py` recomputes all of this from `config.vhd`.
+    **Firmware VARIABLES count too**, even though this rule is about the menu:
+    they sit below the heap, so every word added there pushes `HEAP` up and
+    comes straight out of the stack. The per-drive write-back and the live
+    Hardware Floppy status line added 66 variable words, so the combined total
+    was lowered from the C64 figure of 30208 to **30080** to buy the margin
+    back: `HEAP=0x8280` + 30080 = `0xF800` against `VAR$STACK_START 0xFEE0`
+    leaves 1760 words for a `STACK_SIZE` of 1536. Recheck both live heap
+    budgets and the `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually
+    whenever the menu or the firmware variables grow.
 
 ## Build & verification workflow
 
@@ -586,7 +615,19 @@ the deep material lives in `doc/` (see "Key documents").
   `PASS: percentage labels preserve later %s indices`. Run this after every
   change to `M2M/rom/menu.asm` or percentage-bearing `OPTM_ITEMS` labels.
 - **Local static checks before any Vivado round-trip** (installed:
-  nvc 1.21, ghdl 5.1, iverilog): analyze all CORE VHDL with
+  nvc 1.21, ghdl 5.1, iverilog). Two Python checkers live in `.research/`
+  (untracked, like the rest of it): `check_osm_menu.py` recomputes
+  `OPTM_SIZE`, the submenu balance, the `OPTM_DEP` rules, the worst-case
+  visible height per menu view and the `MENU_HEAP_SIZE` demand from
+  `config.vhd`, and cross-checks every `C_MENU_*` constant in `mega65.vhd`
+  against the TEXT of the line it addresses - run it after ANY menu change.
+  `check_firmware.py` checks the per-drive tables and arrays against
+  `ADF_DRIVES` and requires every `ADDC`/`SUBC` in `m2m-rom.asm` to take its
+  carry from a producer that writes the same storage class; on QNICE only
+  `ADD`/`ADDC`/`SUB`/`SUBC`/`SHL`/`SHR` write Carry and `MOVE` does not, so
+  inserting address arithmetic between a 32-bit `ADD` and its `ADDC` silently
+  eats the carry (this exact slip once made the ADF write-back address every
+  chunk past a 64 KB boundary 64 KB too low). Then analyze all CORE VHDL with
   `nvc --std=2008` in dependency order (M2M packages first: tools.vhd,
   types_pkg, video_modes_pkg, tdp_ram, 2port2clk_ram); clk.vhd/mega65.vhd
   need stub `unisim`/`xpm` vcomponents packages (recipe in memory).

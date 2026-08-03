@@ -659,7 +659,7 @@ begin
    -- pushes them into Paula's FIFO; Amiga writes are MFM-decoded and committed
    -- back into the HyperRAM image (dirty tracks flushed to SD by the QNICE
    -- firmware). Details and protocol contract in adf_track_engine.vhd /
-   -- doc/floppy-adf.md (read path and write path).
+   -- doc/developers/floppy-adf.md (read path and write path).
    ---------------------------------------------------------------------------
 
    -- the strobe OR is safe only because the enables are mutually exclusive

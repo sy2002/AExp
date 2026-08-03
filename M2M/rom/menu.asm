@@ -1612,6 +1612,217 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
                 RET
 
 ; ----------------------------------------------------------------------------
+; M2M-UPSTREAM live-text
+;
+; OPTM_LIVE_TEXT
+;
+; Replace a fixed-width part of one menu item in the live OPTM_IR_ITEMS copy
+; and repaint only those characters when that item is currently visible.
+; This is intended for short real-time status updates. It does not clear or
+; redraw the menu, its frame, selection marker or attributes.
+;
+; Backported from C64MEGA65, where it drives the live status field of the
+; "8:Internal 1581" line; AExp uses it for the three "dfN:Hardware Floppy"
+; lines. Purely ADDITIVE: nothing else in the framework calls it, so a core
+; that does not use it is bit-identical.
+;
+; The one deliberate difference to the C64MEGA65 original: that framework has an
+; OPTM_FOREGROUND flag which this routine consults before painting. M2M V2.0.1
+; has no such flag, and introducing one would mean touching OPTM_RUN and the
+; selection callback path - so the "does the menu own the screen right now"
+; question is left to the CALLER (see the contract below). Everything the
+; routine can decide by itself - is there a menu structure at all, is the line
+; visible at the current level, does the replacement fit inside the item - it
+; still decides, and it never invokes the fatal callback.
+;
+; Input:
+;   R8:  flat menu item index, counting every OPTM_ITEMS line from zero
+;   R9:  character offset from the beginning of that menu item
+;   R10: pointer to the fixed-width replacement string
+;   R11: exact number of characters to replace
+; Output:
+;   None; all registers are preserved
+;
+; Contract:
+;   * OPTM_IR_ITEMS must point to a writable live copy, as it does in the M2M
+;     Shell while the options menu is open.
+;   * THE CALLER must only ask for painting while the options menu owns the
+;     screen. Call it from a context that has already established that the OSM
+;     is open and that no sub-activity (file browser, help viewer) is showing.
+;     Getting this wrong is cosmetic, never fatal: the worst case is a few
+;     characters painted over a browser screen.
+;   * The destination range must already exist inside one menu item. It may not
+;     cross the literal backslash-n line separator or the final terminator.
+;   * The replacement string must contain exactly R11 characters followed by a
+;     terminator and may not contain a line separator. Pad shorter status text
+;     with spaces so old characters are always erased.
+;   * The backing copy is updated even when the item is hidden. A later
+;     OPTM_SHOW will therefore use the new text - which is exactly what keeps a
+;     live field coherent across a full menu redraw.
+;   * Invalid input is ignored. The routine never invokes the fatal callback.
+; ----------------------------------------------------------------------------
+
+OPTM_LT_BSLASH  .EQU    0x005C                  ; the literal backslash
+OPTM_LT_N       .EQU    0x006E                  ; the literal lower-case n
+
+OPTM_LIVE_TEXT  SYSCALL(enter, 1)
+
+                MOVE    R8, R0                  ; flat menu item index
+                MOVE    R9, R1                  ; character offset
+                MOVE    R10, R2                 ; replacement string
+                MOVE    R11, R3                 ; replacement length
+
+                CMP     0, R3                   ; empty updates are no-ops
+                RBRA    _OPTM_LT_RET, Z
+                CMP     0, R2                   ; null replacement pointer
+                RBRA    _OPTM_LT_RET, Z
+
+                MOVE    OPTM_DATA, R4           ; active initialization record
+                MOVE    @R4, R4
+                CMP     0, R4
+                RBRA    _OPTM_LT_RET, Z
+                ADD     OPTM_IR_ITEMS, R4       ; writable OPTM_ITEMS pointer
+                MOVE    @R4, R4
+                CMP     0, R4
+                RBRA    _OPTM_LT_RET, Z
+
+                ; Find the beginning of flat menu item R0. Only a literal
+                ; backslash followed by lower-case n is a line separator.
+                MOVE    R0, R5
+_OPTM_LT_ITEM   CMP     0, R5
+                RBRA    _OPTM_LT_OFFSET, Z
+_OPTM_LT_SCAN   CMP     0, @R4
+                RBRA    _OPTM_LT_RET, Z
+                CMP     OPTM_LT_BSLASH, @R4
+                RBRA    _OPTM_LT_NEXTC, !Z
+                MOVE    R4, R6
+                ADD     1, R6
+                CMP     OPTM_LT_N, @R6
+                RBRA    _OPTM_LT_NEXTC, !Z
+                ADD     2, R4                   ; next menu item
+                SUB     1, R5
+                RBRA    _OPTM_LT_ITEM, 1
+_OPTM_LT_NEXTC  ADD     1, R4
+                RBRA    _OPTM_LT_SCAN, 1
+
+                ; Move to the requested character offset without crossing the
+                ; end of this menu item.
+_OPTM_LT_OFFSET MOVE    R1, R5
+_OPTM_LT_OFFL   CMP     0, R5
+                RBRA    _OPTM_LT_DSTCHK, Z
+                RSUB    _OPTM_LT_ISEND, 1
+                RBRA    _OPTM_LT_RET, C
+                ADD     1, R4
+                SUB     1, R5
+                RBRA    _OPTM_LT_OFFL, 1
+
+                ; Validate that the complete destination range stays inside
+                ; the selected menu item.
+_OPTM_LT_DSTCHK MOVE    R4, R6
+                MOVE    R3, R5
+_OPTM_LT_DSTL   RSUB    _OPTM_LT_ISEND, 1
+                RBRA    _OPTM_LT_RET, C
+                ADD     1, R6
+                MOVE    R6, R4
+                SUB     1, R5
+                RBRA    _OPTM_LT_DSTL, !Z
+                SUB     R3, R4                  ; restore destination pointer
+
+                ; Validate the fixed-width source including the terminator.
+                MOVE    R2, R6
+                MOVE    R3, R5
+_OPTM_LT_SRCL   CMP     0, @R6
+                RBRA    _OPTM_LT_RET, Z
+                CMP     OPTM_LT_BSLASH, @R6     ; reject a line separator
+                RBRA    _OPTM_LT_SRCN, !Z
+                MOVE    R6, R7
+                ADD     1, R7
+                CMP     OPTM_LT_N, @R7
+                RBRA    _OPTM_LT_RET, Z
+_OPTM_LT_SRCN   ADD     1, R6
+                SUB     1, R5
+                RBRA    _OPTM_LT_SRCL, !Z
+                CMP     0, @R6                  ; exactly R3 characters?
+                RBRA    _OPTM_LT_RET, !Z
+
+                ; Update the backing text first so later full redraws remain
+                ; coherent with the directly painted characters.
+                MOVE    R2, R8
+                MOVE    R4, R9
+                MOVE    R3, R10
+                SYSCALL(memcpy, 1)
+
+                ; No menu structure means OPTM_RUN is not running: the backing
+                ; copy is updated, but there is nothing on screen to paint.
+                MOVE    OPTM_STRUCT, R5
+                CMP     0, @R5
+                RBRA    _OPTM_LT_RET, Z
+
+                ; Convert the flat item index to its position in the current
+                ; menu level. Read the structure directly so malformed live
+                ; update input can never enter the fatal menu error path.
+                ; OPTM_STRUCT points at the stack frame built by OPTM_RUN:
+                ; +2 is the size word of the structure array, +3 its first
+                ; item word, bit 15 = shown at the current menu level.
+                MOVE    @R5, R5
+                ADD     2, R5
+                MOVE    @R5++, R4               ; number of flat menu items
+                XOR     R6, R6                  ; relative visible position
+                XOR     R7, R7                  ; flat position
+_OPTM_LT_MAP    CMP     R7, R4                  ; target outside structure?
+                RBRA    _OPTM_LT_RET, Z
+                CMP     R7, R0                  ; target reached?
+                RBRA    _OPTM_LT_TARGET, Z
+                MOVE    @R5, R8
+                SHL     1, R8                   ; bit 15 marks a visible item
+                RBRA    _OPTM_LT_MAPN, !C
+                ADD     1, R6
+_OPTM_LT_MAPN   ADD     1, R5
+                ADD     1, R7
+                RBRA    _OPTM_LT_MAP, 1
+
+_OPTM_LT_TARGET MOVE    @R5, R8
+                SHL     1, R8
+                RBRA    _OPTM_LT_RET, !C        ; hidden at the current level
+
+                MOVE    OPTM_Y, R10             ; screen y = frame + item
+                MOVE    @R10, R10
+                ADD     R6, R10
+                ADD     1, R10
+                MOVE    OPTM_X, R9              ; screen x = frame + offset
+                MOVE    @R9, R9
+                ADD     1, R9
+                ADD     R1, R9
+                MOVE    R2, R8                  ; replacement text
+                MOVE    OPTM_MENULEVEL, R11
+                MOVE    @R11, R11
+                MOVE    OPTM_FP_PRINTXY, R7
+                RSUB    _OPTM_CALL, 1
+
+_OPTM_LT_RET    SYSCALL(leave, 1)
+                RET
+
+; Return Carry=1 when the character at R4 ends the current menu item, either
+; through the final terminator or through a literal backslash-n separator.
+; R4 and all other registers are preserved.
+_OPTM_LT_ISEND
+                MOVE    R0, @--SP
+                CMP     0, @R4
+                RBRA    _OPTM_LT_END, Z
+                CMP     OPTM_LT_BSLASH, @R4
+                RBRA    _OPTM_LT_NOTEND, !Z
+                MOVE    R4, R0
+                ADD     1, R0
+                CMP     OPTM_LT_N, @R0
+                RBRA    _OPTM_LT_END, Z
+_OPTM_LT_NOTEND MOVE    @SP++, R0
+                AND     0xFFFB, SR              ; clear Carry
+                RET
+_OPTM_LT_END    MOVE    @SP++, R0
+                OR      0x0004, SR              ; set Carry
+                RET
+
+; ----------------------------------------------------------------------------
 ; M2M-UPSTREAM osm-deps
 ; Dependent menu entries ("smart dependencies"). Included here so that the menu
 ; component stays self-contained: OPTM_DEP_OK is called from _OPTM_STRUCT above
