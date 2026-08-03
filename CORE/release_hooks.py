@@ -33,11 +33,26 @@ SCREEN_TOOL = Path("aexp_screen_cfg.py")
 # one map lets the Markdown link rewriter decide whether a relative link can
 # stay local or must point at the develop branch on GitHub. Documentation
 # copied by make_release.py itself is added to that map separately below.
+#
+# EVERY end-user page belongs in here. A page that is left out still gets
+# linked from the packaged README, but the rewriter turns that link into a
+# GitHub URL on the develop branch - so the reader needs a working internet
+# connection to follow it, and while the documentation website is frozen the
+# GitHub copy is the ONLY place that page exists. The order mirrors the
+# navigation in doc/make_doc.py.
+#
+# Deliberately absent: doc/inofficial.md, which make_release.py itself copies
+# to the release root for alpha and beta packages (and which is registered in
+# local_files below so links to it stay local), and doc/make_doc.md, which
+# documents the website tooling rather than the core.
 RELEASE_DOCUMENTS = {
     Path("README.md"): Path("README.md"),
+    Path("doc/drives.md"): Path("doc/drives.md"),
+    Path("doc/hardware_floppy.md"): Path("doc/hardware_floppy.md"),
     Path("doc/keyboard.md"): Path("doc/keyboard.md"),
     Path("doc/retrotubes.md"): Path("doc/retrotubes.md"),
     Path("doc/screen_adjust.md"): Path("doc/screen_adjust.md"),
+    Path("doc/audio.md"): Path("doc/audio.md"),
     Path("doc/RTC.md"): Path("doc/RTC.md"),
     Path("doc/developers.md"): Path("doc/developers.md"),
 }
