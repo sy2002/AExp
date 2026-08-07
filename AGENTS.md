@@ -73,6 +73,32 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `M2M/tools/make_config.sh` (see hard rule 10; `OPTM_SIZE` is now 146).
   The `doc/inofficial.md` row for A3 is added at packaging time, because
   `make_release.py check_inofficial_md` requires a real commit hash.
+- **`WIP-V2-A4` — HARDWARE FLOPPY MARGIN INSTRUMENTATION (diag map v7).
+  Field testing falsified the old-media verdicts (2026-08-07): a
+  tester's original disk, verified on a real Amiga before AND after,
+  read-errors in our core - the front-end decode margin is the suspect,
+  and the A2-era dumps had no freshness marker (seven field "dumps"
+  turned out to be two observations).** A4 adds, all in the 50 MHz
+  domain with zero firmware/menu/BRAM impact: millisecond uptime + dump
+  nonce (dumps can never silently duplicate again), step counter +
+  /TRK0-referenced cylinder tracker, per-class SIGNED-error margin
+  histograms of the adaptive quantiser (serve-gated; optional
+  armed-sector window spanning exactly the approach to a chosen
+  sector), minimum-margin capture with est/length/class context,
+  estimate-excursion min/max, and a per-sector miss profile over
+  qualified read revolutions ("always sector 4 or roving?" - the
+  field signature is a deterministic sector-4 header miss on track 81
+  with zero LOL/fmt_bad). Device decodes addr[6:0] now; dump =
+  `M 7000 705F`; version reg 0x01 = 0x0007. Statically verified
+  (nvc clean, all three existing TBs pass unchanged, new
+  `tb_fdd_margin` checked against an independent integer model - which
+  is how the "gaps stage counts intervals exclusive of the edge cycle"
+  fact was found), NOT yet synthesized. The working doc is the Part-4
+  section of `.research/HANDOVER-hardware-floppy-round2.md` (decoded
+  field dumps, test.adf flux analysis, build + tester recipe incl. the
+  German dump instructions, and the phase-3/4 separator plan). The SD
+  settings file just needs a rename/copy to `/amiga/aexp-WIP-V2-A4.cfg`
+  (`OPTM_SIZE` unchanged at 146).
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

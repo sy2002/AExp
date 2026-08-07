@@ -377,6 +377,9 @@ signal main_hwf_pau_c64           : std_logic_vector(15 downto 0);
 signal main_hwf_pau_c256          : std_logic_vector(15 downto 0);
 signal main_hwf_pau_tap           : std_logic_vector(127 downto 0);
 signal main_hwf_pau_ws            : std_logic;
+signal main_hwf_serving           : std_logic;                     -- engine phys_stream (read session open)
+signal main_fdd_step_n            : std_logic := '1';              -- registered mirrors of the f_step /
+signal main_fdd_dir               : std_logic := '1';              -- f_stepdir pins for the diag cyl tracker
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
                                                 -- front-end FIFO's read-side reset MUST
                                                 -- derive from the same event as the
@@ -447,6 +450,27 @@ signal qnice_fdd_rev_mask     : std_logic_vector(10 downto 0);
 signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
 signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
 signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
+-- diag map v7: margin-engine control (reg 0x35), dump nonce, new taps
+signal qnice_fdd_ctrl         : std_logic_vector(5 downto 0) := (others => '0');
+signal qnice_fdd_clear        : std_logic := '0';              -- 1-cycle strobe (0x35 write, bit 15)
+signal qnice_fdd_nonce        : unsigned(15 downto 0) := (others => '0');
+signal qnice_fdd_rd0_q        : std_logic := '0';              -- edge filter for the nonce
+signal qnice_fdd_uptime       : unsigned(31 downto 0);
+signal qnice_fdd_cnt_step     : unsigned(15 downto 0);
+signal qnice_fdd_cyl          : unsigned(6 downto 0);
+signal qnice_fdd_min_margin   : unsigned(15 downto 0);
+signal qnice_fdd_min_est      : unsigned(11 downto 0);
+signal qnice_fdd_min_gap      : unsigned(15 downto 0);
+signal qnice_fdd_margin_stat  : std_logic_vector(15 downto 0);
+signal qnice_fdd_win_opens    : unsigned(15 downto 0);
+signal qnice_fdd_gap_count    : unsigned(15 downto 0);
+signal qnice_fdd_lol_gate     : unsigned(15 downto 0);
+signal qnice_fdd_sync_gate    : unsigned(15 downto 0);
+signal qnice_fdd_est_min      : unsigned(11 downto 0);
+signal qnice_fdd_est_max      : unsigned(11 downto 0);
+signal qnice_fdd_hist         : t_fdd_hist;
+signal qnice_fdd_miss         : t_fdd_miss;
+signal qnice_fdd_qual_revs    : unsigned(15 downto 0);
 
 -- engine served-word Gray counter: 2-FF sync into the QNICE domain (single-
 -- step Gray - engine increments are >= one io-word handshake apart, far
@@ -1007,6 +1031,7 @@ begin
          hwf_eng_done_o       => main_hwf_eng_done,
          hwf_eng_c64_o        => main_hwf_eng_c64,
          hwf_eng_c256_o       => main_hwf_eng_c256,
+         hwf_serving_o        => main_hwf_serving,
          hwf_pau_sig_o        => main_hwf_pau_sig,
          hwf_pau_att_o        => main_hwf_pau_att,
          hwf_pau_c64_o        => main_hwf_pau_c64,
@@ -1172,22 +1197,56 @@ begin
       end case;
    end process core_specific_devices;
 
-   -- Hardware Floppy diag write register 0x1F, bit 0 = side-invert: XORed
-   -- onto the f_side1 pin (hwf_pins_proc) for the empirical side-polarity
-   -- verdict - flip it live from the QNICE debug console, no rebuild.
-   -- M2M convention: QNICE device writes register on the falling edge.
-   fdd_sideinv_proc : process (qnice_clk_i)
+   -- Hardware Floppy diag write registers + dump nonce (all on the falling
+   -- edge, the M2M device-write convention; the front-end's rising-edge
+   -- processes sample these half a 50 MHz cycle later - the same relation
+   -- every QNICE MMIO register in this design already relies on):
+   --   0x1F bit 0 = side-invert, XORed onto the f_side1 pin (hwf_pins_proc)
+   --        for the empirical side-polarity verdict - flip it live from the
+   --        QNICE debug console, no rebuild. Round 3 proved the straight
+   --        wire correct on this mechanism: keep it 0.
+   --   0x35 = margin-engine control {5: all-gaps, 4: window mode, 3..0:
+   --        armed sector}; writing bit 15 additionally pulses the
+   --        experiment-clear strobe (strobe is not stored).
+   --   The nonce counts QNICE READS of diag register 0x00 (one per dump;
+   --        the firmware's live-status poll reads only 0x02/0x1B, so tester
+   --        dumps are the only thing that advances it). Edge-filtered so a
+   --        multi-cycle bus access counts once.
+   fdd_diag_wr_proc : process (qnice_clk_i)
+      variable v_rd0 : std_logic;
    begin
       if falling_edge(qnice_clk_i) then
          if qnice_rst_i = '1' then
             qnice_fdd_sideinv <= '0';
-         elsif qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+            qnice_fdd_ctrl    <= (others => '0');
+            qnice_fdd_clear   <= '0';
+            qnice_fdd_nonce   <= (others => '0');
+            qnice_fdd_rd0_q   <= '0';
+         else
+            qnice_fdd_clear <= '0';
+            if qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+               qnice_dev_id_i = C_DEV_AMIGA_FDD then
+               if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
+                  qnice_fdd_sideinv <= qnice_dev_data_i(0);
+               elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
+                  qnice_fdd_ctrl  <= qnice_dev_data_i(5 downto 0);
+                  qnice_fdd_clear <= qnice_dev_data_i(15);
+               end if;
+            end if;
+
+            v_rd0 := '0';
+            if qnice_dev_ce_i = '1' and qnice_dev_we_i = '0' and
                qnice_dev_id_i = C_DEV_AMIGA_FDD and
-               qnice_dev_addr_i(5 downto 0) = "011111" then
-            qnice_fdd_sideinv <= qnice_dev_data_i(0);
+               qnice_dev_addr_i(6 downto 0) = "0000000" then
+               v_rd0 := '1';
+            end if;
+            if v_rd0 = '1' and qnice_fdd_rd0_q = '0' then
+               qnice_fdd_nonce <= qnice_fdd_nonce + 1;
+            end if;
+            qnice_fdd_rd0_q <= v_rd0;
          end if;
       end if;
-   end process fdd_sideinv_proc;
+   end process fdd_diag_wr_proc;
 
    -- store-signature pair into the QNICE domain: both sides are quasi-static
    -- (they change once per read attempt, >= 200 ms apart), so cdc_stable's
@@ -1427,10 +1486,13 @@ begin
             f_motora_o  <= not main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
             f_side1_o   <= main_hwf_ctrl(2) xor main_hwf_sideinv;  -- side (verify on hardware)
             f_stepdir_o <= main_hwf_ctrl(1);                 -- direc: '1' = toward track 0
+            main_fdd_dir <= main_hwf_ctrl(1);
             if v_sel_n = '0' then
-               f_step_o <= main_hwf_ctrl(0);
+               f_step_o        <= main_hwf_ctrl(0);
+               main_fdd_step_n <= main_hwf_ctrl(0);
             else
-               f_step_o <= '1';
+               f_step_o        <= '1';
+               main_fdd_step_n <= '1';
             end if;
             main_hwf_selected <= not v_sel_n;
          else
@@ -1439,6 +1501,8 @@ begin
             f_side1_o         <= '1';
             f_stepdir_o       <= '1';
             f_step_o          <= '1';
+            main_fdd_step_n   <= '1';
+            main_fdd_dir      <= '1';
             main_hwf_selected <= '0';
          end if;
          f_density_o <= '1';                                 -- DD-safe level, always
@@ -1466,6 +1530,11 @@ begin
          motor_i             => main_hwf_motor,
          side_i              => main_hwf_ctrl(2),
          dsksync_i           => main_hwf_dsksync,
+         step_n_i            => main_fdd_step_n,
+         stepdir_i           => main_fdd_dir,
+         serving_i           => main_hwf_serving,
+         ctrl_i              => qnice_fdd_ctrl,
+         clear_i             => qnice_fdd_clear,
          track0_n_o          => qnice_fdd_track0_n,
          wprot_n_o           => qnice_fdd_wprot_n,
          change_n_o          => qnice_fdd_change_n,
@@ -1495,7 +1564,23 @@ begin
          diag_rev_mask_o     => qnice_fdd_rev_mask,
          diag_rev_caps_o     => qnice_fdd_rev_caps,
          diag_rev_lol_o      => qnice_fdd_rev_lol,
-         diag_fmt_bad_o      => qnice_fdd_fmt_bad
+         diag_fmt_bad_o      => qnice_fdd_fmt_bad,
+         diag_uptime_o       => qnice_fdd_uptime,
+         diag_cnt_step_o     => qnice_fdd_cnt_step,
+         diag_cyl_o          => qnice_fdd_cyl,
+         diag_min_margin_o   => qnice_fdd_min_margin,
+         diag_min_est_o      => qnice_fdd_min_est,
+         diag_min_gap_o      => qnice_fdd_min_gap,
+         diag_margin_stat_o  => qnice_fdd_margin_stat,
+         diag_win_opens_o    => qnice_fdd_win_opens,
+         diag_gap_count_o    => qnice_fdd_gap_count,
+         diag_lol_gate_o     => qnice_fdd_lol_gate,
+         diag_sync_gate_o    => qnice_fdd_sync_gate,
+         diag_est_min_o      => qnice_fdd_est_min,
+         diag_est_max_o      => qnice_fdd_est_max,
+         diag_hist_o         => qnice_fdd_hist,
+         diag_miss_o         => qnice_fdd_miss,
+         diag_qual_revs_o    => qnice_fdd_qual_revs
       ); -- i_physical_fdd_top
 
    -- diag side-invert into the core domain (quasi-static level; covered by
@@ -1620,7 +1705,25 @@ begin
          diag_pau_c256_i     => qnice_fdd_pau_c256,
          diag_pau_tap_i      => qnice_fdd_pau_tap,
          diag_pau_ws_i       => qnice_fdd_pau_ws,
-         sideinv_i           => qnice_fdd_sideinv
+         sideinv_i           => qnice_fdd_sideinv,
+         diag_uptime_i       => qnice_fdd_uptime,
+         diag_nonce_i        => qnice_fdd_nonce,
+         diag_cnt_step_i     => qnice_fdd_cnt_step,
+         diag_cyl_i          => qnice_fdd_cyl,
+         diag_ctrl_i         => qnice_fdd_ctrl,
+         diag_min_margin_i   => qnice_fdd_min_margin,
+         diag_min_est_i      => qnice_fdd_min_est,
+         diag_min_gap_i      => qnice_fdd_min_gap,
+         diag_margin_stat_i  => qnice_fdd_margin_stat,
+         diag_win_opens_i    => qnice_fdd_win_opens,
+         diag_gap_count_i    => qnice_fdd_gap_count,
+         diag_lol_gate_i     => qnice_fdd_lol_gate,
+         diag_sync_gate_i    => qnice_fdd_sync_gate,
+         diag_est_min_i      => qnice_fdd_est_min,
+         diag_est_max_i      => qnice_fdd_est_max,
+         diag_hist_i         => qnice_fdd_hist,
+         diag_miss_i         => qnice_fdd_miss,
+         diag_qual_revs_i    => qnice_fdd_qual_revs
       ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------

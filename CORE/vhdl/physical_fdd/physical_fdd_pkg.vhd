@@ -130,4 +130,30 @@ package physical_fdd_pkg is
   type t_fdd_cap_words is array (0 to C_CAP_WORDS - 1) of
     std_logic_vector(15 downto 0);
 
+  -----------------------------------------------------------------------------
+  -- Interval-domain margin instrumentation (diag map v7, physical_fdd_top)
+  --
+  -- The quantiser classifies each gap G to the nearest class n and accepts
+  -- iff |G - n*est| <= tol (= est/2). The margin engine records, for every
+  -- ACCEPTED gap inside its gate, the SIGNED error e = G - n*est in a
+  -- per-class histogram of C_HIST_BINS bins spanning [-tol .. +tol) (bin
+  -- width tol/4): a healthy channel concentrates every class around bin
+  -- 3/4; a systematic short-gap read bias with the estimate dragged to
+  -- compensate shows the short class centered and the medium/long classes
+  -- complementarily offset; uniform speed error offsets all classes the
+  -- same way. Together with the tracked minimum of (tol - |e|) this is the
+  -- measured classification-margin profile the separator redesign needs.
+  -- Bins are 16-bit SATURATING.
+  --
+  -- The per-sector miss profile counts, per sector number, the qualified
+  -- read revolutions (>= C_MISS_QUAL_CAPS header captures) whose
+  -- revolution mask lacked that sector - the discriminator between "the
+  -- decode always fails at one physical spot" and "misses rove". 8-bit
+  -- saturating counters, packed two per diag word.
+  -----------------------------------------------------------------------------
+  constant C_HIST_BINS      : natural := 8;
+  type t_fdd_hist is array (0 to 3 * C_HIST_BINS - 1) of unsigned(15 downto 0);
+  type t_fdd_miss is array (0 to 5) of std_logic_vector(15 downto 0);
+  constant C_MISS_QUAL_CAPS : natural := 8;   -- captures/rev for a "read rev"
+
 end package physical_fdd_pkg;

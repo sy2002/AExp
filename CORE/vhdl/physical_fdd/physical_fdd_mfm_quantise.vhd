@@ -60,7 +60,15 @@ entity physical_fdd_mfm_quantise is
     gap_class_o : out unsigned(1 downto 0) := "11";
     -- read-only diagnostic tap: live half-cell estimate, Q8.4 fixed point
     -- (bits 11:4 = integer cycles, bits 3:0 = sixteenths). Never read back.
-    est_o       : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12)
+    est_o       : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+    -- read-only diagnostic taps for the margin engine (diag map v7), valid
+    -- with gap_valid_o: the signed classification error e = G - n*est of
+    -- the NEAREST class, the acceptance tolerance and the estimate the gap
+    -- was CLASSIFIED with (pre-adaptation), all Q4 (sixteenths of a
+    -- cycle). Purely additive - never fed back into the decision.
+    gap_e_o     : out signed(15 downto 0) := (others => '0');
+    gap_tol_o   : out unsigned(14 downto 0) := (others => '0');
+    gap_est_o   : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12)
   );
 end entity physical_fdd_mfm_quantise;
 
@@ -113,6 +121,13 @@ begin
 
           e   := signed(resize(g_q, e'length)) - signed(resize(center, e'length));
           tol := shift_right(resize(est_q, 15), C_QUANT_TOL_SHR);
+
+          -- diagnostic exports (saturated to the port width; |e| beyond
+          -- +/-2047.9 cycles cannot occur for gaps the gaps stage emits).
+          -- est_q still reads the pre-adaptation value here.
+          gap_e_o   <= resize(e, 16);
+          gap_tol_o <= tol;
+          gap_est_o <= est_q;
 
           if abs(e) <= signed(resize(tol, e'length)) then
             -- accepted: emit the class and adapt est by a fixed 1/8-cycle

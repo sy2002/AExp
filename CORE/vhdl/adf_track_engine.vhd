@@ -168,6 +168,14 @@ entity adf_track_engine is
       phys_sig_c64_o      : out std_logic_vector(15 downto 0);
       phys_sig_c256_o     : out std_logic_vector(15 downto 0);
 
+      -- Diagnostic: '1' while a physical read stream session is open (the
+      -- phys_stream latch: set at the dispatch of a physical-unit read,
+      -- held across transient foreign sel samples, cleared when trackrd
+      -- drops). The margin instrumentation in physical_fdd_top gates its
+      -- histograms on this level by default, so seek-phase and idle
+      -- streaming noise stay out of the measured distributions.
+      phys_serving_o      : out std_logic := '0';
+
       -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
       io_fpga_o           : out std_logic;                     -- registered - async-clear pin inside Paula!
       io_strobe_o         : out std_logic;                     -- 1 clk pulse per word
@@ -1553,6 +1561,10 @@ begin
    phys_sig_done_o <= sig_done;
    phys_sig_c64_o  <= sig_c64;
    phys_sig_c256_o <= sig_c256;
+
+   -- physical read session level towards the margin instrumentation
+   -- (registered in fsm_proc; 2-FF-synced into the 50 MHz domain there)
+   phys_serving_o  <= phys_stream;
 
    p_dirty_scan : process (clk_main_i)
    begin

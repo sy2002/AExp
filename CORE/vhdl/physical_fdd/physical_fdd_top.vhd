@@ -33,6 +33,14 @@
 --     in paula_floppy.v (re-synced into the core domain in mega65.vhd),
 --   * exposes diagnostic taps for the QNICE diag device (same 50 MHz
 --     domain: no CDC, no tearing),
+--   * carries the diag-map-v7 margin instrumentation (margin_proc): a
+--     millisecond uptime counter (dump freshness), step/cylinder tracking,
+--     per-class signed-error histograms of the quantiser's classification
+--     margins with an optional armed-sector window, minimum-margin capture,
+--     estimate-excursion tracking and a per-sector miss profile - the
+--     measured interval-domain evidence the data-separator redesign needs
+--     (2026-08-07 field falsification: media verdicts retracted, decode
+--     margin under suspicion),
 --   * captures the C_CAP_WORDS words that follow each DSKSYNC hit together
 --     with the SIDE line and /TRK0 at the hit (the sector-header capture:
 --     the double 0x4489 restarts the capture, so the buffer always holds
@@ -73,6 +81,16 @@ entity physical_fdd_top is
     motor_i             : in  std_logic;   -- '1' = the physical unit's motor latch is on
     side_i              : in  std_logic;   -- Minimig SIDE line ('1' = lower head = even tracks)
     dsksync_i           : in  std_logic_vector(15 downto 0);  -- live DSKSYNC from the engine
+    step_n_i            : in  std_logic := '1';  -- registered mirror of the f_step pin (async; synced here)
+    stepdir_i           : in  std_logic := '1';  -- registered mirror of f_stepdir ('1' = toward track 0)
+    serving_i           : in  std_logic := '0';  -- engine phys_stream: a physical read session is open
+
+    -- margin-instrumentation control (QNICE domain = this clock, no sync):
+    -- {5: histogram ALL gaps (ignore the serve gate), 4: window mode (only
+    -- inside the armed-sector window), 3..0: armed sector K}; clear_i is a
+    -- one-cycle pulse zeroing every "since clear" statistic
+    ctrl_i              : in  std_logic_vector(5 downto 0) := (others => '0');
+    clear_i             : in  std_logic := '0';
 
     -- conditioned drive status (50 MHz registers; re-sync in the consumer):
     track0_n_o          : out std_logic;   -- active low = head at track 0
@@ -115,7 +133,25 @@ entity physical_fdd_top is
     diag_rev_mask_o     : out std_logic_vector(10 downto 0);
     diag_rev_caps_o     : out unsigned(7 downto 0);
     diag_rev_lol_o      : out unsigned(7 downto 0);
-    diag_fmt_bad_o      : out unsigned(15 downto 0)
+    diag_fmt_bad_o      : out unsigned(15 downto 0);
+
+    -- diag map v7: uptime, workload visibility, interval-domain margins
+    diag_uptime_o       : out unsigned(31 downto 0) := (others => '0');  -- ms since reset
+    diag_cnt_step_o     : out unsigned(15 downto 0) := (others => '0');  -- step pulses (wrapping)
+    diag_cyl_o          : out unsigned(6 downto 0)  := (others => '0');  -- stepdir-integrated, /TRK0-referenced
+    diag_min_margin_o   : out unsigned(15 downto 0) := (others => '1');  -- min(tol-|e|) Q4; 0xFFFF = none yet
+    diag_min_est_o      : out unsigned(11 downto 0) := (others => '0');  -- est at the min-margin gap
+    diag_min_gap_o      : out unsigned(15 downto 0) := (others => '0');  -- raw length of that gap (cycles)
+    diag_margin_stat_o  : out std_logic_vector(15 downto 0) := (others => '0');
+    diag_win_opens_o    : out unsigned(15 downto 0) := (others => '0');
+    diag_gap_count_o    : out unsigned(15 downto 0) := (others => '0');  -- gaps histogrammed (saturating)
+    diag_lol_gate_o     : out unsigned(15 downto 0) := (others => '0');  -- rejected gaps while gated
+    diag_sync_gate_o    : out unsigned(15 downto 0) := (others => '0');  -- sync hits while gated
+    diag_est_min_o      : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+    diag_est_max_o      : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+    diag_hist_o         : out t_fdd_hist := (others => (others => '0'));
+    diag_miss_o         : out t_fdd_miss := (others => (others => '0'));
+    diag_qual_revs_o    : out unsigned(15 downto 0) := (others => '0')
   );
 end entity physical_fdd_top;
 
@@ -157,10 +193,49 @@ architecture rtl of physical_fdd_top is
   signal q_valid      : std_logic;
   signal q_class      : unsigned(1 downto 0);
   signal est_q        : unsigned(11 downto 0);
+  signal q_e          : signed(15 downto 0);      -- signed error G - n*est, Q4
+  signal q_tol        : unsigned(14 downto 0);    -- acceptance tolerance, Q4
+  signal q_est        : unsigned(11 downto 0);    -- est the gap was classified with
   signal word_valid   : std_logic;
   signal word_data    : std_logic_vector(15 downto 0);
   signal sync_hit     : std_logic;
   signal lol          : std_logic;
+
+  -- margin instrumentation (diag map v7)
+  signal step_meta    : std_logic := '1';
+  signal step_s       : std_logic := '1';
+  signal step_p       : std_logic := '1';
+  signal dir_meta     : std_logic := '1';
+  signal dir_s        : std_logic := '1';
+  signal srv_meta     : std_logic := '0';
+  signal srv_s        : std_logic := '0';
+  attribute async_reg of step_meta : signal is "true";
+  attribute async_reg of dir_meta  : signal is "true";
+  attribute async_reg of srv_meta  : signal is "true";
+  constant C_MS_CYC   : natural := C_FDD_HZ / 1000;   -- cycles per millisecond
+  signal ms_div       : natural range 0 to C_MS_CYC - 1 := 0;
+  signal uptime_ms    : unsigned(31 downto 0) := (others => '0');
+  signal cnt_step     : unsigned(15 downto 0) := (others => '0');
+  signal cyl          : unsigned(6 downto 0) := (others => '0');
+  signal win_open     : std_logic := '0';
+  signal win_opens    : unsigned(15 downto 0) := (others => '0');
+  signal gap_cnt      : unsigned(15 downto 0) := (others => '0');
+  signal lol_gate     : unsigned(15 downto 0) := (others => '0');
+  signal sync_gate    : unsigned(15 downto 0) := (others => '0');
+  signal min_margin   : unsigned(15 downto 0) := (others => '1');
+  signal min_est      : unsigned(11 downto 0) := (others => '0');
+  signal min_gap      : unsigned(15 downto 0) := (others => '0');
+  signal min_cls      : unsigned(1 downto 0) := "11";
+  signal est_min      : unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+  signal est_max      : unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+  signal hist         : t_fdd_hist := (others => (others => '0'));
+  type t_miss_cnt is array (0 to 10) of unsigned(7 downto 0);
+  signal miss_cnt     : t_miss_cnt := (others => (others => '0'));
+  signal qual_revs    : unsigned(15 downto 0) := (others => '0');
+  -- capture-publish export from cap_proc towards the window logic: a clean
+  -- (format 0xFF, sector <= 10) capture published this cycle, and its sector
+  signal pub_stb      : std_logic := '0';
+  signal pub_sec      : unsigned(3 downto 0) := (others => '0');
 
   -- ready model
   signal spin_cnt     : natural range 0 to C_READY_MOTOR_CYC := 0;
@@ -247,7 +322,10 @@ begin
       gap_len_i   => gap_len,
       gap_valid_o => q_valid,
       gap_class_o => q_class,
-      est_o       => est_q
+      est_o       => est_q,
+      gap_e_o     => q_e,
+      gap_tol_o   => q_tol,
+      gap_est_o   => q_est
     ); -- i_quantise
 
   i_bits : entity work.physical_fdd_bits
@@ -323,6 +401,215 @@ begin
   diag_rev_caps_o             <= rev_caps_last;
   diag_rev_lol_o              <= rev_lol_last;
   diag_fmt_bad_o              <= fmt_bad_cnt;
+
+  -- diag map v7 taps
+  diag_uptime_o               <= uptime_ms;
+  diag_cnt_step_o             <= cnt_step;
+  diag_cyl_o                  <= cyl;
+  diag_min_margin_o           <= min_margin;
+  diag_min_est_o              <= min_est;
+  diag_min_gap_o              <= min_gap;
+  diag_margin_stat_o          <= x"00" & "000"
+                                 & ((srv_s or ctrl_i(5))
+                                    and (win_open or not ctrl_i(4)))
+                                 & srv_s & win_open
+                                 & std_logic_vector(min_cls);
+  diag_win_opens_o            <= win_opens;
+  diag_gap_count_o            <= gap_cnt;
+  diag_lol_gate_o             <= lol_gate;
+  diag_sync_gate_o            <= sync_gate;
+  diag_est_min_o              <= est_min;
+  diag_est_max_o              <= est_max;
+  diag_hist_o                 <= hist;
+  diag_miss_gen : for i in 0 to 4 generate
+    diag_miss_o(i) <= std_logic_vector(miss_cnt(2 * i + 1))
+                      & std_logic_vector(miss_cnt(2 * i));
+  end generate diag_miss_gen;
+  diag_miss_o(5)              <= x"00" & std_logic_vector(miss_cnt(10));
+  diag_qual_revs_o            <= qual_revs;
+
+  -- The interval-domain margin engine (diag map v7). Everything below runs
+  -- in the 50 MHz domain; step/stepdir/serving arrive from the core clock
+  -- domain and are 2-FF synchronized here (step pulses are CIA-driven,
+  -- microseconds wide - a 2-FF at 50 MHz cannot miss them).
+  --
+  --   * uptime: free-running millisecond counter since QNICE reset - the
+  --     dump-freshness proof (two dumps can never read the same value).
+  --   * head position: step pulses counted and direction-integrated into a
+  --     cylinder estimate; /TRK0 asserting forces 0 (mechanical ground
+  --     truth beats the integral). Makes seeks and the grinding position
+  --     visible in one register.
+  --   * margin statistics on every ACCEPTED gap while the gate is open:
+  --     gate = (serving OR ctrl[5]) AND (window open OR NOT ctrl[4]).
+  --     Default ctrl=0 = "during physical read sessions only" - seek noise
+  --     and idle streaming stay out of the distributions. The signed error
+  --     e = G - n*est lands in the per-class 8-bin histogram spanning
+  --     [-tol..+tol) (bin width tol/4, saturating); the minimum acceptance
+  --     margin tol - |e| is tracked together with the est, raw length and
+  --     class of the gap that produced it. Rejected gaps (class "11") and
+  --     sync hits are counted per gate so the histogram mass has its
+  --     denominators. est min/max track the estimate excursion UNgated
+  --     (drag is interesting wherever it happens).
+  --   * armed-sector window (ctrl[4]=1, K=ctrl[3:0]): opens at the clean
+  --     capture publish of sector K-1 (mod 11) and closes at the next sync
+  --     hit - i.e. it spans the approach to sector K: the tail of the
+  --     preceding sector's data field, the pre-sync gap bytes and K's sync.
+  --     When K's sync is MISSED the window stays open across K's whole
+  --     region until the next decoded sync - exactly the flux the failure
+  --     lives in. clear_i (control-register write with bit 15) zeroes all
+  --     "since clear" state for a fresh experiment without a power cycle.
+  margin_proc : process (clk_i)
+    variable v_off : unsigned(16 downto 0);
+    variable v_tol : unsigned(16 downto 0);
+    variable v_bin : unsigned(2 downto 0);
+    variable v_idx : natural range 0 to 3 * C_HIST_BINS - 1;
+    variable v_abs : unsigned(15 downto 0);
+    variable v_mar : unsigned(15 downto 0);
+    variable v_prv : unsigned(3 downto 0);
+  begin
+    if rising_edge(clk_i) then
+      -- synchronizers always run
+      step_meta <= step_n_i;  step_s <= step_meta;  step_p <= step_s;
+      dir_meta  <= stepdir_i; dir_s  <= dir_meta;
+      srv_meta  <= serving_i; srv_s  <= srv_meta;
+
+      if rst_i = '1' then
+        ms_div     <= 0;
+        uptime_ms  <= (others => '0');
+        cnt_step   <= (others => '0');
+        cyl        <= (others => '0');
+        win_open   <= '0';
+        win_opens  <= (others => '0');
+        gap_cnt    <= (others => '0');
+        lol_gate   <= (others => '0');
+        sync_gate  <= (others => '0');
+        min_margin <= (others => '1');
+        min_cls    <= "11";
+        est_min    <= to_unsigned(C_QUANT_EST_NOM_Q, est_min'length);
+        est_max    <= to_unsigned(C_QUANT_EST_NOM_Q, est_max'length);
+        hist       <= (others => (others => '0'));
+      else
+        -- uptime milliseconds (wraps after ~49.7 days)
+        if ms_div = C_MS_CYC - 1 then
+          ms_div    <= 0;
+          uptime_ms <= uptime_ms + 1;
+        else
+          ms_div <= ms_div + 1;
+        end if;
+
+        -- step accounting on the accepted (synced) falling edge; the pin
+        -- mirror is already select-gated in mega65.vhd, so only our unit's
+        -- steps arrive here
+        if step_s = '0' and step_p = '1' then
+          cnt_step <= cnt_step + 1;
+          if dir_s = '1' then                        -- toward track 0
+            if cyl /= 0 then
+              cyl <= cyl - 1;
+            end if;
+          elsif cyl /= 127 then
+            cyl <= cyl + 1;
+          end if;
+        end if;
+        if track0_n = '0' then                       -- mechanical ground truth
+          cyl <= (others => '0');
+        end if;
+
+        -- estimate excursion, ungated
+        if est_q < est_min then
+          est_min <= est_q;
+        end if;
+        if est_q > est_max then
+          est_max <= est_q;
+        end if;
+
+        -- armed-sector window: K-1 mod 11 publishes -> open; sync -> close
+        v_prv := unsigned(ctrl_i(3 downto 0));
+        if v_prv = 0 or v_prv > 10 then
+          v_prv := to_unsigned(10, 4);
+        else
+          v_prv := v_prv - 1;
+        end if;
+        if chain_rst = '1' then
+          win_open <= '0';
+        elsif pub_stb = '1' and pub_sec = v_prv then
+          win_open <= '1';
+          if win_opens /= x"FFFF" then
+            win_opens <= win_opens + 1;
+          end if;
+        elsif sync_hit = '1' then
+          win_open <= '0';
+        end if;
+
+        -- gated interval statistics
+        if ((srv_s or ctrl_i(5)) and (win_open or not ctrl_i(4))) = '1' then
+          if q_valid = '1' then
+            if q_class = "11" then
+              if lol_gate /= x"FFFF" then
+                lol_gate <= lol_gate + 1;
+              end if;
+            else
+              if gap_cnt /= x"FFFF" then
+                gap_cnt <= gap_cnt + 1;
+              end if;
+              -- signed-error bin: off = e + tol in [0 .. 2*tol], three
+              -- successive threshold subtractions = off / (tol/4), which
+              -- lands e = -tol in bin 0, e = 0 on the bin 3/4 boundary
+              -- and clamps e = +tol into bin 7
+              v_tol := resize(q_tol, 17);
+              v_off := unsigned(resize(signed(resize(q_e, 17))
+                                       + signed(v_tol), 17));
+              v_bin := (others => '0');
+              if v_off >= v_tol then
+                v_off := v_off - v_tol;
+                v_bin(2) := '1';
+              end if;
+              if v_off >= shift_right(v_tol, 1) then
+                v_off := v_off - shift_right(v_tol, 1);
+                v_bin(1) := '1';
+              end if;
+              if v_off >= shift_right(v_tol, 2) then
+                v_bin(0) := '1';
+              end if;
+              v_idx := to_integer(q_class) * C_HIST_BINS + to_integer(v_bin);
+              if hist(v_idx) /= x"FFFF" then
+                hist(v_idx) <= hist(v_idx) + 1;
+              end if;
+              -- acceptance margin tol - |e| with its context
+              if q_e < 0 then
+                v_abs := unsigned(resize(-q_e, 16));
+              else
+                v_abs := unsigned(resize(q_e, 16));
+              end if;
+              v_mar := resize(q_tol, 16) - v_abs;
+              if v_mar < min_margin then
+                min_margin <= v_mar;
+                min_est    <= q_est;
+                min_gap    <= gap_len;
+                min_cls    <= q_class;
+              end if;
+            end if;
+          end if;
+          if sync_hit = '1' and sync_gate /= x"FFFF" then
+            sync_gate <= sync_gate + 1;
+          end if;
+        end if;
+
+        -- experiment clear (last assignment wins over the updates above)
+        if clear_i = '1' then
+          win_open   <= '0';
+          win_opens  <= (others => '0');
+          gap_cnt    <= (others => '0');
+          lol_gate   <= (others => '0');
+          sync_gate  <= (others => '0');
+          min_margin <= (others => '1');
+          min_cls    <= "11";
+          est_min    <= est_q;
+          est_max    <= est_q;
+          hist       <= (others => (others => '0'));
+        end if;
+      end if;
+    end if;
+  end process margin_proc;
 
   ctrl_proc : process (clk_i)
   begin
@@ -451,8 +738,12 @@ begin
         rev_caps_last <= (others => '0');
         rev_lol_last  <= (others => '0');
         fmt_bad_cnt   <= (others => '0');
+        pub_stb       <= '0';
+        miss_cnt      <= (others => (others => '0'));
+        qual_revs     <= (others => '0');
       else
-        v_pub := '0';
+        v_pub   := '0';
+        pub_stb <= '0';
         if sync_hit = '1' then
           cap_wp    <= (others => '0');
           cap_side  <= side_s;
@@ -478,6 +769,20 @@ begin
         -- (a capture or LOL landing exactly on the index edge is dropped -
         -- a once-per-revolution don't-care).
         if index_edge = '1' then
+          -- per-sector miss profile (diag map v7): a revolution that
+          -- captured at least C_MISS_QUAL_CAPS headers was a read
+          -- revolution; every sector absent from its mask is a miss. The
+          -- qualifier keeps seek phases and idle spins out of the counts.
+          if rev_caps >= C_MISS_QUAL_CAPS then
+            for s in 0 to 10 loop
+              if rev_mask(s) = '0' and miss_cnt(s) /= x"FF" then
+                miss_cnt(s) <= miss_cnt(s) + 1;
+              end if;
+            end loop;
+            if qual_revs /= x"FFFF" then
+              qual_revs <= qual_revs + 1;
+            end if;
+          end if;
           rev_mask_last <= rev_mask;
           rev_caps_last <= rev_caps;
           rev_lol_last  <= rev_lol;
@@ -498,6 +803,9 @@ begin
             if v_fmt = x"FF" then
               if unsigned(v_sec) <= 10 then
                 rev_mask(to_integer(unsigned(v_sec(3 downto 0)))) <= '1';
+                -- clean publish towards the armed-sector window logic
+                pub_stb <= '1';
+                pub_sec <= unsigned(v_sec(3 downto 0));
               end if;
             else
               fmt_bad_cnt <= fmt_bad_cnt + 1;
@@ -506,6 +814,12 @@ begin
               rev_caps <= rev_caps + 1;
             end if;
           end if;
+        end if;
+
+        -- experiment clear (diag map v7; last assignment wins)
+        if clear_i = '1' then
+          miss_cnt  <= (others => (others => '0'));
+          qual_revs <= (others => '0');
         end if;
       end if;
     end if;

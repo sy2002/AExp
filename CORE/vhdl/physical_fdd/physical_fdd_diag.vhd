@@ -9,13 +9,16 @@
 -- Every tap comes from physical_fdd_top, which runs in the same 50 MHz QNICE
 -- clock domain: no CDC, no tearing. Reads are a plain combinational mux on
 -- the word address (QNICE samples on its falling edge; the mux settles well
--- inside the half period). The only writable register is 0x1F (decoded in
--- mega65.vhd); all other writes are ignored.
+-- inside the half period). Writable registers (0x1F side-invert, 0x35
+-- margin control) are decoded in mega65.vhd; all other writes are ignored.
 --
--- Register map (word addresses):
+-- The bank decodes addr[6:0] = 128 words (map v6 decoded only addr[5:0], so
+-- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
+-- is 0x7000..0x705F with no alias inside it).
+--
+-- Register map (word addresses), map version 0x0007:
 --   0x00  signature 0xFDD0
---   0x01  map version 0x0006 (map identical to 0x0005; the bump marks the
---         build with the serve-from-sync fix in adf_track_engine)
+--   0x01  map version 0x0007
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -85,7 +88,65 @@
 --         WORDSYNC on, word 0 is the second 0x4489 and words 1..4 the
 --         encoded info long - directly comparable to the front-end
 --         capture at 0x13..0x1A)
--- All counters wrap at 16 bit (diff two reads to rate them).
+--
+-- Diag map v7 (2026-08-07 field falsification round - the interval-domain
+-- margin instrumentation; design rationale in physical_fdd_top.vhd):
+--   0x30  uptime since QNICE reset in MILLISECONDS, low word
+--   0x31  uptime, high word. THE dump-freshness proof: two dumps taken at
+--         different times can never show the same uptime pair; identical
+--         values = the same capture pasted twice (the 2026-08-07 field
+--         session delivered 7 byte-identical "dumps" = 2 observations).
+--   0x32  dump nonce: increments on every QNICE READ of register 0x00,
+--         i.e. once per dump of the bank (the firmware never reads 0x00).
+--         Consecutive dumps must differ by exactly the number of dumps
+--         taken in between.
+--   0x33  count: STEP pulses towards the mechanism (select-gated, wraps)
+--   0x34  current cylinder: stepdir-integrated head position, forced to 0
+--         while /TRK0 asserts (mechanical ground truth). Together with
+--         0x33 this separates seek phases from read phases and shows
+--         WHERE the drive is grinding.
+--   0x35  WRITE: margin-engine control {15: writing 1 clears every "since
+--         clear" statistic (self-clearing strobe; not stored), 5: histogram
+--         ALL gaps (ignore the serve gate), 4: window mode - only inside
+--         the armed-sector window, 3..0: armed sector K}. Default 0x0000 =
+--         histogram during physical read sessions only. Reads back the
+--         stored 6 control bits.
+--   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths
+--         of a cycle); 0xFFFF = no gap measured yet. tol = est/2, so a
+--         margin approaching 0 = a gap ON a classification boundary.
+--   0x37  half-cell estimate (Q8.4) at the minimum-margin gap
+--   0x38  raw length (50 MHz cycles) of the minimum-margin gap
+--   0x39  margin status: {1:0 class of the min-margin gap (0=short 1=medium
+--         2=long 3=none yet), 2: armed window open, 3: serving (engine
+--         phys_stream, synced), 4: gate currently open}
+--   0x3A  count: armed-sector window openings since clear
+--   0x3B  count: gaps histogrammed since clear (saturating)
+--   0x3C  count: REJECTED gaps (class "11") while the gate was open, since
+--         clear (saturating) - the would-be-LOL mass of the gated region
+--   0x3D  count: sync hits while the gate was open, since clear
+--   0x3E  half-cell estimate minimum since clear (Q8.4)
+--   0x3F  half-cell estimate maximum since clear (Q8.4) - 0x3E/0x3F show
+--         the estimate excursion (drag) without sampling luck
+--   0x40..0x47  SHORT-class histogram, 8 saturating bins of the SIGNED
+--         classification error e = G - n*est over [-tol .. +tol), bin
+--         width tol/4: bin 0 = e in [-tol,-0.75tol) ... bin 3 ends at 0,
+--         bin 4 starts at 0 ... bin 7 = [0.75tol, tol]. A healthy channel
+--         concentrates in bins 3/4; mass in 0/7 = gaps at the boundary;
+--         a per-class OFFSET pattern is the bias signature (short class
+--         centered but medium/long offset = estimate dragged by a
+--         short-gap read bias; all classes offset the same way = speed).
+--   0x48..0x4F  MEDIUM-class histogram, same binning
+--   0x50..0x57  LONG-class histogram, same binning
+--   0x58..0x5D  per-sector miss profile: 8-bit saturating counters of
+--         "qualified read revolution (>= 8 captures) whose mask lacked
+--         sector s", packed two per word (0x58 = {s1,s0}, 0x59 = {s3,s2},
+--         ... 0x5D = {0,s10}). THE discriminator between "the decode
+--         always fails at one physical spot" and "misses rove".
+--   0x5E  count: qualified read revolutions since clear (the miss
+--         profile's denominator)
+--   0x5F  reserved (reads 0xEEEE)
+-- All counters wrap at 16 bit unless marked saturating (diff two reads to
+-- rate them). Recommended dump: 0x7000..0x705F (96 words).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -134,7 +195,27 @@ entity physical_fdd_diag is
     diag_pau_c256_i     : in  std_logic_vector(15 downto 0);
     diag_pau_tap_i      : in  std_logic_vector(127 downto 0); -- first 8 stored words
     diag_pau_ws_i       : in  std_logic;                      -- live WORDSYNC level
-    sideinv_i           : in  std_logic                       -- readback of the 0x1F bit
+    sideinv_i           : in  std_logic;                      -- readback of the 0x1F bit
+
+    -- diag map v7 taps (margin instrumentation in physical_fdd_top)
+    diag_uptime_i       : in  unsigned(31 downto 0);
+    diag_nonce_i        : in  unsigned(15 downto 0);          -- counted in mega65 (bus side)
+    diag_cnt_step_i     : in  unsigned(15 downto 0);
+    diag_cyl_i          : in  unsigned(6 downto 0);
+    diag_ctrl_i         : in  std_logic_vector(5 downto 0);   -- readback of the 0x35 bits
+    diag_min_margin_i   : in  unsigned(15 downto 0);
+    diag_min_est_i      : in  unsigned(11 downto 0);
+    diag_min_gap_i      : in  unsigned(15 downto 0);
+    diag_margin_stat_i  : in  std_logic_vector(15 downto 0);
+    diag_win_opens_i    : in  unsigned(15 downto 0);
+    diag_gap_count_i    : in  unsigned(15 downto 0);
+    diag_lol_gate_i     : in  unsigned(15 downto 0);
+    diag_sync_gate_i    : in  unsigned(15 downto 0);
+    diag_est_min_i      : in  unsigned(11 downto 0);
+    diag_est_max_i      : in  unsigned(11 downto 0);
+    diag_hist_i         : in  t_fdd_hist;
+    diag_miss_i         : in  t_fdd_miss;
+    diag_qual_revs_i    : in  unsigned(15 downto 0)
   );
 end entity physical_fdd_diag;
 
@@ -142,61 +223,85 @@ architecture rtl of physical_fdd_diag is
 begin
 
   read_mux : process (all)
+    variable v_addr : unsigned(6 downto 0);
   begin
-    case qnice_addr_i(5 downto 0) is
-      when "000000" => qnice_data_o <= x"FDD0";
-      when "000001" => qnice_data_o <= x"0006";
-      when "000010" => qnice_data_o <= diag_status_i;
-      when "000011" => qnice_data_o <= diag_sync_i;
-      when "000100" => qnice_data_o <= x"0" & std_logic_vector(diag_est_i);
-      when "000101" => qnice_data_o <= std_logic_vector(resize(diag_fifo_level_i, 16));
-      when "000110" => qnice_data_o <= std_logic_vector(diag_index_period_i(15 downto 0));
-      when "000111" => qnice_data_o <= std_logic_vector(diag_index_period_i(31 downto 16));
-      when "001000" => qnice_data_o <= std_logic_vector(diag_index_width_i(15 downto 0));
-      when "001001" => qnice_data_o <= std_logic_vector(diag_index_width_i(31 downto 16));
-      when "001010" => qnice_data_o <= std_logic_vector(diag_cnt_index_i);
-      when "001011" => qnice_data_o <= std_logic_vector(diag_cnt_sync_i);
-      when "001100" => qnice_data_o <= std_logic_vector(diag_cnt_word_i);
-      when "001101" => qnice_data_o <= std_logic_vector(diag_cnt_runt_i);
-      when "001110" => qnice_data_o <= std_logic_vector(diag_cnt_lol_i);
-      when "001111" => qnice_data_o <= std_logic_vector(diag_cnt_drop_i);
-      when "010000" => qnice_data_o <= x"000" & '0' & diag_map_i;
-      when "010001" => qnice_data_o <= x"00" & "000" & sideinv_i
-                                       & diag_cap_flags_i;
-      when "010010" => qnice_data_o <= std_logic_vector(diag_cap_count_i);
-      when "010011" => qnice_data_o <= diag_cap_words_i(0);
-      when "010100" => qnice_data_o <= diag_cap_words_i(1);
-      when "010101" => qnice_data_o <= diag_cap_words_i(2);
-      when "010110" => qnice_data_o <= diag_cap_words_i(3);
-      when "010111" => qnice_data_o <= diag_cap_words_i(4);
-      when "011000" => qnice_data_o <= diag_cap_words_i(5);
-      when "011001" => qnice_data_o <= diag_cap_words_i(6);
-      when "011010" => qnice_data_o <= diag_cap_words_i(7);
-      when "011011" => qnice_data_o <= std_logic_vector(diag_served_i);
-      when "011100" => qnice_data_o <= "00000" & diag_rev_mask_i;
-      when "011101" => qnice_data_o <= std_logic_vector(diag_rev_caps_i)
-                                       & std_logic_vector(diag_rev_lol_i);
-      when "011110" => qnice_data_o <= std_logic_vector(diag_fmt_bad_i);
-      when "011111" => qnice_data_o <= x"000" & "000" & sideinv_i;
-      when "100000" => qnice_data_o <= diag_eng_sig_i;
-      when "100001" => qnice_data_o <= "0000000" & diag_eng_done_i
-                                       & diag_eng_ses_i;
-      when "100010" => qnice_data_o <= diag_pau_sig_i;
-      when "100011" => qnice_data_o <= "0000000" & diag_pau_ws_i
-                                       & diag_pau_att_i;
-      when "100100" => qnice_data_o <= diag_eng_c64_i;
-      when "100101" => qnice_data_o <= diag_eng_c256_i;
-      when "100110" => qnice_data_o <= diag_pau_c64_i;
-      when "100111" => qnice_data_o <= diag_pau_c256_i;
-      when "101000" => qnice_data_o <= diag_pau_tap_i( 15 downto   0);
-      when "101001" => qnice_data_o <= diag_pau_tap_i( 31 downto  16);
-      when "101010" => qnice_data_o <= diag_pau_tap_i( 47 downto  32);
-      when "101011" => qnice_data_o <= diag_pau_tap_i( 63 downto  48);
-      when "101100" => qnice_data_o <= diag_pau_tap_i( 79 downto  64);
-      when "101101" => qnice_data_o <= diag_pau_tap_i( 95 downto  80);
-      when "101110" => qnice_data_o <= diag_pau_tap_i(111 downto  96);
-      when "101111" => qnice_data_o <= diag_pau_tap_i(127 downto 112);
-      when others   => qnice_data_o <= x"EEEE";
+    v_addr := unsigned(qnice_addr_i(6 downto 0));
+    case to_integer(v_addr) is
+      when 16#00# => qnice_data_o <= x"FDD0";
+      when 16#01# => qnice_data_o <= x"0007";
+      when 16#02# => qnice_data_o <= diag_status_i;
+      when 16#03# => qnice_data_o <= diag_sync_i;
+      when 16#04# => qnice_data_o <= x"0" & std_logic_vector(diag_est_i);
+      when 16#05# => qnice_data_o <= std_logic_vector(resize(diag_fifo_level_i, 16));
+      when 16#06# => qnice_data_o <= std_logic_vector(diag_index_period_i(15 downto 0));
+      when 16#07# => qnice_data_o <= std_logic_vector(diag_index_period_i(31 downto 16));
+      when 16#08# => qnice_data_o <= std_logic_vector(diag_index_width_i(15 downto 0));
+      when 16#09# => qnice_data_o <= std_logic_vector(diag_index_width_i(31 downto 16));
+      when 16#0A# => qnice_data_o <= std_logic_vector(diag_cnt_index_i);
+      when 16#0B# => qnice_data_o <= std_logic_vector(diag_cnt_sync_i);
+      when 16#0C# => qnice_data_o <= std_logic_vector(diag_cnt_word_i);
+      when 16#0D# => qnice_data_o <= std_logic_vector(diag_cnt_runt_i);
+      when 16#0E# => qnice_data_o <= std_logic_vector(diag_cnt_lol_i);
+      when 16#0F# => qnice_data_o <= std_logic_vector(diag_cnt_drop_i);
+      when 16#10# => qnice_data_o <= x"000" & '0' & diag_map_i;
+      when 16#11# => qnice_data_o <= x"00" & "000" & sideinv_i
+                                     & diag_cap_flags_i;
+      when 16#12# => qnice_data_o <= std_logic_vector(diag_cap_count_i);
+      when 16#13# => qnice_data_o <= diag_cap_words_i(0);
+      when 16#14# => qnice_data_o <= diag_cap_words_i(1);
+      when 16#15# => qnice_data_o <= diag_cap_words_i(2);
+      when 16#16# => qnice_data_o <= diag_cap_words_i(3);
+      when 16#17# => qnice_data_o <= diag_cap_words_i(4);
+      when 16#18# => qnice_data_o <= diag_cap_words_i(5);
+      when 16#19# => qnice_data_o <= diag_cap_words_i(6);
+      when 16#1A# => qnice_data_o <= diag_cap_words_i(7);
+      when 16#1B# => qnice_data_o <= std_logic_vector(diag_served_i);
+      when 16#1C# => qnice_data_o <= "00000" & diag_rev_mask_i;
+      when 16#1D# => qnice_data_o <= std_logic_vector(diag_rev_caps_i)
+                                     & std_logic_vector(diag_rev_lol_i);
+      when 16#1E# => qnice_data_o <= std_logic_vector(diag_fmt_bad_i);
+      when 16#1F# => qnice_data_o <= x"000" & "000" & sideinv_i;
+      when 16#20# => qnice_data_o <= diag_eng_sig_i;
+      when 16#21# => qnice_data_o <= "0000000" & diag_eng_done_i
+                                     & diag_eng_ses_i;
+      when 16#22# => qnice_data_o <= diag_pau_sig_i;
+      when 16#23# => qnice_data_o <= "0000000" & diag_pau_ws_i
+                                     & diag_pau_att_i;
+      when 16#24# => qnice_data_o <= diag_eng_c64_i;
+      when 16#25# => qnice_data_o <= diag_eng_c256_i;
+      when 16#26# => qnice_data_o <= diag_pau_c64_i;
+      when 16#27# => qnice_data_o <= diag_pau_c256_i;
+      when 16#28# => qnice_data_o <= diag_pau_tap_i( 15 downto   0);
+      when 16#29# => qnice_data_o <= diag_pau_tap_i( 31 downto  16);
+      when 16#2A# => qnice_data_o <= diag_pau_tap_i( 47 downto  32);
+      when 16#2B# => qnice_data_o <= diag_pau_tap_i( 63 downto  48);
+      when 16#2C# => qnice_data_o <= diag_pau_tap_i( 79 downto  64);
+      when 16#2D# => qnice_data_o <= diag_pau_tap_i( 95 downto  80);
+      when 16#2E# => qnice_data_o <= diag_pau_tap_i(111 downto  96);
+      when 16#2F# => qnice_data_o <= diag_pau_tap_i(127 downto 112);
+      -- diag map v7
+      when 16#30# => qnice_data_o <= std_logic_vector(diag_uptime_i(15 downto 0));
+      when 16#31# => qnice_data_o <= std_logic_vector(diag_uptime_i(31 downto 16));
+      when 16#32# => qnice_data_o <= std_logic_vector(diag_nonce_i);
+      when 16#33# => qnice_data_o <= std_logic_vector(diag_cnt_step_i);
+      when 16#34# => qnice_data_o <= std_logic_vector(resize(diag_cyl_i, 16));
+      when 16#35# => qnice_data_o <= x"00" & "00" & diag_ctrl_i;
+      when 16#36# => qnice_data_o <= std_logic_vector(diag_min_margin_i);
+      when 16#37# => qnice_data_o <= x"0" & std_logic_vector(diag_min_est_i);
+      when 16#38# => qnice_data_o <= std_logic_vector(diag_min_gap_i);
+      when 16#39# => qnice_data_o <= diag_margin_stat_i;
+      when 16#3A# => qnice_data_o <= std_logic_vector(diag_win_opens_i);
+      when 16#3B# => qnice_data_o <= std_logic_vector(diag_gap_count_i);
+      when 16#3C# => qnice_data_o <= std_logic_vector(diag_lol_gate_i);
+      when 16#3D# => qnice_data_o <= std_logic_vector(diag_sync_gate_i);
+      when 16#3E# => qnice_data_o <= x"0" & std_logic_vector(diag_est_min_i);
+      when 16#3F# => qnice_data_o <= x"0" & std_logic_vector(diag_est_max_i);
+      when 16#40# to 16#57# =>
+        qnice_data_o <= std_logic_vector(diag_hist_i(to_integer(v_addr) - 16#40#));
+      when 16#58# to 16#5D# =>
+        qnice_data_o <= diag_miss_i(to_integer(v_addr) - 16#58#);
+      when 16#5E# => qnice_data_o <= std_logic_vector(diag_qual_revs_i);
+      when others => qnice_data_o <= x"EEEE";
     end case;
   end process read_mux;
 
