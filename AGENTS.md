@@ -98,7 +98,27 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   field dumps, test.adf flux analysis, build + tester recipe incl. the
   German dump instructions, and the phase-3/4 separator plan). The SD
   settings file just needs a rename/copy to `/amiga/aexp-WIP-V2-A4.cfg`
-  (`OPTM_SIZE` unchanged at 146).
+  (`OPTM_SIZE` unchanged at 146). The A4 R6 build closed timing only in
+  the post-route phys-opt pass (routed WNS -0.028 on the kick-ROM
+  half-period path through the shared device-data cone, final +0.192).
+- **`WIP-V2-A5` — REGISTERED DIAG READOUT (qnice_clk pressure relief,
+  not shipped - a prerequisite for the next iteration).** The diag bank
+  0x0104 latches the addressed word on the FALLING clock edge into one
+  local 16-FF register; the CPU-facing `qnice_dev_data_o` cone sees a
+  plain flip-flop instead of the 96-word mux cloud that helped an R6
+  build graze the kick-ROM half-period path. ZERO wait states - the
+  data source is register-fast, so this is the mount wrapper's
+  WBC-CSR pattern ("plain FFs, no wait states"), NOT its
+  HyperRAM-window wait pattern; bus timing is kick-ROM-identical
+  (address stable at the falling edge, data consumed at the ending
+  rising edge), so the firmware and monitor are untouched. Version reg
+  0x01 reads **0x0008** (map CONTENT identical to v7 - the bump only
+  identifies the build in field dumps); settings file
+  `/amiga/aexp-WIP-V2-A5.cfg` (content identical, `OPTM_SIZE` 146).
+  Verified: nvc clean, all four existing TBs unchanged-green, new
+  `.research/tb_fdd_diag_ro.vhd` (pipelined 128-address sweep against
+  an independent literal expectation table, latch-instant proof, alias
+  folding). NOT synthesized.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

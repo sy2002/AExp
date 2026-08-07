@@ -1188,8 +1188,11 @@ begin
             qnice_dev_data_o <= qnice_adf_data(2);
             qnice_dev_wait_o <= qnice_adf_wait(2);
 
-         -- Hardware Floppy diagnostics: register bank, no wait (the single
-         -- writable register 0x1F lives in the process below)
+         -- Hardware Floppy diagnostics: registered readout (the diag bank
+         -- latches the addressed word on the falling edge and this arm sees
+         -- a plain flip-flop - zero wait states, kick-ROM-identical bus
+         -- timing; the writable registers 0x1F and 0x35 live in the
+         -- process below)
          when C_DEV_AMIGA_FDD =>
             qnice_dev_data_o <= qnice_fdd_data;
 
@@ -1671,6 +1674,7 @@ begin
 
    i_physical_fdd_diag : entity work.physical_fdd_diag
       port map (
+         qnice_clk_i         => qnice_clk_i,
          qnice_addr_i        => qnice_dev_addr_i,
          qnice_data_o        => qnice_fdd_data,
          diag_status_i       => qnice_fdd_status,
