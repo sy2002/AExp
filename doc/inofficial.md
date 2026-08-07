@@ -12,6 +12,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A1     | 07/25/26 | 232c584 | Authentic A500 sound: A500 Filter + LED Filter (both default on) and a Stereo Mix option. Master volume control (perceptual loudness taper).
 | WIP-V2-A2     | 07/26/26 | 032aec2 | Hardware Floppy (read-only): First attempt to use the built-in disk drive to read real Amiga disks
 | WIP-V2-A3     | 08/04/26 | 4a394aa | Up to three floppy drives (df0:, df1:, df2:) that are either .adf disk images or the built-in MEGA65 drive reading real Amiga disks (issue #17)
+| WIP-V2-A4     | 08/07/26 | 9b996fb | Improved hardware drive instrumentation / debugging capabilities
 
 ## Version 1
 
