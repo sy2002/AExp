@@ -91,6 +91,10 @@ entity physical_fdd_top is
     -- one-cycle pulse zeroing every "since clear" statistic
     ctrl_i              : in  std_logic_vector(5 downto 0) := (others => '0');
     clear_i             : in  std_logic := '0';
+    -- '1' = run the LEGACY quantiser bit source instead of the DPLL data
+    -- separator (diag control 0x35 bit 6; reset default '0' = DPLL - the
+    -- field A/B switch, see physical_fdd_pkg.vhd)
+    dpll_dis_i          : in  std_logic := '0';
 
     -- conditioned drive status (50 MHz registers; re-sync in the consumer):
     track0_n_o          : out std_logic;   -- active low = head at track 0
@@ -151,7 +155,8 @@ entity physical_fdd_top is
     diag_est_max_o      : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
     diag_hist_o         : out t_fdd_hist := (others => (others => '0'));
     diag_miss_o         : out t_fdd_miss := (others => (others => '0'));
-    diag_qual_revs_o    : out unsigned(15 downto 0) := (others => '0')
+    diag_qual_revs_o    : out unsigned(15 downto 0) := (others => '0');
+    diag_dpll_cell_o    : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12)
   );
 end entity physical_fdd_top;
 
@@ -187,6 +192,7 @@ architecture rtl of physical_fdd_top is
 
   -- decode chain
   signal chain_rst    : std_logic;
+  signal dpll_en      : std_logic;
   signal gap_valid    : std_logic;
   signal gap_len      : unsigned(15 downto 0);
   signal runt         : std_logic;
@@ -205,6 +211,7 @@ architecture rtl of physical_fdd_top is
   signal step_meta    : std_logic := '1';
   signal step_s       : std_logic := '1';
   signal step_p       : std_logic := '1';
+  signal trk0_p       : std_logic := '1';   -- /TRK0 assert-edge detect for the cyl zeroing
   signal dir_meta     : std_logic := '1';
   signal dir_s        : std_logic := '1';
   signal srv_meta     : std_logic := '0';
@@ -303,6 +310,7 @@ begin
   -- the decode chain only runs while the drive can actually deliver flux;
   -- each selection starts with a clean sync hunt
   chain_rst <= rst_i or not (en_s and sel_s and mot_s);
+  dpll_en   <= not dpll_dis_i;
 
   i_gaps : entity work.physical_fdd_mfm_gaps
     port map (
@@ -335,6 +343,9 @@ begin
       gap_valid_i  => q_valid,
       gap_class_i  => q_class,
       sync_i       => sync_stable,
+      dpll_en_i    => dpll_en,
+      edge_valid_i => gap_valid,
+      dpll_cell_o  => diag_dpll_cell_o,
       word_valid_o => word_valid,
       word_o       => word_data,
       sync_hit_o   => sync_hit,
@@ -485,6 +496,8 @@ begin
         sync_gate  <= (others => '0');
         min_margin <= (others => '1');
         min_cls    <= "11";
+        min_est    <= (others => '0');
+        min_gap    <= (others => '0');
         est_min    <= to_unsigned(C_QUANT_EST_NOM_Q, est_min'length);
         est_max    <= to_unsigned(C_QUANT_EST_NOM_Q, est_max'length);
         hist       <= (others => (others => '0'));
@@ -510,7 +523,13 @@ begin
             cyl <= cyl + 1;
           end if;
         end if;
-        if track0_n = '0' then                       -- mechanical ground truth
+        -- mechanical ground truth on the /TRK0 ASSERT EDGE only: the level
+        -- stays asserted for milliseconds after the first step away from
+        -- track 0 (the head is still moving), and a level-sensitive zero
+        -- swallowed that step - the 2026-08-08 field dumps read the
+        -- cylinder one low against every decoded track number
+        trk0_p <= track0_n;
+        if track0_n = '0' and trk0_p = '1' then
           cyl <= (others => '0');
         end if;
 
@@ -603,6 +622,8 @@ begin
           sync_gate  <= (others => '0');
           min_margin <= (others => '1');
           min_cls    <= "11";
+          min_est    <= (others => '0');
+          min_gap    <= (others => '0');
           est_min    <= est_q;
           est_max    <= est_q;
           hist       <= (others => (others => '0'));

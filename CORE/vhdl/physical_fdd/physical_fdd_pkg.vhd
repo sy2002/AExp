@@ -66,6 +66,40 @@ package physical_fdd_pkg is
   constant C_QUANT_EST_MIN_Q : natural := C_QUANT_EST_MIN * 2**C_QUANT_FRAC;
   constant C_QUANT_EST_MAX_Q : natural := C_QUANT_EST_MAX * 2**C_QUANT_FRAC;
 
+  -----------------------------------------------------------------------------
+  -- Digital PLL data separator (WIP-V2-A5, physical_fdd_bits)
+  --
+  -- The 2026-08-08 field margin measurements (deft, log03) showed the old-
+  -- media failures are RARE single-transition events - intervals reading up
+  -- to +/-20% off (accepted extremes 162 and 438 cycles, margins down to
+  -- 0.19 cycles) plus ~40 outright rejects per error session - on top of a
+  -- clean, est-tracked body. Interval classification amplifies every such
+  -- event: the displaced edge distorts TWO adjacent intervals, a class flip
+  -- inserts/deletes channel bits (a slip corrupts everything to the next
+  -- sync), and a reject triggers the loud resync. The DPLL instead assigns
+  -- each flux edge to a cell of a continuously phase/frequency-tracked
+  -- grid, exactly like the separator in front of a real Paula:
+  --
+  --   every cycle:  phase += 1 cycle; at phase >= cell emit one channel bit
+  --                 ('1' if an edge fell into the elapsed cell, else '0')
+  --                 and wrap phase -= cell
+  --   every edge:   err = phase - cell/2 (where the edge landed vs the
+  --                 window center); phase -= err/2**C_DPLL_PGAIN (fast
+  --                 phase pull toward centered edges); cell +=
+  --                 err/2**C_DPLL_FGAIN (slow period tracking), hard-
+  --                 clamped to the same +/-10% span as the quantiser
+  --
+  -- Tolerance per event: +/- cell/2 (= +/-1 us) of PHASE error at the
+  -- decision point, errors stay LOCAL (one bit position - no slip, no
+  -- resync; droughts free-run '0's inherently), and the phase pull absorbs
+  -- systematic bias/drift continuously instead of at 1/8 cycle per gap.
+  -- The quantiser keeps running as a passive OBSERVER so the diag margin
+  -- instrumentation measures identically in both modes; diag control
+  -- 0x35 bit 6 selects the legacy path at runtime (A/B on real media).
+  -----------------------------------------------------------------------------
+  constant C_DPLL_PGAIN : natural := 1;   -- phase correction: err/2 per edge
+  constant C_DPLL_FGAIN : natural := 6;   -- period correction: err/64 per edge
+
   -- Runt-merge threshold for the gaps stage: only true electrical runts (the
   -- C64MEGA65 GAP_MIN = 0x0001 hardware evidence: edges 20-40 ns apart) merge
   -- into their successor; everything longer stays a loud out-of-window gap.

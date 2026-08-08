@@ -451,7 +451,8 @@ signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
 signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
 signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
 -- diag map v7: margin-engine control (reg 0x35), dump nonce, new taps
-signal qnice_fdd_ctrl         : std_logic_vector(5 downto 0) := (others => '0');
+signal qnice_fdd_ctrl         : std_logic_vector(6 downto 0) := (others => '0');
+signal qnice_fdd_dpll_cell    : unsigned(11 downto 0);
 signal qnice_fdd_clear        : std_logic := '0';              -- 1-cycle strobe (0x35 write, bit 15)
 signal qnice_fdd_nonce        : unsigned(15 downto 0) := (others => '0');
 signal qnice_fdd_rd0_q        : std_logic := '0';              -- edge filter for the nonce
@@ -1208,8 +1209,10 @@ begin
    --        for the empirical side-polarity verdict - flip it live from the
    --        QNICE debug console, no rebuild. Round 3 proved the straight
    --        wire correct on this mechanism: keep it 0.
-   --   0x35 = margin-engine control {5: all-gaps, 4: window mode, 3..0:
-   --        armed sector}; writing bit 15 additionally pulses the
+   --   0x35 = margin-engine control {6: LEGACY quantiser bit source
+   --        instead of the DPLL data separator (reset default 0 = DPLL -
+   --        the A/B switch), 5: all-gaps, 4: window mode, 3..0: armed
+   --        sector}; writing bit 15 additionally pulses the
    --        experiment-clear strobe (strobe is not stored).
    --   The nonce counts QNICE READS of diag register 0x00 (one per dump;
    --        the firmware's live-status poll reads only 0x02/0x1B, so tester
@@ -1232,7 +1235,7 @@ begin
                if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
                   qnice_fdd_sideinv <= qnice_dev_data_i(0);
                elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
-                  qnice_fdd_ctrl  <= qnice_dev_data_i(5 downto 0);
+                  qnice_fdd_ctrl  <= qnice_dev_data_i(6 downto 0);
                   qnice_fdd_clear <= qnice_dev_data_i(15);
                end if;
             end if;
@@ -1536,8 +1539,9 @@ begin
          step_n_i            => main_fdd_step_n,
          stepdir_i           => main_fdd_dir,
          serving_i           => main_hwf_serving,
-         ctrl_i              => qnice_fdd_ctrl,
+         ctrl_i              => qnice_fdd_ctrl(5 downto 0),
          clear_i             => qnice_fdd_clear,
+         dpll_dis_i          => qnice_fdd_ctrl(6),
          track0_n_o          => qnice_fdd_track0_n,
          wprot_n_o           => qnice_fdd_wprot_n,
          change_n_o          => qnice_fdd_change_n,
@@ -1583,7 +1587,8 @@ begin
          diag_est_max_o      => qnice_fdd_est_max,
          diag_hist_o         => qnice_fdd_hist,
          diag_miss_o         => qnice_fdd_miss,
-         diag_qual_revs_o    => qnice_fdd_qual_revs
+         diag_qual_revs_o    => qnice_fdd_qual_revs,
+         diag_dpll_cell_o    => qnice_fdd_dpll_cell
       ); -- i_physical_fdd_top
 
    -- diag side-invert into the core domain (quasi-static level; covered by
@@ -1727,7 +1732,8 @@ begin
          diag_est_max_i      => qnice_fdd_est_max,
          diag_hist_i         => qnice_fdd_hist,
          diag_miss_i         => qnice_fdd_miss,
-         diag_qual_revs_i    => qnice_fdd_qual_revs
+         diag_qual_revs_i    => qnice_fdd_qual_revs,
+         diag_dpll_cell_i    => qnice_fdd_dpll_cell
       ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------

@@ -28,11 +28,12 @@
 -- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
 -- is 0x7000..0x705F with no alias inside it).
 --
--- Register map (word addresses), map version 0x0008 (register CONTENT is
--- identical to 0x0007 - the bump marks the registered-readout build,
--- WIP-V2-A5, so field dumps identify which build produced them):
+-- Register map (word addresses), map version 0x0009 (v8 layout plus the
+-- DPLL data separator's control bit and cell register - the version also
+-- identifies the build in field dumps: 0x0007 = A4, 0x0008 = A5 registered
+-- readout, 0x0009 = A5 with the DPLL separator):
 --   0x00  signature 0xFDD0
---   0x01  map version 0x0008
+--   0x01  map version 0x0009
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -119,12 +120,15 @@
 --         while /TRK0 asserts (mechanical ground truth). Together with
 --         0x33 this separates seek phases from read phases and shows
 --         WHERE the drive is grinding.
---   0x35  WRITE: margin-engine control {15: writing 1 clears every "since
---         clear" statistic (self-clearing strobe; not stored), 5: histogram
---         ALL gaps (ignore the serve gate), 4: window mode - only inside
---         the armed-sector window, 3..0: armed sector K}. Default 0x0000 =
---         histogram during physical read sessions only. Reads back the
---         stored 6 control bits.
+--   0x35  WRITE: margin-engine + separator control {15: writing 1 clears
+--         every "since clear" statistic (self-clearing strobe; not
+--         stored), 6: LEGACY quantiser bit source instead of the DPLL
+--         data separator (reset default 0 = DPLL; write 0x0040 for the
+--         on-hardware A/B against the A4 behavior), 5: histogram ALL gaps
+--         (ignore the serve gate), 4: window mode - only inside the
+--         armed-sector window, 3..0: armed sector K}. Default 0x0000 =
+--         DPLL separator + histogram during physical read sessions only.
+--         Reads back the stored 7 control bits.
 --   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths
 --         of a cycle); 0xFFFF = no gap measured yet. tol = est/2, so a
 --         margin approaching 0 = a gap ON a classification boundary.
@@ -158,7 +162,9 @@
 --         always fails at one physical spot" and "misses rove".
 --   0x5E  count: qualified read revolutions since clear (the miss
 --         profile's denominator)
---   0x5F  reserved (reads 0xEEEE)
+--   0x5F  DPLL cell period, Q8.4 (nominal 0x640 = 100.0 cycles; the
+--         separator's tracked half-cell - the analog of the observer
+--         quantiser's estimate at 0x04, clamped to the same +/-10%)
 -- All counters wrap at 16 bit unless marked saturating (diff two reads to
 -- rate them). Recommended dump: 0x7000..0x705F (96 words).
 --
@@ -218,7 +224,7 @@ entity physical_fdd_diag is
     diag_nonce_i        : in  unsigned(15 downto 0);          -- counted in mega65 (bus side)
     diag_cnt_step_i     : in  unsigned(15 downto 0);
     diag_cyl_i          : in  unsigned(6 downto 0);
-    diag_ctrl_i         : in  std_logic_vector(5 downto 0);   -- readback of the 0x35 bits
+    diag_ctrl_i         : in  std_logic_vector(6 downto 0);   -- readback of the 0x35 bits
     diag_min_margin_i   : in  unsigned(15 downto 0);
     diag_min_est_i      : in  unsigned(11 downto 0);
     diag_min_gap_i      : in  unsigned(15 downto 0);
@@ -231,7 +237,8 @@ entity physical_fdd_diag is
     diag_est_max_i      : in  unsigned(11 downto 0);
     diag_hist_i         : in  t_fdd_hist;
     diag_miss_i         : in  t_fdd_miss;
-    diag_qual_revs_i    : in  unsigned(15 downto 0)
+    diag_qual_revs_i    : in  unsigned(15 downto 0);
+    diag_dpll_cell_i    : in  unsigned(11 downto 0)
   );
 end entity physical_fdd_diag;
 
@@ -260,7 +267,7 @@ begin
     v_addr := unsigned(qnice_addr_i(6 downto 0));
     case to_integer(v_addr) is
       when 16#00# => v_data := x"FDD0";
-      when 16#01# => v_data := x"0008";
+      when 16#01# => v_data := x"0009";
       when 16#02# => v_data := diag_status_i;
       when 16#03# => v_data := diag_sync_i;
       when 16#04# => v_data := x"0" & std_logic_vector(diag_est_i);
@@ -317,7 +324,7 @@ begin
       when 16#32# => v_data := std_logic_vector(diag_nonce_i);
       when 16#33# => v_data := std_logic_vector(diag_cnt_step_i);
       when 16#34# => v_data := std_logic_vector(resize(diag_cyl_i, 16));
-      when 16#35# => v_data := x"00" & "00" & diag_ctrl_i;
+      when 16#35# => v_data := x"00" & '0' & diag_ctrl_i;
       when 16#36# => v_data := std_logic_vector(diag_min_margin_i);
       when 16#37# => v_data := x"0" & std_logic_vector(diag_min_est_i);
       when 16#38# => v_data := std_logic_vector(diag_min_gap_i);
@@ -333,6 +340,7 @@ begin
       when 16#58# to 16#5D# =>
         v_data := diag_miss_i(to_integer(v_addr) - 16#58#);
       when 16#5E# => v_data := std_logic_vector(diag_qual_revs_i);
+      when 16#5F# => v_data := x"0" & std_logic_vector(diag_dpll_cell_i);
       when others => v_data := x"EEEE";
     end case;
     data_q <= v_data;

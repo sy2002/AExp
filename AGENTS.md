@@ -119,6 +119,29 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `.research/tb_fdd_diag_ro.vhd` (pipelined 128-address sweep against
   an independent literal expectation table, latch-instant proof, alias
   folding). NOT synthesized.
+  **A5 second increment - THE DPLL DATA SEPARATOR (map v9, reg 0x01 =
+  0x0009).** Deft's A4 dumps (log03, 2026-08-08) measured the real
+  failure: misses ROVE across all 11 sectors (~0.5/rev; "deterministic
+  sector 4" was a frozen-snapshot artifact), the armed-sector windows
+  are clean, and the killers are RARE extreme interval events (accepted
+  gaps at -19%/+12%, margins to 0.19 cycles, ~40 rejects/session, est
+  drag to 96.0 at exactly 300.0 RPM) that the interval classifier
+  AMPLIFIES: one displaced edge hits two intervals, a class flip is a
+  bit SLIP (rest of sector garbage), an out-of-span gap is a loud
+  resync. The fix: a counter-based digital PLL bit source in
+  `physical_fdd_bits.vhd` (per-edge phase pull err/2, period err/64
+  clamped +/-10%, one bit per cell boundary, +/-1 us phase tolerance,
+  errors stay local, droughts free-run) - the legacy quantiser path is
+  BIT-IDENTICAL, runtime-selectable (diag 0x35 bit 6 = 1 -> legacy,
+  default DPLL) and keeps running as passive observer, so the A4
+  margin instrumentation measures identically in both modes (field
+  A/B). New diag 0x5F = DPLL cell. Verified: tb_fdd_dpll RED/GREEN
+  (the measured dropout event corrupts the tail via legacy resync,
+  stays ONE bit flip under DPLL), S1..S5 pass in BOTH modes
+  (G_LEGACY generic), margin/diag_ro/engine/multidrive TBs + full nvc
+  chain + decoder v9 green. Plus two instrument fixes: /TRK0
+  assert-edge cylinder zeroing (integral read one low in the field),
+  min_est/min_gap cleared on reset/clear. NOT synthesized.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
