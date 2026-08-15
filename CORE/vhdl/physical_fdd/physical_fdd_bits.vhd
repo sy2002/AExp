@@ -29,6 +29,28 @@
 --     sync_i = 0x0000 disables alignment (free-running word phase - the
 --     "WORDSYNC off" semantic of real hardware, where the phase is
 --     undefined anyway).
+--   * FRAMING HOLD (frame_hold_i = '1'): word framing FREE-RUNS - a sync
+--     match still reports sync_hit_o (and realign_evt_o when it lands
+--     mid-word) but neither resets the bit counter nor emits early. This
+--     reproduces what a real Paula delivers under WORDSYNC=0, where the
+--     capture carries ONE constant framing for its whole length: KS1.3
+--     trackdisk clears WORDSYNC and its software decoder absorbs a
+--     CONSTANT splice framing shift through its 16-entry rotation tables
+--     plus the gap re-hunt's own shift - but it can NOT decode a stream
+--     whose framing re-anchors at every sync, because the once-per-rev
+--     write-splice slip then becomes a rotation-inconsistent seam
+--     ([old-framing gap run][hybrid word][word-aligned sync]) that
+--     matches none of its tables: TDERR $1A/$17 on every attempt whose
+--     anchor is not the first-written sector (proven RED in BOTH
+--     separator modes by tb_fdd_splice, the E2 experiment of the
+--     2026-08-15 audit). The top asserts frame_hold_i while the engine
+--     serves words past its serve-start sync AND live WORDSYNC is 0;
+--     during the pre-serve hunt alignment stays active (that is what
+--     makes serve-from-sync work), and under WORDSYNC=1 (X-Copy, most
+--     trackloaders) realignment stays active too - matching real Paula,
+--     which does re-sync its shifter per matching word in that mode.
+--     With frame_hold_i = '0' this stage is bit-identical to the
+--     realign-always behavior.
 --   * Loss of lock (gap class "11") clears the pending bits and the bit
 --     counter: a loud resync, mirroring the C64 pipeline.
 --   * FLUX DROUGHT: when no transition arrives for C_DROUGHT_ARM_CYC cycles
@@ -77,9 +99,17 @@ entity physical_fdd_bits is
     dpll_en_i    : in  std_logic := '0';
     edge_valid_i : in  std_logic := '0';
     dpll_cell_o  : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+    -- '1' = hold the word framing (no realign on sync matches - the real
+    -- WORDSYNC=0 Paula behavior; see FRAMING HOLD in the header)
+    frame_hold_i : in  std_logic := '0';
     word_valid_o : out std_logic := '0';               -- 1-clk pulse
     word_o       : out std_logic_vector(15 downto 0) := (others => '0');
     sync_hit_o   : out std_logic := '0';               -- diag: 1-clk pulse per sync match
+    -- diag: 1-clk pulse per sync match landing mid-word (bit_cnt /= 15) =
+    -- a framing seam event: a realignment (taken when frame_hold_i = '0',
+    -- suppressed when '1'), with the framing remainder it arrived at
+    realign_evt_o : out std_logic := '0';
+    realign_rem_o : out unsigned(3 downto 0) := (others => '0');
     lol_o        : out std_logic := '0'                -- diag: 1-clk pulse per loss of lock
   );
 end entity physical_fdd_bits;
@@ -120,9 +150,10 @@ begin
   begin
     if rising_edge(clk_i) then
       -- pulses default low
-      word_valid_o <= '0';
-      sync_hit_o   <= '0';
-      lol_o        <= '0';
+      word_valid_o  <= '0';
+      sync_hit_o    <= '0';
+      realign_evt_o <= '0';
+      lol_o         <= '0';
 
       if rst_i = '1' then
         pend_sr     <= (others => '0');
@@ -217,16 +248,27 @@ begin
           end if;
         end if;
 
-        -- shift the emitted bit in, MSB-first; sync match dominates the
-        -- 16-bit rollover so words re-align on every DSKSYNC occurrence
+        -- shift the emitted bit in, MSB-first; a sync match dominates the
+        -- 16-bit rollover so words re-align on every DSKSYNC occurrence -
+        -- unless the framing is held (frame_hold_i: real-Paula WORDSYNC=0
+        -- behavior, see the header), in which case the match is only
+        -- reported and the free-running rollover keeps the word phase
         if v_emit = '1' then
           v_new_sr := sr(14 downto 0) & v_bit;
           sr <= v_new_sr;
           if sync_i /= x"0000" and v_new_sr = sync_i then
-            word_o       <= v_new_sr;
-            word_valid_o <= '1';
-            sync_hit_o   <= '1';
-            bit_cnt      <= (others => '0');
+            sync_hit_o <= '1';
+            if bit_cnt /= 15 then
+              realign_evt_o <= '1';
+              realign_rem_o <= bit_cnt;
+            end if;
+            if frame_hold_i = '0' or bit_cnt = 15 then
+              word_o       <= v_new_sr;
+              word_valid_o <= '1';
+              bit_cnt      <= (others => '0');
+            else
+              bit_cnt <= bit_cnt + 1;
+            end if;
           elsif bit_cnt = 15 then
             word_o       <= v_new_sr;
             word_valid_o <= '1';

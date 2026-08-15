@@ -28,12 +28,13 @@
 -- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
 -- is 0x7000..0x705F with no alias inside it).
 --
--- Register map (word addresses), map version 0x0009 (v8 layout plus the
--- DPLL data separator's control bit and cell register - the version also
--- identifies the build in field dumps: 0x0007 = A4, 0x0008 = A5 registered
--- readout, 0x0009 = A5 with the DPLL separator):
+-- Register map (word addresses), map version 0x000A (v9 layout plus the
+-- WORDSYNC-conditional framing hold's control bit and the sync-seam
+-- instruments at 0x60..0x6E - the version also identifies the build in
+-- field dumps: 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5
+-- with the DPLL separator, 0x000A = the sync-seam fix + instruments):
 --   0x00  signature 0xFDD0
---   0x01  map version 0x0009
+--   0x01  map version 0x000A
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -122,13 +123,17 @@
 --         WHERE the drive is grinding.
 --   0x35  WRITE: margin-engine + separator control {15: writing 1 clears
 --         every "since clear" statistic (self-clearing strobe; not
---         stored), 6: LEGACY quantiser bit source instead of the DPLL
---         data separator (reset default 0 = DPLL; write 0x0040 for the
---         on-hardware A/B against the A4 behavior), 5: histogram ALL gaps
---         (ignore the serve gate), 4: window mode - only inside the
---         armed-sector window, 3..0: armed sector K}. Default 0x0000 =
---         DPLL separator + histogram during physical read sessions only.
---         Reads back the stored 7 control bits.
+--         stored), 7: realign-ALWAYS word framing instead of the
+--         WORDSYNC-conditional framing hold (reset default 0 = hold in
+--         force; write 0x0080 for the on-hardware A/B against the
+--         pre-v10 seam behavior), 6: LEGACY quantiser bit source instead
+--         of the DPLL data separator (reset default 0 = DPLL; write
+--         0x0040 for the on-hardware A/B against the A4 behavior), 5:
+--         histogram ALL gaps (ignore the serve gate), 4: window mode -
+--         only inside the armed-sector window, 3..0: armed sector K}.
+--         Default 0x0000 = framing hold + DPLL separator + histogram
+--         during physical read sessions only. Reads back the stored 8
+--         control bits.
 --   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths
 --         of a cycle); 0xFFFF = no gap measured yet. tol = est/2, so a
 --         margin approaching 0 = a gap ON a classification boundary.
@@ -165,8 +170,38 @@
 --   0x5F  DPLL cell period, Q8.4 (nominal 0x640 = 100.0 cycles; the
 --         separator's tracked half-cell - the analog of the observer
 --         quantiser's estimate at 0x04, clamped to the same +/-10%)
+--
+-- Diag map v10 (the sync-seam fix round - tb_fdd_splice/E2 proved the
+-- per-sync realignment turns the write-splice slip into a seam KS1.3
+-- trackdisk cannot decode; design rationale in physical_fdd_top.vhd at
+-- seam_proc and in physical_fdd_bits.vhd at FRAMING HOLD):
+--   0x60  count: mid-serve REALIGN events since clear - sync-window
+--         matches landing mid-word (bit phase /= 15) while the engine
+--         streams words = framing seams (taken when 0x35 bit 7 = 1,
+--         suppressed by the framing hold when 0; counted either way, so
+--         A/B dumps compare directly). On a spliced track expect ~1 per
+--         gap crossing; 0 on working tracks.
+--   0x61  realign context: {15:8 count of events with an ODD bit-phase
+--         remainder (8-bit saturating), 3:0 the last event's bit phase}
+--   0x62..0x69  pre-sync tap: the 8 words emitted BEFORE the last
+--         mid-serve realign event = the [gap run][hybrid word] seam
+--         fingerprint, live (compare tb_fdd_splice's seam reports)
+--   0x6A  {15:8 serving-session count (wraps; freshness), 7:0 the sector
+--         number of the first clean header capture published after the
+--         last session entered data streaming = the serve-start sector
+--         (the escape-arc observable of audit residue r1; 0xFF = none)}
+--   0x6B  count: losses of lock while streaming (serving-data) since clear
+--   0x6C  count: losses of lock while NOT streaming since clear (the
+--         0x6B/0x6C twins split cnt_lol by workload phase)
+--   0x6D  count: index windows that met the miss-profile capture floor
+--         but lost the decode chain mid-window (deselect hole) since
+--         clear - these windows are EXCLUDED from 0x58..0x5E in v10 (the
+--         v7..v9 profile counted them as phantom misses; 0x5E therefore
+--         advances only on chain-continuous read revolutions now)
+--   0x6E  live framing status: {3: 0x35 bit 7 readback, 2: serving-data
+--         (synced), 1: WORDSYNC (synced), 0: framing hold in force}
 -- All counters wrap at 16 bit unless marked saturating (diff two reads to
--- rate them). Recommended dump: 0x7000..0x705F (96 words).
+-- rate them). Recommended dump: 0x7000..0x706F (112 words).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -224,7 +259,7 @@ entity physical_fdd_diag is
     diag_nonce_i        : in  unsigned(15 downto 0);          -- counted in mega65 (bus side)
     diag_cnt_step_i     : in  unsigned(15 downto 0);
     diag_cyl_i          : in  unsigned(6 downto 0);
-    diag_ctrl_i         : in  std_logic_vector(6 downto 0);   -- readback of the 0x35 bits
+    diag_ctrl_i         : in  std_logic_vector(7 downto 0);   -- readback of the 0x35 bits
     diag_min_margin_i   : in  unsigned(15 downto 0);
     diag_min_est_i      : in  unsigned(11 downto 0);
     diag_min_gap_i      : in  unsigned(15 downto 0);
@@ -238,7 +273,17 @@ entity physical_fdd_diag is
     diag_hist_i         : in  t_fdd_hist;
     diag_miss_i         : in  t_fdd_miss;
     diag_qual_revs_i    : in  unsigned(15 downto 0);
-    diag_dpll_cell_i    : in  unsigned(11 downto 0)
+    diag_dpll_cell_i    : in  unsigned(11 downto 0);
+
+    -- diag map v10 taps (seam instruments in physical_fdd_top)
+    diag_realign_i      : in  unsigned(15 downto 0) := (others => '0');
+    diag_realign_ctx_i  : in  std_logic_vector(15 downto 0) := (others => '0');
+    diag_presync_i      : in  t_fdd_cap_words := (others => (others => '0'));
+    diag_srv_sec_i      : in  std_logic_vector(15 downto 0) := x"00FF";
+    diag_lol_srv_i      : in  unsigned(15 downto 0) := (others => '0');
+    diag_lol_idle_i     : in  unsigned(15 downto 0) := (others => '0');
+    diag_chain_win_i    : in  unsigned(15 downto 0) := (others => '0');
+    diag_frame_stat_i   : in  std_logic_vector(3 downto 0) := (others => '0')
   );
 end entity physical_fdd_diag;
 
@@ -267,7 +312,7 @@ begin
     v_addr := unsigned(qnice_addr_i(6 downto 0));
     case to_integer(v_addr) is
       when 16#00# => v_data := x"FDD0";
-      when 16#01# => v_data := x"0009";
+      when 16#01# => v_data := x"000A";
       when 16#02# => v_data := diag_status_i;
       when 16#03# => v_data := diag_sync_i;
       when 16#04# => v_data := x"0" & std_logic_vector(diag_est_i);
@@ -324,7 +369,7 @@ begin
       when 16#32# => v_data := std_logic_vector(diag_nonce_i);
       when 16#33# => v_data := std_logic_vector(diag_cnt_step_i);
       when 16#34# => v_data := std_logic_vector(resize(diag_cyl_i, 16));
-      when 16#35# => v_data := x"00" & '0' & diag_ctrl_i;
+      when 16#35# => v_data := x"00" & diag_ctrl_i;
       when 16#36# => v_data := std_logic_vector(diag_min_margin_i);
       when 16#37# => v_data := x"0" & std_logic_vector(diag_min_est_i);
       when 16#38# => v_data := std_logic_vector(diag_min_gap_i);
@@ -341,6 +386,16 @@ begin
         v_data := diag_miss_i(to_integer(v_addr) - 16#58#);
       when 16#5E# => v_data := std_logic_vector(diag_qual_revs_i);
       when 16#5F# => v_data := x"0" & std_logic_vector(diag_dpll_cell_i);
+      -- diag map v10 (sync-seam instruments)
+      when 16#60# => v_data := std_logic_vector(diag_realign_i);
+      when 16#61# => v_data := diag_realign_ctx_i;
+      when 16#62# to 16#69# =>
+        v_data := diag_presync_i(to_integer(v_addr) - 16#62#);
+      when 16#6A# => v_data := diag_srv_sec_i;
+      when 16#6B# => v_data := std_logic_vector(diag_lol_srv_i);
+      when 16#6C# => v_data := std_logic_vector(diag_lol_idle_i);
+      when 16#6D# => v_data := std_logic_vector(diag_chain_win_i);
+      when 16#6E# => v_data := x"000" & diag_frame_stat_i;
       when others => v_data := x"EEEE";
     end case;
     data_q <= v_data;

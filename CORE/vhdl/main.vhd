@@ -163,6 +163,9 @@ entity main is
       -- diag: '1' while a physical read stream session is open (gates the
       -- margin instrumentation in physical_fdd_top):
       hwf_serving_o           : out std_logic;
+      -- '1' while that session streams words past its serve-start sync
+      -- (gates the WORDSYNC-conditional framing hold - the sync-seam fix):
+      hwf_serving_data_o      : out std_logic;
       hwf_pau_sig_o           : out std_logic_vector(15 downto 0);
       hwf_pau_att_o           : out std_logic_vector(7 downto 0);
       hwf_pau_c64_o           : out std_logic_vector(15 downto 0);
@@ -704,6 +707,7 @@ begin
          phys_sig_c64_o      => hwf_eng_c64_o,
          phys_sig_c256_o     => hwf_eng_c256_o,
          phys_serving_o      => hwf_serving_o,
+         phys_data_o         => hwf_serving_data_o,
 
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,

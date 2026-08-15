@@ -142,6 +142,39 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   chain + decoder v9 green. Plus two instrument fixes: /TRK0
   assert-edge cylinder zeroing (integral read one low in the field),
   min_est/min_gap cleared on reset/clear. NOT synthesized.
+  **A5 third increment - THE SYNC-SEAM FIX (map v10, reg 0x01 = 0x000A;
+  implemented + statically verified, NOT synthesized).** E2 of the
+  2026-08-15 audit ran RED as pre-registered: `.research/tb_fdd_splice.vhd`
+  (full AmigaDOS track through the REAL front-end at trackdisk's exact
+  cadence into a LITERAL KS1.3 trackdisk decoder; independent Python
+  twin `.research/td_check.py` agreed 7/7 on dumped captures) proved
+  that the aligner's realign-at-every-4489 turns the once-per-rev
+  write-splice slip into a seam ([gap run][hybrid][aligned 4489], e.g.
+  run-end long $22444489) that matches NO trackdisk hunt-table entry:
+  every spliced attempt dies $1A (written gap > ~560 B) or $17 (second
+  post-gap boundary inside the $67C window -> mis-anchor, failslot ==
+  SG) in BOTH separator modes, except the SG=11 escape (serve start =
+  first-written sector, 11-start sweep = exactly one escape), while a
+  constant-framing capture of the SAME flux decodes GREEN (chunk-2
+  shift absorbs the splice - real-Paula behavior, ROM-designed). THE
+  FIX: `frame_hold` in physical_fdd_bits - word framing FREE-RUNS (no
+  mid-stream realign) while the engine streams past its serve-start
+  sync (new engine output `phys_data_o = phys_stream and not
+  phys_hunt`, threaded main->mega65->top) AND live WORDSYNC=0 (Paula
+  fdd_dws); pre-serve hunt and WORDSYNC=1 (X-Copy) keep realigning.
+  Runtime A/B: 0x35 bit 7 = realign-ALWAYS (pre-fix framing; default 0
+  = fix). E3 seam instruments at 0x60..0x6E (mid-serve realign counter
+  + bit-phase context, pre-seam 8-word tap, per-session serve-start
+  sector, LOL streaming/idle twins, chain-broken-window counter; the
+  0x58 miss profile is now chain-gated - deselect-hole windows no
+  longer count as misses). Dump = `M 7000 706F`. Verified: tb_fdd_splice
+  matrix (unfixed RED / fixed GREEN x DPLL/legacy incl. seam-counter
+  asserts), all six existing TBs green (tb_fdd_margin updated to the
+  chain-gated window semantics, tb_fdd_diag_ro table extended to v10),
+  decode_fdd_dump.py v10 + 52 selftests, full nvc chain. Zero firmware/
+  menu/BRAM/.xpr impact; cfg unchanged. E1 (`.research/e1_census/`):
+  KS1.3 census tool `tdcensus` + ADF + German recipe, built + vamos-
+  smoke-tested, ready for deft.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

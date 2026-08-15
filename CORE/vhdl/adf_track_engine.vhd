@@ -175,6 +175,13 @@ entity adf_track_engine is
       -- histograms on this level by default, so seek-phase and idle
       -- streaming noise stay out of the measured distributions.
       phys_serving_o      : out std_logic := '0';
+      -- '1' while a physical read session streams words PAST its
+      -- serve-start sync (phys_stream and the serve-from-sync hunt done).
+      -- Gates the front-end's WORDSYNC-conditional framing hold: during
+      -- the hunt the aligner must keep realigning (serve-from-sync), from
+      -- the first served word on the framing may free-run (real-Paula
+      -- WORDSYNC=0 behavior - the sync-seam fix, physical_fdd_bits.vhd)
+      phys_data_o         : out std_logic := '0';
 
       -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
       io_fpga_o           : out std_logic;                     -- registered - async-clear pin inside Paula!
@@ -1565,6 +1572,7 @@ begin
    -- physical read session level towards the margin instrumentation
    -- (registered in fsm_proc; 2-FF-synced into the 50 MHz domain there)
    phys_serving_o  <= phys_stream;
+   phys_data_o     <= phys_stream and not phys_hunt;
 
    p_dirty_scan : process (clk_main_i)
    begin

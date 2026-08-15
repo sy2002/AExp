@@ -41,6 +41,11 @@
 --     measured interval-domain evidence the data-separator redesign needs
 --     (2026-08-07 field falsification: media verdicts retracted, decode
 --     margin under suspicion),
+--   * gates the aligner's WORDSYNC-conditional framing hold (the sync-seam
+--     fix, diag map v10) and carries the seam instruments (seam_proc):
+--     mid-serve realign events with remainder context, the pre-sync word
+--     tap, the per-session serve-start sector, the streaming-split
+--     loss-of-lock twins and the chain-gated miss-profile qualifier,
 --   * captures the C_CAP_WORDS words that follow each DSKSYNC hit together
 --     with the SIDE line and /TRK0 at the hit (the sector-header capture:
 --     the double 0x4489 restarts the capture, so the buffer always holds
@@ -84,6 +89,14 @@ entity physical_fdd_top is
     step_n_i            : in  std_logic := '1';  -- registered mirror of the f_step pin (async; synced here)
     stepdir_i           : in  std_logic := '1';  -- registered mirror of f_stepdir ('1' = toward track 0)
     serving_i           : in  std_logic := '0';  -- engine phys_stream: a physical read session is open
+    -- engine phys_stream AND past the serve-start sync (phys_hunt done):
+    -- words are streaming into Paula. Gates the WORDSYNC-conditional
+    -- framing hold - during the pre-serve hunt alignment must stay active
+    -- (serve-from-sync depends on it), afterwards the framing free-runs
+    -- while live WORDSYNC is 0 (real-Paula behavior; the sync-seam fix -
+    -- see FRAMING HOLD in physical_fdd_bits.vhd)
+    serving_data_i      : in  std_logic := '0';
+    wordsync_i          : in  std_logic := '0';  -- live ADKCON WORDSYNC (core domain)
 
     -- margin-instrumentation control (QNICE domain = this clock, no sync):
     -- {5: histogram ALL gaps (ignore the serve gate), 4: window mode (only
@@ -95,6 +108,10 @@ entity physical_fdd_top is
     -- separator (diag control 0x35 bit 6; reset default '0' = DPLL - the
     -- field A/B switch, see physical_fdd_pkg.vhd)
     dpll_dis_i          : in  std_logic := '0';
+    -- '1' = realign-always framing (the pre-v10 behavior; diag control
+    -- 0x35 bit 7, reset default '0' = WORDSYNC-conditional framing hold -
+    -- the sync-seam fix's field A/B switch)
+    framehold_dis_i     : in  std_logic := '0';
 
     -- conditioned drive status (50 MHz registers; re-sync in the consumer):
     track0_n_o          : out std_logic;   -- active low = head at track 0
@@ -156,7 +173,18 @@ entity physical_fdd_top is
     diag_hist_o         : out t_fdd_hist := (others => (others => '0'));
     diag_miss_o         : out t_fdd_miss := (others => (others => '0'));
     diag_qual_revs_o    : out unsigned(15 downto 0) := (others => '0');
-    diag_dpll_cell_o    : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12)
+    diag_dpll_cell_o    : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
+
+    -- diag map v10: the sync-seam instruments (design rationale at
+    -- seam_proc below and in physical_fdd_bits.vhd FRAMING HOLD)
+    diag_realign_o      : out unsigned(15 downto 0) := (others => '0');
+    diag_realign_ctx_o  : out std_logic_vector(15 downto 0) := (others => '0');
+    diag_presync_o      : out t_fdd_cap_words := (others => (others => '0'));
+    diag_srv_sec_o      : out std_logic_vector(15 downto 0) := x"00FF";
+    diag_lol_srv_o      : out unsigned(15 downto 0) := (others => '0');
+    diag_lol_idle_o     : out unsigned(15 downto 0) := (others => '0');
+    diag_chain_win_o    : out unsigned(15 downto 0) := (others => '0');
+    diag_frame_stat_o   : out std_logic_vector(3 downto 0) := (others => '0')
   );
 end entity physical_fdd_top;
 
@@ -207,6 +235,28 @@ architecture rtl of physical_fdd_top is
   signal sync_hit     : std_logic;
   signal lol          : std_logic;
 
+  -- WORDSYNC-conditional framing hold + seam instruments (diag map v10)
+  signal srvd_meta    : std_logic := '0';
+  signal srvd_s       : std_logic := '0';
+  signal srvd_p       : std_logic := '0';
+  signal ws_meta      : std_logic := '0';
+  signal ws_s         : std_logic := '0';
+  signal frame_hold   : std_logic;
+  signal realign_evt  : std_logic;
+  signal realign_rem  : unsigned(3 downto 0);
+  signal realign_cnt  : unsigned(15 downto 0) := (others => '0');
+  signal realign_odd  : unsigned(7 downto 0) := (others => '0');
+  signal realign_lrem : unsigned(3 downto 0) := (others => '0');
+  signal word_ring    : t_fdd_cap_words := (others => (others => '0'));
+  signal presync_shad : t_fdd_cap_words := (others => (others => '0'));
+  signal ses_cnt      : unsigned(7 downto 0) := (others => '0');
+  signal srv_sec_r    : unsigned(7 downto 0) := x"FF";   -- 0xFF = none yet
+  signal srvsec_arm   : std_logic := '0';
+  signal lol_srv      : unsigned(15 downto 0) := (others => '0');
+  signal lol_idle     : unsigned(15 downto 0) := (others => '0');
+  signal rev_chain_ok : std_logic := '0';
+  signal chain_win    : unsigned(15 downto 0) := (others => '0');
+
   -- margin instrumentation (diag map v7)
   signal step_meta    : std_logic := '1';
   signal step_s       : std_logic := '1';
@@ -219,6 +269,8 @@ architecture rtl of physical_fdd_top is
   attribute async_reg of step_meta : signal is "true";
   attribute async_reg of dir_meta  : signal is "true";
   attribute async_reg of srv_meta  : signal is "true";
+  attribute async_reg of srvd_meta : signal is "true";
+  attribute async_reg of ws_meta   : signal is "true";
   constant C_MS_CYC   : natural := C_FDD_HZ / 1000;   -- cycles per millisecond
   signal ms_div       : natural range 0 to C_MS_CYC - 1 := 0;
   signal uptime_ms    : unsigned(31 downto 0) := (others => '0');
@@ -312,6 +364,17 @@ begin
   chain_rst <= rst_i or not (en_s and sel_s and mot_s);
   dpll_en   <= not dpll_dis_i;
 
+  -- WORDSYNC-conditional framing hold (the sync-seam fix): once the engine
+  -- streams words past its serve-start sync AND live WORDSYNC is 0, the
+  -- aligner's word framing free-runs like a real Paula's shifter - no
+  -- mid-capture realignment turning the write-splice slip into a
+  -- rotation-inconsistent seam (tb_fdd_splice E2: RED without the hold in
+  -- both separator modes, GREEN with it). During the pre-serve hunt and
+  -- under WORDSYNC=1 realignment stays active (serve-from-sync and the
+  -- X-Copy class depend on it, and real Paula re-syncs per matching word
+  -- under WORDSYNC=1 too).
+  frame_hold <= srvd_s and not ws_s and not framehold_dis_i;
+
   i_gaps : entity work.physical_fdd_mfm_gaps
     port map (
       clk_i       => clk_i,
@@ -346,9 +409,12 @@ begin
       dpll_en_i    => dpll_en,
       edge_valid_i => gap_valid,
       dpll_cell_o  => diag_dpll_cell_o,
+      frame_hold_i => frame_hold,
       word_valid_o => word_valid,
       word_o       => word_data,
       sync_hit_o   => sync_hit,
+      realign_evt_o => realign_evt,
+      realign_rem_o => realign_rem,
       lol_o        => lol
     ); -- i_bits
 
@@ -438,6 +504,101 @@ begin
   end generate diag_miss_gen;
   diag_miss_o(5)              <= x"00" & std_logic_vector(miss_cnt(10));
   diag_qual_revs_o            <= qual_revs;
+
+  -- diag map v10 taps (seam instruments)
+  diag_realign_o              <= realign_cnt;
+  diag_realign_ctx_o          <= std_logic_vector(realign_odd) & "0000"
+                                 & std_logic_vector(realign_lrem);
+  diag_presync_o              <= presync_shad;
+  diag_srv_sec_o              <= std_logic_vector(ses_cnt)
+                                 & std_logic_vector(srv_sec_r);
+  diag_lol_srv_o              <= lol_srv;
+  diag_lol_idle_o             <= lol_idle;
+  diag_chain_win_o            <= chain_win;
+  diag_frame_stat_o           <= framehold_dis_i & srvd_s & ws_s & frame_hold;
+
+  -- The sync-seam instruments (diag map v10). All 50 MHz domain:
+  --   * realign events: sync-window matches landing MID-WORD (bit_cnt /=
+  --     15) while the engine streams words = framing seams. With the hold
+  --     disabled these were taken (the pre-v10 realignment - one seam per
+  --     splice crossing); with the hold they are suppressed but still
+  --     counted, so the A/B dumps stay comparable. The remainder context
+  --     (last event's bit phase + odd-remainder count) separates odd from
+  --     even slips.
+  --   * pre-sync tap: the last C_CAP_WORDS words emitted BEFORE the seam
+  --     event = the [gap run][hybrid word] fingerprint the E2 testbench
+  --     showed, live from hardware.
+  --   * serve-start sector: the first clean capture published after the
+  --     engine enters data streaming = where this session's serve began
+  --     (the escape-arc observable of audit residue r1; 0xFF = none yet).
+  --   * LOL twins: loss-of-lock events split by streaming state - the
+  --     honest version of "LOL during reads" (cnt_lol counts everything).
+  seam_proc : process (clk_i)
+  begin
+    if rising_edge(clk_i) then
+      srvd_meta <= serving_data_i;  srvd_s <= srvd_meta;  srvd_p <= srvd_s;
+      ws_meta   <= wordsync_i;      ws_s   <= ws_meta;
+
+      if rst_i = '1' then
+        realign_cnt  <= (others => '0');
+        realign_odd  <= (others => '0');
+        realign_lrem <= (others => '0');
+        presync_shad <= (others => (others => '0'));
+        ses_cnt      <= (others => '0');
+        srv_sec_r    <= x"FF";
+        srvsec_arm   <= '0';
+        lol_srv      <= (others => '0');
+        lol_idle     <= (others => '0');
+      else
+        -- ring of the last emitted words (reads below see the pre-push
+        -- state, so a same-cycle snapshot excludes the sync word itself)
+        if word_valid = '1' then
+          for i in 0 to C_CAP_WORDS - 2 loop
+            word_ring(i) <= word_ring(i + 1);
+          end loop;
+          word_ring(C_CAP_WORDS - 1) <= word_data;
+        end if;
+
+        if realign_evt = '1' and srvd_s = '1' then
+          realign_cnt  <= realign_cnt + 1;
+          realign_lrem <= realign_rem;
+          if realign_rem(0) = '1' and realign_odd /= x"FF" then
+            realign_odd <= realign_odd + 1;
+          end if;
+          presync_shad <= word_ring;
+        end if;
+
+        -- serve-start sector: latch the first clean publish per session
+        if srvd_s = '1' and srvd_p = '0' then
+          srvsec_arm <= '1';
+          ses_cnt    <= ses_cnt + 1;
+        elsif srvsec_arm = '1' and pub_stb = '1' then
+          srv_sec_r  <= x"0" & pub_sec;
+          srvsec_arm <= '0';
+        end if;
+
+        if lol = '1' then
+          if srvd_s = '1' then
+            lol_srv <= lol_srv + 1;
+          else
+            lol_idle <= lol_idle + 1;
+          end if;
+        end if;
+
+        -- experiment clear (ses_cnt keeps running - it is a freshness
+        -- counter like the dump nonce)
+        if clear_i = '1' then
+          realign_cnt  <= (others => '0');
+          realign_odd  <= (others => '0');
+          realign_lrem <= (others => '0');
+          presync_shad <= (others => (others => '0'));
+          srv_sec_r    <= x"FF";
+          lol_srv      <= (others => '0');
+          lol_idle     <= (others => '0');
+        end if;
+      end if;
+    end if;
+  end process seam_proc;
 
   -- The interval-domain margin engine (diag map v7). Everything below runs
   -- in the 50 MHz domain; step/stepdir/serving arrive from the core clock
@@ -762,6 +923,8 @@ begin
         pub_stb       <= '0';
         miss_cnt      <= (others => (others => '0'));
         qual_revs     <= (others => '0');
+        rev_chain_ok  <= '0';
+        chain_win     <= (others => '0');
       else
         v_pub   := '0';
         pub_stb <= '0';
@@ -790,18 +953,29 @@ begin
         -- (a capture or LOL landing exactly on the index edge is dropped -
         -- a once-per-revolution don't-care).
         if index_edge = '1' then
-          -- per-sector miss profile (diag map v7): a revolution that
-          -- captured at least C_MISS_QUAL_CAPS headers was a read
-          -- revolution; every sector absent from its mask is a miss. The
-          -- qualifier keeps seek phases and idle spins out of the counts.
+          -- per-sector miss profile (diag map v7, re-qualified in v10): a
+          -- revolution that captured at least C_MISS_QUAL_CAPS headers AND
+          -- kept the decode chain running for its whole index-to-index
+          -- window was a read revolution; every sector absent from its
+          -- mask is a miss. The chain condition is load-bearing: a
+          -- deselect hole inside the window (trackdisk deselects around
+          -- every attempt) leaves sectors uncaptured without any flux
+          -- fault - the pre-v10 profile counted those as phantom misses
+          -- (audit finding). Windows that met the capture floor but lost
+          -- the chain are counted separately so the decoder sees how much
+          -- was excluded.
           if rev_caps >= C_MISS_QUAL_CAPS then
-            for s in 0 to 10 loop
-              if rev_mask(s) = '0' and miss_cnt(s) /= x"FF" then
-                miss_cnt(s) <= miss_cnt(s) + 1;
+            if rev_chain_ok = '1' then
+              for s in 0 to 10 loop
+                if rev_mask(s) = '0' and miss_cnt(s) /= x"FF" then
+                  miss_cnt(s) <= miss_cnt(s) + 1;
+                end if;
+              end loop;
+              if qual_revs /= x"FFFF" then
+                qual_revs <= qual_revs + 1;
               end if;
-            end loop;
-            if qual_revs /= x"FFFF" then
-              qual_revs <= qual_revs + 1;
+            elsif chain_win /= x"FFFF" then
+              chain_win <= chain_win + 1;
             end if;
           end if;
           rev_mask_last <= rev_mask;
@@ -810,7 +984,11 @@ begin
           rev_mask      <= (others => '0');
           rev_caps      <= (others => '0');
           rev_lol       <= (others => '0');
+          rev_chain_ok  <= not chain_rst;
         else
+          if chain_rst = '1' then
+            rev_chain_ok <= '0';
+          end if;
           if lol = '1' and rev_lol /= x"FF" then
             rev_lol <= rev_lol + 1;
           end if;
@@ -837,10 +1015,11 @@ begin
           end if;
         end if;
 
-        -- experiment clear (diag map v7; last assignment wins)
+        -- experiment clear (diag map v7/v10; last assignment wins)
         if clear_i = '1' then
           miss_cnt  <= (others => (others => '0'));
           qual_revs <= (others => '0');
+          chain_win <= (others => '0');
         end if;
       end if;
     end if;

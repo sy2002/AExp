@@ -378,6 +378,7 @@ signal main_hwf_pau_c256          : std_logic_vector(15 downto 0);
 signal main_hwf_pau_tap           : std_logic_vector(127 downto 0);
 signal main_hwf_pau_ws            : std_logic;
 signal main_hwf_serving           : std_logic;                     -- engine phys_stream (read session open)
+signal main_hwf_serving_data      : std_logic;                     -- ... and past the serve-start sync
 signal main_fdd_step_n            : std_logic := '1';              -- registered mirrors of the f_step /
 signal main_fdd_dir               : std_logic := '1';              -- f_stepdir pins for the diag cyl tracker
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
@@ -451,8 +452,17 @@ signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
 signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
 signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
 -- diag map v7: margin-engine control (reg 0x35), dump nonce, new taps
-signal qnice_fdd_ctrl         : std_logic_vector(6 downto 0) := (others => '0');
+signal qnice_fdd_ctrl         : std_logic_vector(7 downto 0) := (others => '0');
 signal qnice_fdd_dpll_cell    : unsigned(11 downto 0);
+-- diag map v10: sync-seam instruments
+signal qnice_fdd_realign      : unsigned(15 downto 0);
+signal qnice_fdd_realign_ctx  : std_logic_vector(15 downto 0);
+signal qnice_fdd_presync      : t_fdd_cap_words;
+signal qnice_fdd_srv_sec      : std_logic_vector(15 downto 0);
+signal qnice_fdd_lol_srv      : unsigned(15 downto 0);
+signal qnice_fdd_lol_idle     : unsigned(15 downto 0);
+signal qnice_fdd_chain_win    : unsigned(15 downto 0);
+signal qnice_fdd_frame_stat   : std_logic_vector(3 downto 0);
 signal qnice_fdd_clear        : std_logic := '0';              -- 1-cycle strobe (0x35 write, bit 15)
 signal qnice_fdd_nonce        : unsigned(15 downto 0) := (others => '0');
 signal qnice_fdd_rd0_q        : std_logic := '0';              -- edge filter for the nonce
@@ -1033,6 +1043,7 @@ begin
          hwf_eng_c64_o        => main_hwf_eng_c64,
          hwf_eng_c256_o       => main_hwf_eng_c256,
          hwf_serving_o        => main_hwf_serving,
+         hwf_serving_data_o   => main_hwf_serving_data,
          hwf_pau_sig_o        => main_hwf_pau_sig,
          hwf_pau_att_o        => main_hwf_pau_att,
          hwf_pau_c64_o        => main_hwf_pau_c64,
@@ -1209,8 +1220,11 @@ begin
    --        for the empirical side-polarity verdict - flip it live from the
    --        QNICE debug console, no rebuild. Round 3 proved the straight
    --        wire correct on this mechanism: keep it 0.
-   --   0x35 = margin-engine control {6: LEGACY quantiser bit source
-   --        instead of the DPLL data separator (reset default 0 = DPLL -
+   --   0x35 = margin-engine control {7: realign-ALWAYS word framing
+   --        instead of the WORDSYNC-conditional framing hold (reset
+   --        default 0 = hold in force - the sync-seam A/B switch), 6:
+   --        LEGACY quantiser bit source instead of the DPLL data
+   --        separator (reset default 0 = DPLL -
    --        the A/B switch), 5: all-gaps, 4: window mode, 3..0: armed
    --        sector}; writing bit 15 additionally pulses the
    --        experiment-clear strobe (strobe is not stored).
@@ -1235,7 +1249,7 @@ begin
                if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
                   qnice_fdd_sideinv <= qnice_dev_data_i(0);
                elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
-                  qnice_fdd_ctrl  <= qnice_dev_data_i(6 downto 0);
+                  qnice_fdd_ctrl  <= qnice_dev_data_i(7 downto 0);
                   qnice_fdd_clear <= qnice_dev_data_i(15);
                end if;
             end if;
@@ -1539,9 +1553,12 @@ begin
          step_n_i            => main_fdd_step_n,
          stepdir_i           => main_fdd_dir,
          serving_i           => main_hwf_serving,
+         serving_data_i      => main_hwf_serving_data,
+         wordsync_i          => main_hwf_pau_ws,
          ctrl_i              => qnice_fdd_ctrl(5 downto 0),
          clear_i             => qnice_fdd_clear,
          dpll_dis_i          => qnice_fdd_ctrl(6),
+         framehold_dis_i     => qnice_fdd_ctrl(7),
          track0_n_o          => qnice_fdd_track0_n,
          wprot_n_o           => qnice_fdd_wprot_n,
          change_n_o          => qnice_fdd_change_n,
@@ -1588,7 +1605,15 @@ begin
          diag_hist_o         => qnice_fdd_hist,
          diag_miss_o         => qnice_fdd_miss,
          diag_qual_revs_o    => qnice_fdd_qual_revs,
-         diag_dpll_cell_o    => qnice_fdd_dpll_cell
+         diag_dpll_cell_o    => qnice_fdd_dpll_cell,
+         diag_realign_o      => qnice_fdd_realign,
+         diag_realign_ctx_o  => qnice_fdd_realign_ctx,
+         diag_presync_o      => qnice_fdd_presync,
+         diag_srv_sec_o      => qnice_fdd_srv_sec,
+         diag_lol_srv_o      => qnice_fdd_lol_srv,
+         diag_lol_idle_o     => qnice_fdd_lol_idle,
+         diag_chain_win_o    => qnice_fdd_chain_win,
+         diag_frame_stat_o   => qnice_fdd_frame_stat
       ); -- i_physical_fdd_top
 
    -- diag side-invert into the core domain (quasi-static level; covered by
@@ -1733,7 +1758,15 @@ begin
          diag_hist_i         => qnice_fdd_hist,
          diag_miss_i         => qnice_fdd_miss,
          diag_qual_revs_i    => qnice_fdd_qual_revs,
-         diag_dpll_cell_i    => qnice_fdd_dpll_cell
+         diag_dpll_cell_i    => qnice_fdd_dpll_cell,
+         diag_realign_i      => qnice_fdd_realign,
+         diag_realign_ctx_i  => qnice_fdd_realign_ctx,
+         diag_presync_i      => qnice_fdd_presync,
+         diag_srv_sec_i      => qnice_fdd_srv_sec,
+         diag_lol_srv_i      => qnice_fdd_lol_srv,
+         diag_lol_idle_i     => qnice_fdd_lol_idle,
+         diag_chain_win_i    => qnice_fdd_chain_win,
+         diag_frame_stat_i   => qnice_fdd_frame_stat
       ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------
