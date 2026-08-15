@@ -142,8 +142,23 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   chain + decoder v9 green. Plus two instrument fixes: /TRK0
   assert-edge cylinder zeroing (integral read one low in the field),
   min_est/min_gap cleared on reset/clear. NOT synthesized.
-  **A5 third increment - THE SYNC-SEAM FIX (map v10, reg 0x01 = 0x000A;
-  implemented + statically verified, NOT synthesized).** E2 of the
+- **`WIP-V2-A6` - THE SYNC-SEAM FIX (map v10, reg 0x01 = 0x000A;
+  R6-BUILT GOOD 2026-08-15: postroute-physopted WNS +0.172, 0 failing,
+  BRAM 364/365 unchanged, both fx68k .mem read - delivered to deft for
+  the field A/B). Settings file renames to `/amiga/aexp-WIP-V2-A6.cfg`
+  (content identical, OPTM_SIZE 146). KNOWN LIMITATION in this build
+  (adversarial-review finding, fix queued): while the framing hold is
+  active (default) and a serve has crossed the splice, the CAPTURE-based
+  diag instruments read misframed words - rev mask 0x1C/0x1D, fmt_bad
+  0x1E, header captures 0x11..0x1A, the 0x58..0x5E miss profile and the
+  armed-sector window are NOT trustworthy for post-splice sectors of
+  hold-mode serves (they look bad on healthy disks); the BOOT outcome,
+  the A/B switch, and the seam instruments 0x60..0x6C stay fully valid
+  (the serve-start latch 0x6A fires pre-splice). Next increment: a
+  sync-anchored DIAGNOSTIC word stream feeding cap_proc (served stream
+  untouched), a WORDSYNC=1 coverage attempt in tb_fdd_splice, a
+  registered phys_data_o (glitch-hazard hygiene), and the tdcensus
+  send_pkt1 fix.** E2 of the
   2026-08-15 audit ran RED as pre-registered: `.research/tb_fdd_splice.vhd`
   (full AmigaDOS track through the REAL front-end at trackdisk's exact
   cadence into a LITERAL KS1.3 trackdisk decoder; independent Python

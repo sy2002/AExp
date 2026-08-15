@@ -14,6 +14,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A3     | 08/04/26 | 4a394aa | Up to three floppy drives (df0:, df1:, df2:) that are either .adf disk images or the built-in MEGA65 drive reading real Amiga disks (issue #17)
 | WIP-V2-A4     | 08/07/26 | 9b996fb | Improved hardware drive instrumentation / debugging capabilities
 | WIP-V2-A5     | 08/08/26 | 20b9219 | More robust reading of older floppy disks due to DPLL data separator
+| WIP-V2-A6     | 08/15/26 | cfd3cde | More robust reading of older floppy disks due to sync-seam fix, WORDSYNC-conditional framing hold
 
 ## Version 1
 
