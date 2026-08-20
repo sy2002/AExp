@@ -2484,27 +2484,30 @@ RTC_COMMAND     .EQU    0x7008              ; b0 busy(RO) b1 read b2 write b3 ru
 RTC_CMD_STOP    .EQU    0x0000              ; stop the internal timer
 RTC_CMD_RESYNC  .EQU    0x000A              ; b1 read RTC->internal + b3 keep running
 
+; Mount warnings, returned by PREP_LOAD_IMAGE as error message strings. The
+; Shell prints them after "Error code: <code>" and then appends its own
+; "Press Space to continue." prompt (_HM_SDMOUNTED5S in M2M/rom/shell.asm),
+; so the strings must not contain such a prompt themselves. The trailing
+; newline leaves one empty line between the message and the Shell prompt.
+
 ; Warning: file size out of the valid ADF range
 WRN_ADF_SIZE    .ASCII_P "\n\nThis is not a valid ADF disk image:\n"
                 .ASCII_P "the file size must be 901,120 bytes\n"
                 .ASCII_P "(880 KB standard ADF; 81..83-track over-\n"
-                .ASCII_P "dumps up to 934,912 bytes are accepted)."
-                .ASCII_W "\n\nPress SPACE to continue.\n"
+                .ASCII_W "dumps up to 934,912 bytes are accepted).\n"
 
 ; Warning: could not write back the current disk before mounting a new one
 WRN_ADF_BUSY    .ASCII_P "\n\nUnsaved changes on the current disk\n"
                 .ASCII_P "could not be written back because the\n"
                 .ASCII_P "Amiga keeps writing to the drive.\n"
-                .ASCII_P "Stop the disk activity, then try again."
-                .ASCII_W "\n\nPress SPACE to continue.\n"
+                .ASCII_W "Stop the disk activity, then try again.\n"
 
 ; Warning: the same image file is already mounted in another drive
 WRN_ADF_DUP     .ASCII_P "\n\nThis disk image is already in another\n"
                 .ASCII_P "drive. One file cannot serve two drives\n"
                 .ASCII_P "at once: each drive collects its own\n"
                 .ASCII_P "changes and would save them over the\n"
-                .ASCII_P "changes of the other one."
-                .ASCII_W "\n\nPress SPACE to continue.\n"
+                .ASCII_W "changes of the other one.\n"
 
 ; Fatal: SD card write failed during the ADF write-back
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
