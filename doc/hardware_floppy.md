@@ -94,6 +94,23 @@ suspecting the core.** If three disks read fine and a fourth does not, you
 have learned something about the fourth disk. If nothing at all reads, then
 something else is going on, and that is worth reporting.
 
+## If the drive knocks and reads nothing after switching on
+
+Very rarely, the drive mechanism itself wakes up confused: right after
+switching the MEGA65 on, you insert a disk, the drive answers with a few
+seconds of odd knocking, and nothing reads — not even a disk that worked
+perfectly yesterday. Ejecting and re-inserting does not help, and neither
+does resetting the Amiga.
+
+This is not the core and not your disk. The built-in drive has a small
+controller of its own, and once in a blue moon it starts up in a bad state.
+That controller only resets with the power, which is exactly why nothing
+short of that helps: **switch the MEGA65 off and on again**, and the drive
+is back to normal.
+
+If a disk merely produces read errors *without* the knocking, that is a
+different story — see the previous section, and try another disk first.
+
 ## Getting files off a real disk
 
 Here is what the Hardware Floppy is really good for: rescuing the contents of
