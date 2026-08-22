@@ -28,13 +28,17 @@
 -- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
 -- is 0x7000..0x705F with no alias inside it).
 --
--- Register map (word addresses), map version 0x000A (v9 layout plus the
--- WORDSYNC-conditional framing hold's control bit and the sync-seam
--- instruments at 0x60..0x6E - the version also identifies the build in
--- field dumps: 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5
--- with the DPLL separator, 0x000A = the sync-seam fix + instruments):
+-- Register map (word addresses), map version 0x000B (register CONTENT is
+-- identical to v10 - the version only identifies the build in field dumps:
+-- 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5 with the DPLL
+-- separator, 0x000A = the sync-seam fix + instruments, 0x000B = A7 hygiene:
+-- the capture path follows the sync-anchored DIAGNOSTIC word stream, so
+-- the capture-based instruments (0x11..0x1A, 0x1C..0x1E, 0x58..0x5E, the
+-- armed-sector window) are trustworthy during framing-hold serves too -
+-- the 0x000A builds decoded misframed words there once a serve had
+-- crossed the write splice):
 --   0x00  signature 0xFDD0
---   0x01  map version 0x000A
+--   0x01  map version 0x000B
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -312,7 +316,7 @@ begin
     v_addr := unsigned(qnice_addr_i(6 downto 0));
     case to_integer(v_addr) is
       when 16#00# => v_data := x"FDD0";
-      when 16#01# => v_data := x"000A";
+      when 16#01# => v_data := x"000B";
       when 16#02# => v_data := diag_status_i;
       when 16#03# => v_data := diag_sync_i;
       when 16#04# => v_data := x"0" & std_logic_vector(diag_est_i);

@@ -146,19 +146,16 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   R6-BUILT GOOD 2026-08-15: postroute-physopted WNS +0.172, 0 failing,
   BRAM 364/365 unchanged, both fx68k .mem read - delivered to deft for
   the field A/B). Settings file renames to `/amiga/aexp-WIP-V2-A6.cfg`
-  (content identical, OPTM_SIZE 146). KNOWN LIMITATION in this build
-  (adversarial-review finding, fix queued): while the framing hold is
+  (content identical, OPTM_SIZE 146). KNOWN LIMITATION in this build,
+  fixed in WIP-V2-A7: while the framing hold is
   active (default) and a serve has crossed the splice, the CAPTURE-based
   diag instruments read misframed words - rev mask 0x1C/0x1D, fmt_bad
   0x1E, header captures 0x11..0x1A, the 0x58..0x5E miss profile and the
   armed-sector window are NOT trustworthy for post-splice sectors of
   hold-mode serves (they look bad on healthy disks); the BOOT outcome,
   the A/B switch, and the seam instruments 0x60..0x6C stay fully valid
-  (the serve-start latch 0x6A fires pre-splice). Next increment: a
-  sync-anchored DIAGNOSTIC word stream feeding cap_proc (served stream
-  untouched), a WORDSYNC=1 coverage attempt in tb_fdd_splice, a
-  registered phys_data_o (glitch-hazard hygiene), and the tdcensus
-  send_pkt1 fix.** E2 of the
+  (the serve-start latch 0x6A fires pre-splice). WIP-V2-A7 fixes this
+  limitation - it applies to 0x000A dumps only.** E2 of the
   2026-08-15 audit ran RED as pre-registered: `.research/tb_fdd_splice.vhd`
   (full AmigaDOS track through the REAL front-end at trackdisk's exact
   cadence into a LITERAL KS1.3 trackdisk decoder; independent Python
@@ -190,6 +187,58 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   menu/BRAM/.xpr impact; cfg unchanged. E1 (`.research/e1_census/`):
   KS1.3 census tool `tdcensus` + ADF + German recipe, built + vamos-
   smoke-tested, ready for deft.
+- **`WIP-V2-A7` - THE HYGIENE BUILD toward the write milestone (reg
+  0x01 = 0x000B, register CONTENT identical to v10; released to NO ONE -
+  the A7->A8->V2 staging is in
+  `.research/HANDOVER-hardware-floppy-write.md`). Statically verified +
+  full TB gate green 2026-08-21, NOT yet synthesized.** Four queued
+  items, nothing else: (1) the sync-anchored DIAGNOSTIC word stream -
+  physical_fdd_bits carries a second framing counter over the same
+  shifter that ALWAYS realigns on a sync match (`dword_valid_o/dword_o`);
+  cap_proc consumes THIS stream, so the capture instruments (0x11..0x1A,
+  0x1C..0x1E, 0x58..0x5E, armed-sector window) are trustworthy during
+  framing-hold serves too - the A6 caveat is closed, and with the hold
+  off the two streams are bit-identical by construction (both counters
+  reset on the same events), so the realign-always A/B arm and the
+  SERVED stream into Paula are untouched in every mode. (2) WORDSYNC=1
+  coverage in tb_fdd_splice: one spliced serve under live WORDSYNC=1
+  asserts the hold stays OFF (frame status) and X-Copy-style-decodes the
+  capture (aligned [4489][4489] pair + word-aligned checksum decode for
+  every boundary incl. >= 3 post-splice sectors) - a hold-ignores-
+  WORDSYNC mutant top now goes RED (proven), where the old matrix was
+  blind. (3) `phys_data_o` in adf_track_engine is registered (the level
+  crosses to the 50 MHz domain through an async 2-FF; phys_stream and
+  phys_hunt toggle together at dispatch - decode-glitch hygiene).
+  (4) tdcensus `send_pkt1` repaired (sets mn_ReplyPort, loops
+  GetMsg/WaitPort until ITS OWN packet returns before freeing - the
+  stale-port-signal in-flight-free hazard; also: `inhibited` only set
+  when ACTION_INHIBIT actually succeeded; rebuilt, vamos smoke PASS).
+  Plus, from the increment's adversarial review (12 findings, all
+  minor, all folded): cap_proc ABANDONS a torn capture on chain reset
+  (a deselect mid-capture could otherwise complete the stale buffer
+  with the next selection's free-running hunt words = a mixed-session
+  garbage publish - pre-existing, now impossible), the splice TB's
+  instrument asserts got a still-selected 300 us tail-settle window +
+  a whole-run fmt_bad=0 backstop, and tb_engine_paula now checks the
+  registered phys_data_o against the REAL engine (low through the
+  hunt, high per stored word, low after DMA end).
+  Red/green, all proven: the extended TB against the A6 HDL fails
+  exactly at the new fmt_bad assertion (5 misframed post-splice headers
+  = the caveat reproduced); a hold-ignores-WORDSYNC mutant top dies at
+  the frame-status assert; two engine mutants (dropped hunt term /
+  stuck-0 phys_data_r) die at the new tb_engine_paula asserts; against
+  the real A7 HDL the full matrix passes (4 cells x DPLL/legacy x
+  fixed/unfixed + G_SWEEP, WORDSYNC=1 coverage 14 pairs/13 clean/4
+  post-splice in all of them). Gate: all eight TBs green, full nvc
+  chain, decode_fdd_dump.py 0x000B + selftests (the A6 hold-mode dump
+  caveat now scoped to 0x000A), check_osm_menu + check_firmware clean.
+  Settings file renames to `/amiga/aexp-WIP-V2-A7.cfg` (content
+  identical, OPTM_SIZE 146). Zero firmware/menu/BRAM/.xpr impact. The
+  A8 write-datapath spec is drafted at
+  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (adversarial
+  audit against it before implementation; write research ground truth in
+  `.research/RESEARCH-write-mega65-core.md` + `RESEARCH-write-paula-
+  engine.md`).
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

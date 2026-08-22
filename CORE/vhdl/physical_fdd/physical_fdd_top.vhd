@@ -50,7 +50,16 @@
 --     with the SIDE line and /TRK0 at the hit (the sector-header capture:
 --     the double 0x4489 restarts the capture, so the buffer always holds
 --     the words after the LAST sync of the pair = the encoded info long +
---     label start). Only COMPLETE captures are published to the diag
+--     label start). The capture consumes the aligner's sync-anchored
+--     DIAGNOSTIC word stream, whose framing realigns at every sync match
+--     even while the served framing is held across the write splice - so
+--     the capture-based instruments (header words, rev mask, fmt_bad, miss
+--     profile, armed-sector window) stay trustworthy during hold-mode
+--     serves; while the hold has not been engaged since the framing
+--     counters last coincided (any sync match, LOL or chain reset) the
+--     diagnostic stream is identical to the served one - in particular
+--     in the realign-always A/B arm, where the hold never engages.
+--     Only COMPLETE captures are published to the diag
 --     registers; a capture torn by deselect stays unpublished. The buffer
 --     re-captures on every sector, so an idle dump shows the last sector
 --     header of the last read - decode the info long by hand to compare
@@ -232,6 +241,14 @@ architecture rtl of physical_fdd_top is
   signal q_est        : unsigned(11 downto 0);    -- est the gap was classified with
   signal word_valid   : std_logic;
   signal word_data    : std_logic_vector(15 downto 0);
+  -- diagnostic word stream: always sync-realigned framing over the same
+  -- bits (physical_fdd_bits DIAGNOSTIC WORD STREAM). The capture path
+  -- consumes THIS stream, so the capture instruments stay correctly framed
+  -- while the served framing is held across the write splice (the A6 dump
+  -- caveat); the streams coincide whenever the hold has not been engaged
+  -- since the framing counters last coincided (see the bits header).
+  signal dword_valid  : std_logic;
+  signal dword_data   : std_logic_vector(15 downto 0);
   signal sync_hit     : std_logic;
   signal lol          : std_logic;
 
@@ -412,6 +429,8 @@ begin
       frame_hold_i => frame_hold,
       word_valid_o => word_valid,
       word_o       => word_data,
+      dword_valid_o => dword_valid,
+      dword_o      => dword_data,
       sync_hit_o   => sync_hit,
       realign_evt_o => realign_evt,
       realign_rem_o => realign_rem,
@@ -885,11 +904,18 @@ begin
     end if;
   end process ctrl_proc;
 
-  -- Sector-header capture. A sync hit (which accompanies its own word_valid)
-  -- restarts the capture and latches SIDE + /TRK0; each following word fills
-  -- the live buffer. Storing the last word publishes buffer + flags to the
-  -- shadow in the same cycle, so the diag never exposes a torn capture (a
-  -- capture cut short by deselect stays unpublished). During a read every
+  -- Sector-header capture. A sync hit (which accompanies its own diag-word
+  -- emission) restarts the capture and latches SIDE + /TRK0; each following
+  -- word of the DIAGNOSTIC stream fills the live buffer - the sync-anchored
+  -- framing keeps the captured words correctly framed even while the SERVED
+  -- framing is held across the write splice (in the realign-always arm the
+  -- two streams are identical, so nothing changes there).
+  -- Storing the last word publishes buffer + flags to the
+  -- shadow in the same cycle, so the diag never exposes a torn capture: a
+  -- capture cut short by deselect stays unpublished AND is abandoned - the
+  -- chain reset parks the write pointer, so the free-running words of the
+  -- next selection's pre-sync hunt can never complete a stale buffer into
+  -- a mixed-session garbage publish. During a read every
   -- sector re-captures; an idle dump therefore shows the last sector header
   -- of the last read burst.
   --
@@ -928,18 +954,25 @@ begin
       else
         v_pub   := '0';
         pub_stb <= '0';
-        if sync_hit = '1' then
+        if chain_rst = '1' then
+          -- abandon a torn capture: without this, the free-running words
+          -- of the NEXT selection's pre-sync hunt would complete a stale
+          -- mid-capture buffer into a mixed-session garbage publish (one
+          -- phantom fmt_bad tick - or worse, a phantom clean publish -
+          -- per re-selection that deselected mid-capture)
+          cap_wp <= to_unsigned(C_CAP_WORDS, cap_wp'length);
+        elsif sync_hit = '1' then
           cap_wp    <= (others => '0');
           cap_side  <= side_s;
           cap_trk0n <= track0_n;
-        elsif word_valid = '1' and cap_wp /= C_CAP_WORDS then
-          cap_live(to_integer(cap_wp(2 downto 0))) <= word_data;
+        elsif dword_valid = '1' and cap_wp /= C_CAP_WORDS then
+          cap_live(to_integer(cap_wp(2 downto 0))) <= dword_data;
           if cap_wp = C_CAP_WORDS - 1 then
             -- publish: live words 0..N-2 + this word, atomically
             for i in 0 to C_CAP_WORDS - 2 loop
               cap_shad(i) <= cap_live(i);
             end loop;
-            cap_shad(C_CAP_WORDS - 1) <= word_data;
+            cap_shad(C_CAP_WORDS - 1) <= dword_data;
             cap_fside  <= cap_side;
             cap_ftrk0n <= cap_trk0n;
             cap_valid  <= '1';

@@ -180,7 +180,9 @@ entity adf_track_engine is
       -- Gates the front-end's WORDSYNC-conditional framing hold: during
       -- the hunt the aligner must keep realigning (serve-from-sync), from
       -- the first served word on the framing may free-run (real-Paula
-      -- WORDSYNC=0 behavior - the sync-seam fix, physical_fdd_bits.vhd)
+      -- WORDSYNC=0 behavior - the sync-seam fix, physical_fdd_bits.vhd).
+      -- Registered (one clk_main cycle behind the FSM state - glitch
+      -- hygiene for the asynchronous 2-FF consumer)
       phys_data_o         : out std_logic := '0';
 
       -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
@@ -337,6 +339,14 @@ architecture synthesis of adf_track_engine is
    -- sel field is a priority encoder) neither abort the stream nor divert
    -- the dispatch into the ADF service (which would poison the read DMA).
    signal phys_stream  : std_logic := '0';
+
+   -- registered phys_data_o source: phys_stream and phys_hunt can toggle in
+   -- the same cycle (both rise at the dispatch), and the level crosses to
+   -- the 50 MHz domain through an asynchronous 2-FF synchronizer that could
+   -- sample a decode glitch of a combinational AND. One clk_main cycle of
+   -- latency is harmless - the framing hold has hundreds of cycles before
+   -- the next sync word can arrive.
+   signal phys_data_r  : std_logic := '0';
 
    -- ADF read session ownership, the exact counterpart of phys_stream and for
    -- the same reason: Paula binds trackrd to ONE unit for a whole DMA, but its
@@ -1572,7 +1582,15 @@ begin
    -- physical read session level towards the margin instrumentation
    -- (registered in fsm_proc; 2-FF-synced into the 50 MHz domain there)
    phys_serving_o  <= phys_stream;
-   phys_data_o     <= phys_stream and not phys_hunt;
+
+   -- registered (glitch hygiene - see the phys_data_r declaration)
+   p_phys_data : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         phys_data_r <= phys_stream and not phys_hunt;
+      end if;
+   end process p_phys_data;
+   phys_data_o <= phys_data_r;
 
    p_dirty_scan : process (clk_main_i)
    begin

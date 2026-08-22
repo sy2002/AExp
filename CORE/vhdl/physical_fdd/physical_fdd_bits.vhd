@@ -51,6 +51,24 @@
 --     which does re-sync its shifter per matching word in that mode.
 --     With frame_hold_i = '0' this stage is bit-identical to the
 --     realign-always behavior.
+--   * DIAGNOSTIC WORD STREAM (dword_valid_o/dword_o): a second framing
+--     counter over the SAME shift register that ALWAYS realigns on a sync
+--     match, regardless of frame_hold_i. It exists for the capture
+--     instruments only: while the framing hold is engaged the SERVED
+--     stream deliberately free-runs across the write splice (that is the
+--     fix), so a capture that follows the served framing decodes misframed
+--     words for every post-splice sector - the A6 dump caveat. The
+--     capture path in physical_fdd_top therefore consumes this stream,
+--     whose framing re-anchors at each sync exactly like the pre-hold
+--     behavior. While the hold has never been engaged since the counters
+--     last coincided (reset, loss of lock, or any sync match) the two
+--     streams are bit-identical - in particular the realign-always A/B
+--     arm, where the hold never engages, measures exactly what it always
+--     did. After a hold episode the counters stay divergent until the
+--     next sync match / LOL / chain reset re-converges them (a window in
+--     which nothing mixes the two streams: captures only start at a sync
+--     hit, where both framings coincide again). The served stream
+--     (word_valid_o/word_o into the FIFO) is untouched in every mode.
 --   * Loss of lock (gap class "11") clears the pending bits and the bit
 --     counter: a loud resync, mirroring the C64 pipeline.
 --   * FLUX DROUGHT: when no transition arrives for C_DROUGHT_ARM_CYC cycles
@@ -104,6 +122,12 @@ entity physical_fdd_bits is
     frame_hold_i : in  std_logic := '0';
     word_valid_o : out std_logic := '0';               -- 1-clk pulse
     word_o       : out std_logic_vector(15 downto 0) := (others => '0');
+    -- diagnostic word stream: always sync-realigned framing over the same
+    -- bits (for the capture instruments - see DIAGNOSTIC WORD STREAM in
+    -- the header); identical to word_valid_o/word_o whenever the hold has
+    -- not been engaged since the counters last coincided
+    dword_valid_o : out std_logic := '0';              -- 1-clk pulse
+    dword_o       : out std_logic_vector(15 downto 0) := (others => '0');
     sync_hit_o   : out std_logic := '0';               -- diag: 1-clk pulse per sync match
     -- diag: 1-clk pulse per sync match landing mid-word (bit_cnt /= 15) =
     -- a framing seam event: a realignment (taken when frame_hold_i = '0',
@@ -124,6 +148,14 @@ architecture rtl of physical_fdd_bits is
   -- channel-bit shifter (MSB-first: first-arrived bit ends up in bit 15)
   signal sr          : std_logic_vector(15 downto 0) := (others => '0');
   signal bit_cnt     : unsigned(3 downto 0) := (others => '0');
+
+  -- diagnostic framing counter over the same shifter: always realigns on a
+  -- sync match (see DIAGNOSTIC WORD STREAM in the header). Reset, LOL and
+  -- every sync match clear it together with bit_cnt; only a sync match
+  -- taken UNDER the hold diverges them (until the next common clear), so
+  -- the streams coincide whenever the hold has not been engaged since the
+  -- counters last coincided.
+  signal dbit_cnt    : unsigned(3 downto 0) := (others => '0');
 
   -- flux-drought zero synthesis
   signal drought_cnt : natural range 0 to C_DROUGHT_ARM_CYC := 0;
@@ -151,6 +183,7 @@ begin
     if rising_edge(clk_i) then
       -- pulses default low
       word_valid_o  <= '0';
+      dword_valid_o <= '0';
       sync_hit_o    <= '0';
       realign_evt_o <= '0';
       lol_o         <= '0';
@@ -160,6 +193,7 @@ begin
         pend_cnt    <= (others => '0');
         sr          <= (others => '0');
         bit_cnt     <= (others => '0');
+        dbit_cnt    <= (others => '0');
         drought_cnt <= 0;
         phase_q     <= (others => '0');
         cell_q      <= to_unsigned(C_QUANT_EST_NOM_Q, cell_q'length);
@@ -223,6 +257,7 @@ begin
             -- loss of lock: loud resync
             pend_cnt <= (others => '0');
             bit_cnt  <= (others => '0');
+            dbit_cnt <= (others => '0');
             lol_o    <= '1';
           else
             pend_sr  <= std_logic_vector(
@@ -275,6 +310,22 @@ begin
             bit_cnt      <= (others => '0');
           else
             bit_cnt <= bit_cnt + 1;
+          end if;
+
+          -- diagnostic framing: ALWAYS realigns on a sync match (the
+          -- pre-hold behavior), so the capture instruments read correctly
+          -- framed words even while the served framing is held across the
+          -- write splice. Same shift register, own counter.
+          if sync_i /= x"0000" and v_new_sr = sync_i then
+            dword_o       <= v_new_sr;
+            dword_valid_o <= '1';
+            dbit_cnt      <= (others => '0');
+          elsif dbit_cnt = 15 then
+            dword_o       <= v_new_sr;
+            dword_valid_o <= '1';
+            dbit_cnt      <= (others => '0');
+          else
+            dbit_cnt <= dbit_cnt + 1;
           end if;
         end if;
       end if;
