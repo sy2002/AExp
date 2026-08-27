@@ -234,11 +234,14 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   caveat now scoped to 0x000A), check_osm_menu + check_firmware clean.
   Settings file renames to `/amiga/aexp-WIP-V2-A7.cfg` (content
   identical, OPTM_SIZE 146). Zero firmware/menu/BRAM/.xpr impact. The
-  write-datapath spec is drafted at
-  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (adversarial
-  audit against it before implementation; write research ground truth in
-  `.research/RESEARCH-write-mega65-core.md` + `RESEARCH-write-paula-
-  engine.md`). **RE-SEQUENCED 2026-08-27: A8 is now the Copylock read
+  write-datapath spec is at
+  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (revision 3.3
+  after three adversarial audit rounds; the increment is **WIP-V2-A9,
+  diag map 0x000D** since A8 went to the Copylock fix; NO write code
+  exists yet - implementation starts only after the rev-3.3 re-audit;
+  write research ground truth in `.research/RESEARCH-write-mega65-
+  core.md` + `RESEARCH-write-paula-engine.md`; working doc
+  `.research/HANDOVER-hardware-floppy-write.md`). **RE-SEQUENCED 2026-08-27: A8 is now the Copylock read
   fix (below); the write milestone moves to A9+ - sy2002 paused the write
   session to land Copylock first.**
 - **`WIP-V2-A8` - THE COPYLOCK READ FIX (reg 0x01 = 0x000C; register

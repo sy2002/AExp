@@ -15,7 +15,8 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A4     | 08/07/26 | 9b996fb | Improved hardware drive instrumentation / debugging capabilities
 | WIP-V2-A5     | 08/08/26 | 20b9219 | More robust reading of older floppy disks due to DPLL data separator
 | WIP-V2-A6     | 08/15/26 | cfd3cde | More robust reading of older floppy disks due to sync-seam fix, WORDSYNC-conditional framing hold
-| WIP-V2-A7     | 08/25/26 | 183eb1d | Improved debugging instruments
+| WIP-V2-A7     | 08/25/26 | 183eb1d | Improved hardware FDD debugging instruments
+| WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
 
 ## Version 1
 
