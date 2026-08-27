@@ -379,6 +379,7 @@ signal main_hwf_pau_tap           : std_logic_vector(127 downto 0);
 signal main_hwf_pau_ws            : std_logic;
 signal main_hwf_serving           : std_logic;                     -- engine phys_stream (read session open)
 signal main_hwf_serving_data      : std_logic;                     -- ... and past the serve-start sync
+signal main_hwf_obs_legacy        : std_logic;                     -- DSKBYTR obs A/B (diag 0x35 bit 8), qnice->main
 signal main_fdd_step_n            : std_logic := '1';              -- registered mirrors of the f_step /
 signal main_fdd_dir               : std_logic := '1';              -- f_stepdir pins for the diag cyl tracker
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
@@ -452,7 +453,7 @@ signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
 signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
 signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
 -- diag map v7: margin-engine control (reg 0x35), dump nonce, new taps
-signal qnice_fdd_ctrl         : std_logic_vector(7 downto 0) := (others => '0');
+signal qnice_fdd_ctrl         : std_logic_vector(8 downto 0) := (others => '0');  -- bit 8 = DSKBYTR obs A/B (0x0100)
 signal qnice_fdd_dpll_cell    : unsigned(11 downto 0);
 -- diag map v10: sync-seam instruments
 signal qnice_fdd_realign      : unsigned(15 downto 0);
@@ -1050,6 +1051,7 @@ begin
          hwf_pau_c256_o       => main_hwf_pau_c256,
          hwf_pau_tap_o        => main_hwf_pau_tap,
          hwf_pau_ws_o         => main_hwf_pau_ws,
+         hwf_obs_legacy_i     => main_hwf_obs_legacy,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -1249,7 +1251,10 @@ begin
                if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
                   qnice_fdd_sideinv <= qnice_dev_data_i(0);
                elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
-                  qnice_fdd_ctrl  <= qnice_dev_data_i(7 downto 0);
+                  -- 9 control bits: [7:0] margin/separator/framing control
+                  -- (see physical_fdd_diag.vhd 0x35), bit 8 = DSKBYTR obs
+                  -- surface A/B (1 = disable = revert to the A7 stub)
+                  qnice_fdd_ctrl  <= qnice_dev_data_i(8 downto 0);
                   qnice_fdd_clear <= qnice_dev_data_i(15);
                end if;
             end if;
@@ -1616,6 +1621,21 @@ begin
          diag_frame_stat_o   => qnice_fdd_frame_stat
       ); -- i_physical_fdd_top
 
+   -- DSKBYTR observation-surface A/B bit (diag 0x35 bit 8) into the core
+   -- domain (quasi-static level; covered by M2M/common.xdc's cdc_stable
+   -- constraint) - reverts Paula's Copylock DSKBYTR to the A7 stub when set
+   i_cdc_hwf_obs_leg : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => false
+      )
+      port map (
+         src_clk_i     => qnice_clk_i,
+         src_data_i(0) => qnice_fdd_ctrl(8),
+         dst_clk_i     => main_clk,
+         dst_data_o(0) => main_hwf_obs_legacy
+      ); -- i_cdc_hwf_obs_leg
+
    -- diag side-invert into the core domain (quasi-static level; covered by
    -- M2M/common.xdc's cdc_stable constraint) - XORed onto f_side1 above
    i_cdc_hwf_sideinv : entity work.cdc_stable
@@ -1744,7 +1764,7 @@ begin
          diag_nonce_i        => qnice_fdd_nonce,
          diag_cnt_step_i     => qnice_fdd_cnt_step,
          diag_cyl_i          => qnice_fdd_cyl,
-         diag_ctrl_i         => qnice_fdd_ctrl,
+         diag_ctrl_i         => qnice_fdd_ctrl(7 downto 0),
          diag_min_margin_i   => qnice_fdd_min_margin,
          diag_min_est_i      => qnice_fdd_min_est,
          diag_min_gap_i      => qnice_fdd_min_gap,

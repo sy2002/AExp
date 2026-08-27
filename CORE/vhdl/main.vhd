@@ -172,6 +172,9 @@ entity main is
       hwf_pau_c256_o          : out std_logic_vector(15 downto 0);
       hwf_pau_tap_o           : out std_logic_vector(127 downto 0);
       hwf_pau_ws_o            : out std_logic;
+      -- DSKBYTR observation surface A/B revert bit (diag 0x35 bit 8), synced
+      -- to clk_main in mega65.vhd; 1 = disable the surface (see paula_floppy.v):
+      hwf_obs_legacy_i        : in  std_logic := '0';
 
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
@@ -274,6 +277,10 @@ architecture synthesis of main is
          fdd_dc256         : out std_logic_vector(15 downto 0);
          fdd_dtap          : out std_logic_vector(127 downto 0);
          fdd_dws           : out std_logic;
+         -- DSKBYTR observation surface (Copylock; see paula_floppy.v)
+         fdd_obs_word      : in  std_logic_vector(15 downto 0);
+         fdd_obs_stb       : in  std_logic;
+         fdd_obs_legacy    : in  std_logic;
          fdd_phys_mask     : in  std_logic_vector(3 downto 0);
          fdd_phys_change_n : in  std_logic;
          fdd_phys_wprot_n  : in  std_logic;
@@ -512,6 +519,14 @@ architecture synthesis of main is
    -- status muxes (0000 whenever the feature is off = bit-identical core)
    signal hwf_phys_mask    : std_logic_vector(3 downto 0);
 
+   -- DSKBYTR observation surface (Copylock): the engine's front-end FIFO pop
+   -- IS the reconstructed real-disk word stream at true flux pace. s_hwf_rd_en
+   -- is the engine pop strobe (also driving the hwf_rd_en_o port); on it the
+   -- current FWFT word is captured and pulsed to Paula as obs_word/obs_stb.
+   signal s_hwf_rd_en      : std_logic;
+   signal hwf_obs_word     : std_logic_vector(15 downto 0) := (others => '0');
+   signal hwf_obs_stb      : std_logic := '0';
+
    -- POT-line mouse buttons for active adapters (mouSTer and friends), see
    -- the comment block at the mouse_btn assignment and doc/mouse.md.
    -- Watchdog: 30 s at 28.375 MHz; releases a phantom "pressed" after the
@@ -698,7 +713,7 @@ begin
          phys_present_i      => hwf_present_i,
          phys_rd_data_i      => hwf_rd_data_i,
          phys_rd_empty_i     => hwf_rd_empty_i,
-         phys_rd_en_o        => hwf_rd_en_o,
+         phys_rd_en_o        => s_hwf_rd_en,
          dsksync_o           => hwf_dsksync_o,
          phys_served_gray_o  => hwf_served_gray_o,
          phys_sig_o          => hwf_eng_sig_o,
@@ -726,6 +741,35 @@ begin
          avm_readdatavalid_i => flp_avm_readdatavalid,
          avm_waitrequest_i   => flp_avm_waitrequest
       ); -- i_adf_track_engine
+
+   -- DSKBYTR observation surface (Copylock): drive the engine's pop strobe
+   -- out to the front end, and tap it for Paula. Every word the engine pops
+   -- from the physical front-end FIFO (idle drain between reads AND served
+   -- reads) is the real disk's reconstructed data, arriving at the true,
+   -- density-modulated flux pace. Paula's gated observation receiver turns
+   -- this stream into a faithful DSKBYTR (physical unit only; see
+   -- paula_floppy.v). Zero effect when no physical drive is configured -
+   -- the FIFO stays empty, the engine never pops, obs_stb never pulses.
+   hwf_rd_en_o <= s_hwf_rd_en;
+
+   -- The pop must be QUALIFIED with rd_empty: the engine's ST_IDLE drain
+   -- re-asserts phys_rd_en_o for one extra cycle when it drains the last word
+   -- (the FIFO's empty flag asserts a cycle late), and the FIFO correctly
+   -- ignores that pop (r_do_read = rd_en and not empty). Without the guard the
+   -- tap would fire a phantom obs_stb on that cycle carrying the stale FWFT
+   -- head (a lap-old word), which Paula's newest-wins receiver would then
+   -- publish over the real word - masking WORDEQUAL and the byte stream. With
+   -- it, obs_stb mirrors the FIFO's ACTUAL pops exactly, one per real word.
+   p_hwf_obs : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         hwf_obs_stb <= '0';
+         if s_hwf_rd_en = '1' and hwf_rd_empty_i = '0' then
+            hwf_obs_word <= hwf_rd_data_i;    -- FWFT: the word being popped
+            hwf_obs_stb  <= '1';
+         end if;
+      end if;
+   end process p_hwf_obs;
 
    -- single-line cache: turns the engine's sequential single-word reads into
    -- 8-word HyperRAM bursts (the proven C64 REU value). The engine's sector
@@ -983,6 +1027,9 @@ begin
          fdd_dc256         => hwf_pau_c256_o,
          fdd_dtap          => hwf_pau_tap_o,
          fdd_dws           => hwf_pau_ws_o,
+         fdd_obs_word      => hwf_obs_word,
+         fdd_obs_stb       => hwf_obs_stb,
+         fdd_obs_legacy    => hwf_obs_legacy_i,
          fdd_phys_mask     => hwf_phys_mask,
          fdd_phys_change_n => hwf_change_n_i,
          fdd_phys_wprot_n  => hwf_wprot_n_i,

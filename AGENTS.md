@@ -234,11 +234,69 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   caveat now scoped to 0x000A), check_osm_menu + check_firmware clean.
   Settings file renames to `/amiga/aexp-WIP-V2-A7.cfg` (content
   identical, OPTM_SIZE 146). Zero firmware/menu/BRAM/.xpr impact. The
-  A8 write-datapath spec is drafted at
+  write-datapath spec is drafted at
   `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (adversarial
   audit against it before implementation; write research ground truth in
   `.research/RESEARCH-write-mega65-core.md` + `RESEARCH-write-paula-
-  engine.md`).
+  engine.md`). **RE-SEQUENCED 2026-08-27: A8 is now the Copylock read
+  fix (below); the write milestone moves to A9+ - sy2002 paused the write
+  session to land Copylock first.**
+- **`WIP-V2-A8` - THE COPYLOCK READ FIX (reg 0x01 = 0x000C; register
+  CONTENT identical to v10; statically verified + full gate green
+  2026-08-27, NOT yet synthesized).** Rob Northen COPYLOCK protected
+  originals (Cannon Fodder disk 2, Terminator 2, The Chaos Engine) hung
+  reading their protection track (Amiga track 1 = cyl 0 head 1) on the
+  Hardware Floppy while booting fine on the tester's real A500+.
+  ROOT CAUSE (established from keirf's Copylock disassemblies + flux +
+  the A7 dumps, three independent lines converging): Copylock times the
+  disk by CPU-polling Paula's **DSKBYTR** ($DFF01A) - poll bit 12
+  WORDEQUAL for the sync, then count poll iterations while bit 15
+  BYTEREADY toggles as raw MFM bytes arrive - comparing a 5%-short
+  sector (sync 0x8912) against a 5%-long one (0x8914); it needs
+  `(t_long-t_short)/t_short >= 2..4%`. Minimig's DSKBYTR was a CONSTANT
+  STUB (`paula_floppy.v`: BYTEREADY=1, WORDEQUAL=1, data 0x00), so the
+  ratio was always 0, the check failed and the loader spun then parked
+  the machine (black screen, motor on, no stepping - the video-forensics
+  verdict). The read chain itself was PROVEN innocent: the SCP flux of
+  all three disks decodes bit-identically under legacy/DPLL/fixed
+  separators on the loader-relevant sectors, the A7 captures equal the
+  real flux, and the est excursion (93.1..106.3 cyc) stays inside the
+  +/-10% clamp - which is why EVERY 0x35 A/B arm failed identically
+  (none touch DSKBYTR). **THE FIX - a gated DSKBYTR observation surface
+  in `paula_floppy.v`** (a 9th... no, still a minimig change under the
+  existing "physical-drive support" seam): main.vhd taps the engine's
+  physical-FIFO pop (`s_hwf_rd_en` + `hwf_rd_data_i`, QUALIFIED with
+  `hwf_rd_empty_i = '0'` so it mirrors the FIFO's real pops - the review's
+  OBS-SRC-1 fix: without the guard the engine's ST_IDLE last-word re-pop
+  publishes a phantom stale word over each real one) into a 1-clk pulse
+  `obs_word/obs_stb` (clk_main; the reconstructed real-disk word stream
+  at true flux pace), threaded main -> minimig_m65 -> minimig -> paula ->
+  paula_floppy as `fdd_obs_word/stb/legacy`. paula_floppy synthesises a
+  faithful DSKBYTR from it (2 raw MFM bytes per word hi-then-lo,
+  BYTEREADY set-per-byte + clear-on-read, WORDEQUAL live) ONLY while
+  `obs_gate = |(phys_mask & ~_sel & motor_on) & ~obs_legacy` - i.e. the
+  physical unit is the selected, motor-on drive and the A/B bit is clear;
+  otherwise the expression is the ORIGINAL constant stub, byte-for-byte.
+  The DMA FSM, the DSKSYN interrupt, the FIFO, the ENGINE and the FRONT
+  END are UNTOUCHED (the observation stream is independent of the DMA -
+  DSKBYTR delivers bytes whenever selected+motor-on, no DMA needed - so
+  the zero-length arm and syncint did not need changing). Runtime A/B:
+  **0x35 bit 8 = 1 disables the surface** (`M C 7035 8100` reverts to the
+  A7 stub and reproduces the hang; `M C 7035 8000` or reset = fix on).
+  qnice_fdd_ctrl widened 8->9 bits, crossed qnice->main via a new
+  cdc_stable. **Verified: a GOLDEN-DIFF iverilog TB (the new paula_floppy
+  vs the frozen pristine A7 module, identical stimulus) proves
+  BYTE-IDENTICAL outputs in every gate-off regime = the no-regression
+  proof; a Copylock CPU-model TB shows fix-ON 5% timing ratio /
+  fix-OFF 0% (hang); nvc clean on main/mega65/diag; tb_engine_paula +
+  tb_fdd_diag_ro (bumped to 0x000C) + check_osm_menu + check_firmware +
+  decode selftest all pass.** Zero firmware/menu/OPTM/BRAM impact;
+  settings file `/amiga/aexp-WIP-V2-A8.cfg` (content identical,
+  OPTM_SIZE 146). Working doc: `.research/INTEGRATION-SPEC-copylock-
+  dskbytr.md`; campaign: `.research/HANDOVER-protected-disks.md`; the
+  local regression TB is `.research/tb_paula_obs.v` (+
+  `tb_paula_floppy_a7ref.v` + `build_tb_paula_obs.sh`). Field A/B recipe
+  for dejavu4u2 in the handover.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

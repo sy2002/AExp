@@ -28,7 +28,7 @@
 -- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
 -- is 0x7000..0x705F with no alias inside it).
 --
--- Register map (word addresses), map version 0x000B (register CONTENT is
+-- Register map (word addresses), map version 0x000C (register CONTENT is
 -- identical to v10 - the version only identifies the build in field dumps:
 -- 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5 with the DPLL
 -- separator, 0x000A = the sync-seam fix + instruments, 0x000B = A7 hygiene:
@@ -36,9 +36,13 @@
 -- the capture-based instruments (0x11..0x1A, 0x1C..0x1E, 0x58..0x5E, the
 -- armed-sector window) are trustworthy during framing-hold serves too -
 -- the 0x000A builds decoded misframed words there once a serve had
--- crossed the write splice):
+-- crossed the write splice; 0x000C = A8, the Paula DSKBYTR observation
+-- surface for Rob Northen Copylock protection tracks - that fix lives in
+-- paula_floppy.v (clk_main domain) and is invisible to this diag bank
+-- except for the new A/B control bit 0x35.8; the field proof is the boot
+-- outcome, not a diag counter):
 --   0x00  signature 0xFDD0
---   0x01  map version 0x000B
+--   0x01  map version 0x000C
 --   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
 --                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
 --                  9:change_n 10:rdata 11:fifo_full}
@@ -134,10 +138,15 @@
 --         of the DPLL data separator (reset default 0 = DPLL; write
 --         0x0040 for the on-hardware A/B against the A4 behavior), 5:
 --         histogram ALL gaps (ignore the serve gate), 4: window mode -
---         only inside the armed-sector window, 3..0: armed sector K}.
+--         only inside the armed-sector window, 3..0: armed sector K,
+--         8: DISABLE the Paula DSKBYTR observation surface (reset default
+--         0 = surface ON = Copylock reads work; write 0x0100 for the
+--         on-hardware A/B that reverts to the A7 stub and reproduces the
+--         Copylock hang - the fix lives in paula_floppy.v, clk_main
+--         domain, so it is not otherwise visible in this bank}.
 --         Default 0x0000 = framing hold + DPLL separator + histogram
---         during physical read sessions only. Reads back the stored 8
---         control bits.
+--         during physical read sessions only + DSKBYTR surface ON. Reads
+--         back the stored 8 low control bits (bit 8 is not read back).
 --   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths
 --         of a cycle); 0xFFFF = no gap measured yet. tol = est/2, so a
 --         margin approaching 0 = a gap ON a classification boundary.
@@ -316,7 +325,7 @@ begin
     v_addr := unsigned(qnice_addr_i(6 downto 0));
     case to_integer(v_addr) is
       when 16#00# => v_data := x"FDD0";
-      when 16#01# => v_data := x"000B";
+      when 16#01# => v_data := x"000C";
       when 16#02# => v_data := diag_status_i;
       when 16#03# => v_data := diag_sync_i;
       when 16#04# => v_data := x"0" & std_logic_vector(diag_est_i);
