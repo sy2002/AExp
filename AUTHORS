@@ -7,8 +7,12 @@ AExp is licensed under the terms of GNU/GPL v3, for more information
 please read the file LICENSE. Parts of AExp are licensed under other
 Free-software licenses as described in the source code.
 
-Special thanks to deft for delivering a perfectly calibrated aexp_screen.cfg
-and for providing the key mapping (doc/assets/doc/assets/keyboard.png)
+Special thanks to deft for delivering a perfectly calibrated aexp_screen.cfg,
+for providing the key mapping (doc/assets/doc/assets/keyboard.png) and for
+testing and debugging hardware floppy disk reading.
+
+Special thanks to dejavu4u2 for testing and debugging hardware floppy disk
+reading and writing.
 
 AExp:
 -----
