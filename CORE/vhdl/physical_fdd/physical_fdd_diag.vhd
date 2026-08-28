@@ -28,8 +28,8 @@
 -- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
 -- is 0x7000..0x705F with no alias inside it).
 --
--- Register map (word addresses), map version 0x000C (register CONTENT is
--- identical to v10 - the version only identifies the build in field dumps:
+-- Register map (word addresses), map version 0x000D (register CONTENT is
+-- v10 plus the 0x70..0x7D WRITE block of WIP-V2-A9; earlier builds - the version only identifies the build in field dumps:
 -- 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5 with the DPLL
 -- separator, 0x000A = the sync-seam fix + instruments, 0x000B = A7 hygiene:
 -- the capture path follows the sync-anchored DIAGNOSTIC word stream, so
@@ -213,8 +213,42 @@
 --         advances only on chain-continuous read revolutions now)
 --   0x6E  live framing status: {3: 0x35 bit 7 readback, 2: serving-data
 --         (synced), 1: WORDSYNC (synced), 0: framing hold in force}
+--
+-- Diag map 0x000D (WIP-V2-A9, the Hardware Floppy WRITE datapath). All in
+-- the 50 MHz domain like the rest of this bank, taken from
+-- physical_fdd_writer; the ONE exception is 0x7D, whose event lives on the
+-- write FIFO's core-clock side and is Gray-crossed in physical_fdd_top:
+--   0x70  write episodes bound (wraps; freshness)
+--   0x71  words consumed by the serializer, LAST episode (latched when the
+--         episode completes, i.e. after the post-DSKBLK tail - latching at
+--         the trackwr fall would under-report by the in-flight residue)
+--   0x72  words consumed, running total (wraps)
+--   0x73  WGATE window of the last episode, low word (50 MHz cycles)
+--   0x74  WGATE window, high word. A full trackdisk write =
+--         6815 x 16 x 100 = 10,904,000 cycles exactly, pin to pin.
+--   0x75  underrun-abort count (since reset)
+--   0x76  tab-blocked (DISCARD) episode count - a write attempted on a
+--         write-protected disk. Trackdisk refuses in software before any
+--         DMA, so this stays 0 there; X-Copy runs the DMA and ticks it.
+--   0x77  tail profile: {15:8 max in-flight words at the DSKBLK moment
+--         (FIFO + shift register; expected <= 3), 7:0 tail-cut count =
+--         WGATE lost during the post-DSKBLK drain}
+--   0x78  precompensated pulses of the last episode
+--   0x79  {15:8 flags - 8 completed, 9 aborted, 10 discard, 11 underrun,
+--         12 tail-cut; 7:0 the episode's Amiga track}
+--   0x7A  count of episodes in which WGATE actually opened
+--   0x7B  last-abort reason bitmask: 0 deselect, 1 unit context lost
+--         (motor or enable), 2 wprot, 3 change, 4 step, 5 side,
+--         6 underrun, 7 engine abort
+--   0x7C  WRITE {1:0 precomp mode 00/11 = AUTO, 01 = ON, 10 = OFF};
+--         reads back {1:0 mode, 2 precomp active now, 3 wr_ok (the tab
+--         qualifier), 4 write episode open (synced)}
+--   0x7D  CDC FIFO overflow: engine tap pushes refused by a full write
+--         FIFO. MUST READ 0 FOREVER - the direct instrument for the
+--         occupancy invariant of spec 2.2.
+-- Recommended dump: 0x7000..0x707D.
 -- All counters wrap at 16 bit unless marked saturating (diff two reads to
--- rate them). Recommended dump: 0x7000..0x706F (112 words).
+-- rate them).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -296,7 +330,23 @@ entity physical_fdd_diag is
     diag_lol_srv_i      : in  unsigned(15 downto 0) := (others => '0');
     diag_lol_idle_i     : in  unsigned(15 downto 0) := (others => '0');
     diag_chain_win_i    : in  unsigned(15 downto 0) := (others => '0');
-    diag_frame_stat_i   : in  std_logic_vector(3 downto 0) := (others => '0')
+    diag_frame_stat_i   : in  std_logic_vector(3 downto 0) := (others => '0');
+
+    -- diag map 0x000D taps: the WRITE instruments (WIP-V2-A9)
+    dwr_epi_cnt_i       : in  unsigned(15 downto 0) := (others => '0');
+    dwr_words_last_i    : in  unsigned(15 downto 0) := (others => '0');
+    dwr_words_tot_i     : in  unsigned(15 downto 0) := (others => '0');
+    dwr_wgate_lo_i      : in  unsigned(15 downto 0) := (others => '0');
+    dwr_wgate_hi_i      : in  unsigned(15 downto 0) := (others => '0');
+    dwr_underrun_i      : in  unsigned(15 downto 0) := (others => '0');
+    dwr_discard_i       : in  unsigned(15 downto 0) := (others => '0');
+    dwr_tail_i          : in  unsigned(15 downto 0) := (others => '0');
+    dwr_precomp_cnt_i   : in  unsigned(15 downto 0) := (others => '0');
+    dwr_flags79_i       : in  std_logic_vector(15 downto 0) := (others => '0');
+    dwr_gateopen_i      : in  unsigned(15 downto 0) := (others => '0');
+    dwr_abortreason_i   : in  std_logic_vector(7 downto 0) := (others => '0');
+    dwr_ctrl7c_i        : in  std_logic_vector(4 downto 0) := (others => '0');
+    dwr_overflow_i      : in  unsigned(15 downto 0) := (others => '0')
   );
 end entity physical_fdd_diag;
 
@@ -325,7 +375,7 @@ begin
     v_addr := unsigned(qnice_addr_i(6 downto 0));
     case to_integer(v_addr) is
       when 16#00# => v_data := x"FDD0";
-      when 16#01# => v_data := x"000C";
+      when 16#01# => v_data := x"000D";
       when 16#02# => v_data := diag_status_i;
       when 16#03# => v_data := diag_sync_i;
       when 16#04# => v_data := x"0" & std_logic_vector(diag_est_i);
@@ -409,6 +459,21 @@ begin
       when 16#6C# => v_data := std_logic_vector(diag_lol_idle_i);
       when 16#6D# => v_data := std_logic_vector(diag_chain_win_i);
       when 16#6E# => v_data := x"000" & diag_frame_stat_i;
+      -- diag map 0x000D: the WRITE instruments (WIP-V2-A9)
+      when 16#70# => v_data := std_logic_vector(dwr_epi_cnt_i);
+      when 16#71# => v_data := std_logic_vector(dwr_words_last_i);
+      when 16#72# => v_data := std_logic_vector(dwr_words_tot_i);
+      when 16#73# => v_data := std_logic_vector(dwr_wgate_lo_i);
+      when 16#74# => v_data := std_logic_vector(dwr_wgate_hi_i);
+      when 16#75# => v_data := std_logic_vector(dwr_underrun_i);
+      when 16#76# => v_data := std_logic_vector(dwr_discard_i);
+      when 16#77# => v_data := std_logic_vector(dwr_tail_i);
+      when 16#78# => v_data := std_logic_vector(dwr_precomp_cnt_i);
+      when 16#79# => v_data := dwr_flags79_i;
+      when 16#7A# => v_data := std_logic_vector(dwr_gateopen_i);
+      when 16#7B# => v_data := x"00" & dwr_abortreason_i;
+      when 16#7C# => v_data := "00000000000" & dwr_ctrl7c_i;
+      when 16#7D# => v_data := std_logic_vector(dwr_overflow_i);
       when others => v_data := x"EEEE";
     end case;
     data_q <= v_data;

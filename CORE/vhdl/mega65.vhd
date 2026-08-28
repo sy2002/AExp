@@ -202,8 +202,10 @@ port (
    -- MEGA65 internal floppy drive (Hardware Floppy feature): the 34-pin
    -- connector, threaded as plain wires from the board tops (M2M-UPSTREAM
    -- floppy-pins; the C64MEGA65 issue-#90 pattern). All active low. Drive B
-   -- and the write pins (f_motorb/f_selectb/f_wdata/f_wgate) stay tied '1'
-   -- at the top level - read-only milestone.
+   -- (f_motorb/f_selectb) stays tied '1' at the top level; the WRITE pins
+   -- f_wdata/f_wgate are driven by physical_fdd_writer since WIP-V2-A9.
+   f_wdata_o               : out std_logic;
+   f_wgate_o               : out std_logic;
    f_motora_o              : out std_logic;
    f_selecta_o             : out std_logic;
    f_side1_o               : out std_logic;
@@ -380,6 +382,17 @@ signal main_hwf_pau_ws            : std_logic;
 signal main_hwf_serving           : std_logic;                     -- engine phys_stream (read session open)
 signal main_hwf_serving_data      : std_logic;                     -- ... and past the serve-start sync
 signal main_hwf_obs_legacy        : std_logic;                     -- DSKBYTR obs A/B (diag 0x35 bit 8), qnice->main
+-- WIP-V2-A9: the physical WRITE datapath (engine <-> front end)
+signal main_hwf_wr_valid          : std_logic;                     -- engine tap pulse
+signal main_hwf_wr_data           : std_logic_vector(15 downto 0);
+signal main_hwf_wr_session        : std_logic;                     -- episode level
+signal main_hwf_wr_abort          : std_logic;                     -- abort level
+signal main_hwf_wr_precomp        : std_logic;                     -- precomp for the episode
+signal main_hwf_wr_track          : std_logic_vector(7 downto 0);  -- episode track
+signal main_hwf_wr_level          : unsigned(2 downto 0);          -- write-FIFO occupancy
+signal main_hwf_wr_busy           : std_logic;                     -- writer not IDLE (50M->main)
+signal main_hwf_wr_ok             : std_logic;                     -- tab qualified (50M->main)
+signal main_hwf_precmode          : std_logic_vector(1 downto 0);  -- 0x7C mode (50M->main)
 signal main_fdd_step_n            : std_logic := '1';              -- registered mirrors of the f_step /
 signal main_fdd_dir               : std_logic := '1';              -- f_stepdir pins for the diag cyl tracker
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
@@ -457,6 +470,25 @@ signal qnice_fdd_ctrl         : std_logic_vector(8 downto 0) := (others => '0');
 signal qnice_fdd_dpll_cell    : unsigned(11 downto 0);
 -- diag map v10: sync-seam instruments
 signal qnice_fdd_realign      : unsigned(15 downto 0);
+-- WIP-V2-A9: the write instruments (diag map 0x000D) + the 0x7C register
+signal qnice_fdd_precmode     : std_logic_vector(1 downto 0) := "00";
+signal qnice_fdd_wr_track     : std_logic_vector(7 downto 0);
+signal qnice_fdd_wr_epi       : unsigned(15 downto 0);
+signal qnice_fdd_wr_wlast     : unsigned(15 downto 0);
+signal qnice_fdd_wr_wtot      : unsigned(15 downto 0);
+signal qnice_fdd_wr_glo       : unsigned(15 downto 0);
+signal qnice_fdd_wr_ghi       : unsigned(15 downto 0);
+signal qnice_fdd_wr_undr      : unsigned(15 downto 0);
+signal qnice_fdd_wr_disc      : unsigned(15 downto 0);
+signal qnice_fdd_wr_tail      : unsigned(15 downto 0);
+signal qnice_fdd_wr_prec      : unsigned(15 downto 0);
+signal qnice_fdd_wr_fl79      : std_logic_vector(15 downto 0);
+signal qnice_fdd_wr_gopen     : unsigned(15 downto 0);
+signal qnice_fdd_wr_reason    : std_logic_vector(7 downto 0);
+signal qnice_fdd_wr_ctrl      : std_logic_vector(4 downto 0);
+signal qnice_fdd_wr_busy      : std_logic;
+signal qnice_fdd_wr_ok        : std_logic;
+signal qnice_fdd_wr_ovf       : unsigned(15 downto 0);
 signal qnice_fdd_realign_ctx  : std_logic_vector(15 downto 0);
 signal qnice_fdd_presync      : t_fdd_cap_words;
 signal qnice_fdd_srv_sec      : std_logic_vector(15 downto 0);
@@ -1052,6 +1084,17 @@ begin
          hwf_pau_tap_o        => main_hwf_pau_tap,
          hwf_pau_ws_o         => main_hwf_pau_ws,
          hwf_obs_legacy_i     => main_hwf_obs_legacy,
+         hwf_wr_valid_o       => main_hwf_wr_valid,
+         hwf_wr_data_o        => main_hwf_wr_data,
+         hwf_wr_session_o     => main_hwf_wr_session,
+         hwf_wr_abort_o       => main_hwf_wr_abort,
+         hwf_wr_precomp_o     => main_hwf_wr_precomp,
+         hwf_wr_track_o       => main_hwf_wr_track,
+         hwf_wr_level_i       => main_hwf_wr_level,
+         hwf_wr_busy_i        => main_hwf_wr_busy,
+         hwf_wr_ok_i          => main_hwf_wr_ok,
+         hwf_selected_i       => main_hwf_selected,
+         hwf_wr_precmode_i    => main_hwf_precmode,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -1239,8 +1282,9 @@ begin
    begin
       if falling_edge(qnice_clk_i) then
          if qnice_rst_i = '1' then
-            qnice_fdd_sideinv <= '0';
-            qnice_fdd_ctrl    <= (others => '0');
+            qnice_fdd_sideinv  <= '0';
+            qnice_fdd_ctrl     <= (others => '0');
+            qnice_fdd_precmode <= "00";
             qnice_fdd_clear   <= '0';
             qnice_fdd_nonce   <= (others => '0');
             qnice_fdd_rd0_q   <= '0';
@@ -1250,6 +1294,11 @@ begin
                qnice_dev_id_i = C_DEV_AMIGA_FDD then
                if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
                   qnice_fdd_sideinv <= qnice_dev_data_i(0);
+               elsif qnice_dev_addr_i(6 downto 0) = "1111100" then   -- 0x7C
+                  -- WIP-V2-A9 WRITE control: {1:0} precomp mode
+                  -- (00/11 = AUTO per the KS1.3 track >= 81 policy,
+                  -- 01 = ON, 10 = OFF). Reset default 00 = AUTO.
+                  qnice_fdd_precmode <= qnice_dev_data_i(1 downto 0);
                elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
                   -- 9 control bits: [7:0] margin/separator/framing control
                   -- (see physical_fdd_diag.vhd 0x35), bit 8 = DSKBYTR obs
@@ -1550,6 +1599,8 @@ begin
          f_writeprotect_i    => f_writeprotect_i,
          f_diskchanged_i     => f_diskchanged_i,
          f_rdata_i           => f_rdata_i,
+         f_wdata_o           => f_wdata_o,
+         f_wgate_o           => f_wgate_o,
          enable_i            => main_hwf_en,
          selected_i          => main_hwf_selected,
          motor_i             => main_hwf_motor,
@@ -1570,6 +1621,19 @@ begin
          ready_n_o           => qnice_fdd_ready_n,
          index_o             => qnice_fdd_index,
          present_o           => qnice_fdd_present,
+         -- WIP-V2-A9: the write path. The tap and the level are plain
+         -- core-domain wires (ready is computed engine-side, so nothing
+         -- crosses); the episode levels cross inside the writer.
+         wr_push_i           => main_hwf_wr_valid,
+         wr_data_i           => main_hwf_wr_data,
+         wr_level_o          => main_hwf_wr_level,
+         wr_session_i        => main_hwf_wr_session,
+         wr_abort_i          => main_hwf_wr_abort,
+         wr_precomp_i        => main_hwf_wr_precomp,
+         wr_track_i          => qnice_fdd_wr_track,
+         wr_precmode_i       => qnice_fdd_precmode,
+         wr_busy_o           => qnice_fdd_wr_busy,
+         wr_ok_o             => qnice_fdd_wr_ok,
          rd_clk_i            => main_clk,
          rd_rst_i            => main_qnice_rst,
          rd_en_i             => main_hwf_rd_en,
@@ -1618,7 +1682,21 @@ begin
          diag_lol_srv_o      => qnice_fdd_lol_srv,
          diag_lol_idle_o     => qnice_fdd_lol_idle,
          diag_chain_win_o    => qnice_fdd_chain_win,
-         diag_frame_stat_o   => qnice_fdd_frame_stat
+         diag_frame_stat_o   => qnice_fdd_frame_stat,
+         dwr_epi_cnt_o       => qnice_fdd_wr_epi,
+         dwr_words_last_o    => qnice_fdd_wr_wlast,
+         dwr_words_tot_o     => qnice_fdd_wr_wtot,
+         dwr_wgate_lo_o      => qnice_fdd_wr_glo,
+         dwr_wgate_hi_o      => qnice_fdd_wr_ghi,
+         dwr_underrun_o      => qnice_fdd_wr_undr,
+         dwr_discard_o       => qnice_fdd_wr_disc,
+         dwr_tail_o          => qnice_fdd_wr_tail,
+         dwr_precomp_cnt_o   => qnice_fdd_wr_prec,
+         dwr_flags79_o       => qnice_fdd_wr_fl79,
+         dwr_gateopen_o      => qnice_fdd_wr_gopen,
+         dwr_abortreason_o   => qnice_fdd_wr_reason,
+         dwr_ctrl7c_o        => qnice_fdd_wr_ctrl,
+         dwr_overflow_o      => qnice_fdd_wr_ovf
       ); -- i_physical_fdd_top
 
    -- DSKBYTR observation-surface A/B bit (diag 0x35 bit 8) into the core
@@ -1635,6 +1713,41 @@ begin
          dst_clk_i     => main_clk,
          dst_data_o(0) => main_hwf_obs_legacy
       ); -- i_cdc_hwf_obs_leg
+
+   -- WIP-V2-A9 CDC. Three quasi-static crossings, all cdc_stable (the
+   -- blanket qnice<->main max_delay pair in CORE/CORE.xdc bounds them):
+   --   * the writer's status levels 50 MHz -> core (the engine's busy
+   --     interlock and the announce's writable bit),
+   --   * the 0x7C precomp mode 50 MHz -> core (the engine decides precomp
+   --     at the episode bind, so no multi-bit track value has to cross),
+   --   * the episode's track core -> 50 MHz for the 0x79 readout.
+   i_cdc_hwf_wr_stat : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 4,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i              => qnice_clk_i,
+         src_data_i(0)          => qnice_fdd_wr_busy,
+         src_data_i(1)          => qnice_fdd_wr_ok,
+         src_data_i(3 downto 2) => qnice_fdd_precmode,
+         dst_clk_i              => main_clk,
+         dst_data_o(0)          => main_hwf_wr_busy,
+         dst_data_o(1)          => main_hwf_wr_ok,
+         dst_data_o(3 downto 2) => main_hwf_precmode
+      ); -- i_cdc_hwf_wr_stat
+
+   i_cdc_hwf_wr_track : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 8,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i  => main_clk,
+         src_data_i => main_hwf_wr_track,
+         dst_clk_i  => qnice_clk_i,
+         dst_data_o => qnice_fdd_wr_track
+      ); -- i_cdc_hwf_wr_track
 
    -- diag side-invert into the core domain (quasi-static level; covered by
    -- M2M/common.xdc's cdc_stable constraint) - XORed onto f_side1 above
@@ -1786,7 +1899,21 @@ begin
          diag_lol_srv_i      => qnice_fdd_lol_srv,
          diag_lol_idle_i     => qnice_fdd_lol_idle,
          diag_chain_win_i    => qnice_fdd_chain_win,
-         diag_frame_stat_i   => qnice_fdd_frame_stat
+         diag_frame_stat_i   => qnice_fdd_frame_stat,
+         dwr_epi_cnt_i       => qnice_fdd_wr_epi,
+         dwr_words_last_i    => qnice_fdd_wr_wlast,
+         dwr_words_tot_i     => qnice_fdd_wr_wtot,
+         dwr_wgate_lo_i      => qnice_fdd_wr_glo,
+         dwr_wgate_hi_i      => qnice_fdd_wr_ghi,
+         dwr_underrun_i      => qnice_fdd_wr_undr,
+         dwr_discard_i       => qnice_fdd_wr_disc,
+         dwr_tail_i          => qnice_fdd_wr_tail,
+         dwr_precomp_cnt_i   => qnice_fdd_wr_prec,
+         dwr_flags79_i       => qnice_fdd_wr_fl79,
+         dwr_gateopen_i      => qnice_fdd_wr_gopen,
+         dwr_abortreason_i   => qnice_fdd_wr_reason,
+         dwr_ctrl7c_i        => qnice_fdd_wr_ctrl,
+         dwr_overflow_i      => qnice_fdd_wr_ovf
       ); -- i_physical_fdd_diag
 
    ---------------------------------------------------------------------------------------------

@@ -538,12 +538,13 @@ begin
    eth_txen_o            <= '0';
    -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): the read-path floppy pins
    -- (f_density/f_motora/f_selecta/f_side1/f_stepdir/f_step + the five
-   -- inputs) are routed into MEGA65_Core (Hardware Floppy feature). Drive B
-   -- and the write pins stay tied inactive (read-only milestone).
+   -- inputs) are routed into MEGA65_Core (Hardware Floppy feature).
+   -- WIP-V2-A9 extends the exception by the two WRITE pins f_wdata/f_wgate,
+   -- driven by physical_fdd_writer (both idle high = inactive; WGATE is
+   -- hard-gated on the conditioned write-protect tab in the core). Drive B
+   -- stays tied inactive - this core uses drive A only.
    f_motorb_o            <= '1';
    f_selectb_o           <= '1';
-   f_wdata_o             <= '1';
-   f_wgate_o             <= '1';
    joystick_5v_disable_o <= '0'; -- Enable 5V power supply to joysticks
    led_g_n_o             <= '1'; -- Off
    led_r_n_o             <= '1'; -- Off
@@ -923,6 +924,8 @@ begin
 
          -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): MEGA65 internal
          -- floppy drive (Hardware Floppy feature, read path)
+         f_wdata_o               => f_wdata_o,
+         f_wgate_o               => f_wgate_o,
          f_motora_o              => f_motora_o,
          f_selecta_o             => f_selecta_o,
          f_side1_o               => f_side1_o,

@@ -185,6 +185,32 @@ entity adf_track_engine is
       -- hygiene for the asynchronous 2-FF consumer)
       phys_data_o         : out std_logic := '0';
 
+      -- WIP-V2-A9: THE PHYSICAL WRITE DATAPATH (spec sections 2.1-2.4).
+      -- The unit of write-session state is the trackwr EPISODE, not the
+      -- engine drain: Paula's write DMA survives every engine-side abort
+      -- (trackwr stays high until the host has drained the FIFO), so the
+      -- next poll would otherwise re-open a fresh drain for the SAME DMA
+      -- and a session-scoped abort would clear - writing the remainder as
+      -- a flux splat at a random position, or on the new cylinder after a
+      -- step. Ownership is bound ONCE, at the first drain of an episode.
+      phys_wr_level_i     : in  unsigned(2 downto 0) := (others => '0');
+      phys_wr_busy_i      : in  std_logic := '0';   -- writer not IDLE (synced)
+      phys_wr_ok_i        : in  std_logic := '0';   -- tab qualified (synced)
+      -- The physical unit's RAW per-drive select line (core domain, no CDC:
+      -- mega65.vhd derives it from the same CIA _sel bit that drives the
+      -- mechanism). Paula's status sel field cannot serve here: its priority
+      -- encoder returns 2'd0 both for "df0 selected" AND for "nothing
+      -- selected" (paula_floppy.v:382), so with the Hardware Floppy at df0
+      -- every deselect gap reads as the physical unit.
+      phys_sel_i          : in  std_logic := '0';
+      phys_wr_precmode_i  : in  std_logic_vector(1 downto 0) := "00";
+      phys_wr_valid_o     : out std_logic := '0';   -- 1-clk tap pulse
+      phys_wr_data_o      : out std_logic_vector(15 downto 0) := (others => '0');
+      phys_wr_session_o   : out std_logic := '0';   -- the episode level
+      phys_wr_abort_o     : out std_logic := '0';   -- the abort level
+      phys_wr_precomp_o   : out std_logic := '0';   -- precomp for this episode
+      phys_wr_track_o     : out std_logic_vector(7 downto 0) := (others => '0');
+
       -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
       io_fpga_o           : out std_logic;                     -- registered - async-clear pin inside Paula!
       io_strobe_o         : out std_logic;                     -- 1 clk pulse per word
@@ -282,6 +308,23 @@ architecture synthesis of adf_track_engine is
       end if;
       return e(to_integer(u)) and m(to_integer(u));
    end function f_is_mounted;
+
+   -- The KS1.3 precomp policy (trackdisk.asm FEA2DA..FEA306): PRECOMP0 =
+   -- 140 ns for every track >= 81 - the inner half of the disk MINUS track
+   -- 80 (cylinder 40 lower head). Keyed on Paula's own track register, the
+   -- same number the ROM compares. Mode 01 = ON, 10 = OFF, else AUTO.
+   function f_precomp(mode : std_logic_vector(1 downto 0);
+                      trk  : unsigned(7 downto 0)) return std_logic is
+   begin
+      if mode = "01" then
+         return '1';
+      elsif mode = "10" then
+         return '0';
+      elsif trk >= 81 then
+         return '1';
+      end if;
+      return '0';
+   end function f_precomp;
 
    type t_state is (
       ST_IDLE,          -- bus released, poll timer running
@@ -437,6 +480,28 @@ architecture synthesis of adf_track_engine is
                                                        -- discard: sync hunt disabled, so the
                                                        -- decoder can never commit them)
    signal wr_track_lat : unsigned(7 downto 0) := (others => '0');  -- physical track at drain entry
+
+   -- WIP-V2-A9: the write EPISODE (spec 2.1). epi_bound/epi_phys are latched
+   -- at the FIRST drain of a trackwr episode and decide, once, who owns it;
+   -- every later drain of the same episode INHERITS that ownership. wr_epi
+   -- is the level everything keys on - never drain_commit or drain_unit,
+   -- because a physical-owned drain OUTSIDE an episode (a stray sel click
+   -- during an ADF-first episode) must keep behaving exactly like today.
+   signal epi_bound    : std_logic := '0';
+   signal epi_phys     : std_logic := '0';
+   signal wr_epi       : std_logic;
+   signal wr_epi_r     : std_logic := '0';   -- registered export (A7 hygiene)
+   signal epi_abort    : std_logic := '0';   -- abort LEVEL, held per episode
+   signal epi_precomp  : std_logic := '0';   -- precomp decision at the bind
+   -- 0x79's track byte must describe the WRITE EPISODE. wr_track_lat cannot
+   -- serve: it is re-latched by every ADF write drain, so a later ADF write
+   -- would silently relabel the last physical episode in a field dump.
+   signal epi_track    : unsigned(7 downto 0) := (others => '0');
+   -- a FOREIGN sel must persist to abort: a one-poll click is Paula's
+   -- priority encoder, not a real change of owner (spec 2.1)
+   constant C_WR_FOREIGN : natural := 2838;  -- 100 us at 28.375 MHz
+   signal foreign_lat  : std_logic := '0';
+   signal foreign_cnt  : natural range 0 to C_WR_FOREIGN := 0;
    signal wd_idx       : unsigned(9 downto 0);         -- word index within a section
    signal winf_odd     : std_logic_vector(31 downto 0);-- info odd bytes: fmt,trk,sec,gap
    signal whd_fmt      : std_logic_vector(7 downto 0); -- decoded header: format (0xFF)
@@ -628,6 +693,20 @@ begin
          xfer_done       <= '0';
          dirty_set_valid <= '0';
          phys_rd_en_o    <= '0';
+         phys_wr_valid_o <= '0';
+
+         -- the persisting-foreign-sel timer of the write episode (measured
+         -- in TIME, not polls: the re-poll cadence is ~2 us per frame while
+         -- a software change-poll click spans >= 5 us)
+         if wr_epi = '1' and foreign_lat = '1' then
+            if foreign_cnt = C_WR_FOREIGN then
+               epi_abort <= '1';
+            else
+               foreign_cnt <= foreign_cnt + 1;
+            end if;
+         else
+            foreign_cnt <= 0;
+         end if;
 
          -- sector-buffer read ports: unconditional registered reads (the strict
          -- simple-dual-port LUTRAM template; do not condition or relocate these)
@@ -667,11 +746,19 @@ begin
             -- not linger (the stream stays at most one poll period stale).
             when ST_IDLE =>
                io_fpga_o <= '0';
-               if phys_rd_empty_i = '0' then
+               -- WIP-V2-A9: while a write episode is open the physical read
+               -- FIFO must NOT be popped. The pop would fire the A8 obs tap
+               -- into Paula's DSKBYTR surface in the middle of a write DMA,
+               -- where a real Paula delivers no bytes at all (spec 0., 2.3).
+               if phys_rd_empty_i = '0' and wr_epi = '0' then
                   phys_rd_en_o <= '1';
                end if;
                if delay_cnt /= 0 then
                   delay_cnt <= delay_cnt - 1;
+               elsif wr_epi = '1' then
+                  -- ... and the 0x1nnn announce is suspended too: go
+                  -- straight back to polling the open episode
+                  state <= ST_POLL_OPEN;
                elsif bus_grant_i = '1' then
                   io_fpga_o <= '1';
                   -- drive-status word 0x1000|{writable[3:0],present[3:0]},
@@ -693,6 +780,15 @@ begin
                   end loop;
                   if phys_en_i = '1' then
                      v_present(to_integer(unsigned(phys_unit_i))) := phys_present_i;
+                     -- WIP-V2-A9: truth in reporting - the physical unit is
+                     -- announced writable exactly while the writer's tab
+                     -- qualifier holds. MEASURED inert at the CIA level
+                     -- (paula_floppy.v substitutes the real /WPROT into the
+                     -- _wprot term when phys_mask is set), so this changes
+                     -- no Amiga-visible behavior; it is the ONE deliberate
+                     -- io-channel difference against the pre-A9 engine.
+                     v_writable(to_integer(unsigned(phys_unit_i))) :=
+                        phys_present_i and phys_wr_ok_i;
                   end if;
                   io_din_o  <= x"10" & v_writable & v_present;
                   delay_cnt <= C_GAP_DELAY;
@@ -754,10 +850,27 @@ begin
                   -- trackdisk verifies a track after writing it and retries.
                   -- Losing a sector is recoverable, committing it into the
                   -- wrong drive's image is not.
-                  if in_drain = '1' and v_unit /= drain_unit then
+                  -- WIP-V2-A9: inside a physical write EPISODE this guard
+                  -- is suspended. The episode owns the drain, a transient
+                  -- foreign sample is Paula's priority encoder rather than a
+                  -- new owner, and dropping in_drain here would let the next
+                  -- poll re-latch the physical DMA's remainder as an
+                  -- ADF-owned, COMMITTING drain (the cross-contamination
+                  -- path the episode model exists to close). Persisting
+                  -- foreign selection aborts through the timer instead.
+                  if in_drain = '1' and v_unit /= drain_unit
+                     and wr_epi = '0' then
                      in_drain <= '0';
                      wd_mode  <= WD_HUNT;
                      v_drain  := '0';
+                  end if;
+
+                  -- track a foreign sample for the persistence timer
+                  if wr_epi = '1' and phys_en_i = '1'
+                     and v_sel /= phys_unit_i then
+                     foreign_lat <= '1';
+                  else
+                     foreign_lat <= '0';
                   end if;
 
                   if not (f_is_adf(adf_en_i, v_unit) = '1')
@@ -765,13 +878,28 @@ begin
                      and not (phys_stream = '1' and xfer_resp(8) = '1'
                               and xfer_resp(9) = '0')
                      and not (adf_stream = '1' and xfer_resp(8) = '1'
-                              and xfer_resp(9) = '0') then
+                              and xfer_resp(9) = '0')
+                     and not (wr_epi = '1' and xfer_resp(9) = '1') then
                      -- none of our units selected: not ours - leave the
                      -- request pending (MiSTer-identical). Exception: while
                      -- a physical stream session is in flight (trackrd
                      -- still up), a transient foreign sel sample must not
                      -- park the engine in ST_IDLE (which discards the live
                      -- word stream).
+                     -- This is the one poll exit that can be taken with a
+                     -- write episode still latched (a foreign sel sampled
+                     -- in the very cycle trackwr drops), so it must apply
+                     -- the EPISODE-END rule too - otherwise wr_epi stays
+                     -- set with nothing left to clear it: chain_rst would
+                     -- hold the read front end in reset forever and the
+                     -- writer would sit in ARM waiting for a session that
+                     -- never falls.
+                     if xfer_resp(9) = '0' then
+                        epi_bound   <= '0';
+                        epi_phys    <= '0';
+                        epi_abort   <= '0';
+                        foreign_lat <= '0';
+                     end if;
                      in_drain    <= '0';
                      state_after <= ST_IDLE;
                      io_fpga_o   <= '0';
@@ -784,7 +912,19 @@ begin
                      -- hunt below)
                      track_valid(to_integer(v_unit)) <= '0';   -- a write invalidates the
                                                                -- rotation state of ITS unit
-                     if v_drain = '1' and wd_mode = WD_HUNT
+                     -- The head-step check consumes only polls whose sel IS
+                     -- the drain's own unit: the status word's track field is
+                     -- {dsktrack[sel], ~side} of whichever unit the priority
+                     -- encoder reports, so a foreign sample carries the OTHER
+                     -- unit's track and would fake a step. Inside a physical
+                     -- episode a genuine step raises the abort LEVEL instead
+                     -- of ending the pass - the DMA must still complete.
+                     if wr_epi = '1' and phys_en_i = '1'
+                        and v_sel = phys_unit_i
+                        and unsigned(xfer_resp(7 downto 0)) /= wr_track_lat then
+                        epi_abort <= '1';
+                     end if;
+                     if v_drain = '1' and wd_mode = WD_HUNT and wr_epi = '0'
                         and unsigned(xfer_resp(7 downto 0)) /= wr_track_lat then
                         -- head stepped while hunting: end this drain pass
                         -- (FindSync :294-295); re-entered with the new track
@@ -795,16 +935,90 @@ begin
                         io_fpga_o   <= '0';
                         delay_cnt   <= C_GAP_DELAY;
                         state       <= ST_CLOSE;
+                     elsif v_drain = '0' and epi_bound = '0'
+                           and phys_en_i = '1' and v_sel = phys_unit_i
+                           and phys_wr_busy_i = '1' then
+                        -- THE BUSY INTERLOCK: the writer is still draining a
+                        -- previous episode's tail. Do not BIND a new episode
+                        -- on top of it - Paula's FIFO simply fills for the
+                        -- <= ~104 us the writer needs to finish. Re-latches
+                        -- INSIDE an open episode are never gated on this, so
+                        -- there is no deadlock between "the engine waits for
+                        -- the writer" and "the writer waits for the episode".
+                        state_after <= ST_POLL_OPEN;
+                        io_fpga_o   <= '0';
+                        delay_cnt   <= C_GAP_DELAY;
+                        state       <= ST_CLOSE;
                      else
                         if v_drain = '0' then
                            -- fresh drain: latch the physical track (MiSTer:
                            -- drive->track = c2), the owning unit, and re-arm
                            -- the decoder
-                           in_drain     <= '1';
-                           wd_mode      <= WD_HUNT;
-                           wr_track_lat <= unsigned(xfer_resp(7 downto 0));
-                           drain_unit   <= v_unit;
-                           drain_commit <= f_is_adf(adf_en_i, v_unit);
+                           in_drain <= '1';
+                           wd_mode  <= WD_HUNT;
+                           if epi_bound = '0' then
+                              -- BIND the episode owner, once (spec 2.1)
+                              epi_bound    <= '1';
+                              -- The abort level is PER-EPISODE state and
+                              -- must be initialised where the rest of it
+                              -- is. It cannot be cleared reliably at the
+                              -- episode END: the global abort block runs
+                              -- after this case statement and re-asserts it
+                              -- in the very cycle an end branch clears it
+                              -- (wr_epi is combinational, so epi_bound and
+                              -- epi_phys still read '1' there and the later
+                              -- assignment wins). A level left latched
+                              -- would make the NEXT episode abort at once -
+                              -- WGATE never opens, the whole track is
+                              -- silently dropped, and trackdisk has no
+                              -- write verify to notice.
+                              epi_abort    <= '0';
+                              wr_track_lat <= unsigned(xfer_resp(7 downto 0));
+                              drain_unit   <= v_unit;
+                              drain_commit <= f_is_adf(adf_en_i, v_unit);
+                              -- BINDING AN EPISODE AS PHYSICAL IS
+                              -- IRREVERSIBLE: it suspends the ownership
+                              -- guard for the whole episode, so a wrong
+                              -- bind cannot be recovered and the drain
+                              -- never commits. One sample of Paula's
+                              -- priority-encoded sel field is not enough
+                              -- evidence to spend that: it reads 2'd0 for
+                              -- "nothing selected" as well as for "df0",
+                              -- so with the mechanism at df0 an ordinary
+                              -- deselect gap during an ADF write would bind
+                              -- the episode physical and silently discard
+                              -- the whole track. Qualify with the REAL
+                              -- per-drive select line - the same wall S10
+                              -- gives the writer, for the same reason.
+                              -- Failing the other way is safe: the episode
+                              -- stays ADF-owned, the writer's own sel term
+                              -- keeps WGATE shut, and nothing reaches a disk.
+                              if phys_en_i = '1' and v_sel = phys_unit_i
+                                 and phys_sel_i = '1' then
+                                 epi_phys    <= '1';
+                                 epi_track   <= unsigned(xfer_resp(7 downto 0));
+                                 epi_precomp <= f_precomp(
+                                    phys_wr_precmode_i,
+                                    unsigned(xfer_resp(7 downto 0)));
+                              else
+                                 epi_phys    <= '0';
+                                 epi_precomp <= '0';
+                              end if;
+                           elsif wr_epi = '1' then
+                              -- INHERIT: every re-latched drain of a physical
+                              -- episode stays physical-owned and non-
+                              -- committing, and KEEPS the binding poll's
+                              -- track. A foreign-sel sample can therefore
+                              -- never re-latch the physical DMA's remainder
+                              -- as an ADF-owned drain that would hunt,
+                              -- decode and commit the write into an image.
+                              drain_unit   <= unsigned(phys_unit_i);
+                              drain_commit <= '0';
+                           else
+                              wr_track_lat <= unsigned(xfer_resp(7 downto 0));
+                              drain_unit   <= v_unit;
+                              drain_commit <= f_is_adf(adf_en_i, v_unit);
+                           end if;
                         end if;
                         hdr_cnt  <= "00";
                         io_din_o <= x"0000";
@@ -813,6 +1027,12 @@ begin
                      end if;
                   else
                      -- benign continuation w1+w2: word 1 is what arms Paula's DMA FSM
+                     -- EPISODE END (spec 2.1): trackwr has dropped, so the
+                     -- write DMA is over - release the episode and its abort.
+                     epi_bound   <= '0';
+                     epi_phys    <= '0';
+                     epi_abort   <= '0';
+                     foreign_lat <= '0';
                      in_drain <= '0';              -- no write pending: decoder state is stale
                      hdr_cnt  <= "00";
                      io_din_o <= x"0000";
@@ -832,7 +1052,8 @@ begin
                      xfer    <= XF_STROBE;         -- w2 (response discarded)
                   else
                      if status(8) = '1' then
-                        if phys_en_i = '1' and (phys_stream = '1'
+                        if phys_en_i = '1' and phys_wr_busy_i = '0'
+                           and (phys_stream = '1'
                            or status(15 downto 14) = phys_unit_i) then
                            -- enter or CONTINUE the physical stream: trackrd
                            -- is bound to one unit for the whole DMA, so a
@@ -853,6 +1074,20 @@ begin
                            end if;
                            phys_stream <= '1';
                            state_after <= ST_PHYS_OPEN;
+                        elsif phys_en_i = '1' and phys_wr_busy_i = '1'
+                              and (phys_stream = '1'
+                                   or status(15 downto 14) = phys_unit_i) then
+                           -- THE BUSY INTERLOCK, read side: the writer is
+                           -- still draining a previous episode's tail.
+                           -- Defer on the FAST cadence - falling through to
+                           -- the ADF branch below would find the physical
+                           -- unit unmounted, park in ST_IDLE and cost a
+                           -- full 1 ms poll period, ten times the ~104 us
+                           -- the tail actually needs (spec 2.1). X-Copy's
+                           -- index-synced post-write verify read is the
+                           -- field case that would start a sector and a
+                           -- half late.
+                           state_after <= ST_POLL_OPEN;
                         else
                            -- ADF service. On a NEW session the unit Paula
                            -- selected at w0 is latched into serve_unit and
@@ -901,10 +1136,38 @@ begin
                      -- wr_fifo_status = {dmaen&dsklen[14], "000", fifo_cnt[11:0]}
                      if xfer_resp(15) = '0' and xfer_resp(11 downto 0) = x"000" then
                         in_drain    <= '0';        -- write DMA inactive and FIFO empty: done
+                        -- EPISODE END (spec 2.1): this is the completion
+                        -- observation - the writer sees wr_session fall
+                        -- microseconds after the last pop, long before its
+                        -- <= 3-word residue could run dry.
+                        epi_bound   <= '0';
+                        epi_phys    <= '0';
+                        epi_abort   <= '0';
+                        foreign_lat <= '0';
                         state_after <= ST_IDLE;
                         io_fpga_o   <= '0';
                         delay_cnt   <= C_GAP_DELAY;
                         state       <= ST_CLOSE;
+                     elsif wr_epi = '1' then
+                        -- A PHYSICAL EPISODE: exactly ONE data word per
+                        -- frame, admitted only when the writer is nearly dry
+                        -- (ready = level <= 1, computed HERE - no
+                        -- cross-domain path for ready exists). The WD_HUNT
+                        -- chunk of min(fifo_cnt, 1000) back-to-back pops
+                        -- would overflow the 4-deep CDC FIFO instantly.
+                        if unsigned(xfer_resp(11 downto 0)) = 0
+                           or phys_wr_level_i > 1 then
+                           state_after <= ST_POLL_OPEN;
+                           io_fpga_o   <= '0';
+                           delay_cnt   <= C_GAP_DELAY;
+                           state       <= ST_CLOSE;
+                        else
+                           word_cnt   <= (others => '0');
+                           word_total <= to_unsigned(1, 10);
+                           io_din_o   <= x"0000";
+                           xfer       <= XF_STROBE;
+                           state      <= ST_WDRAIN_POP;
+                        end if;
                      elsif wd_mode = WD_HUNT then
                         -- pop up to fifo_cnt words hunting for the sync word
                         -- (NEVER the raw value: bit 15 is a flag)
@@ -963,6 +1226,15 @@ begin
                   v_hi    := xfer_resp(15 downto 8);
                   v_lo    := xfer_resp( 7 downto 0);
                   v_close := '0';
+
+                  -- WIP-V2-A9 THE TAP: one pulse per popped word while a
+                  -- physical write episode is open. Keyed on wr_epi, never
+                  -- on drain_commit: a physical-owned drain outside an
+                  -- episode must stay the pure discard it is today.
+                  if wr_epi = '1' then
+                     phys_wr_valid_o <= '1';
+                     phys_wr_data_o  <= xfer_resp;
+                  end if;
 
                   case wd_mode is
 
@@ -1477,12 +1749,22 @@ begin
                if delay_cnt /= 0 then
                   delay_cnt <= delay_cnt - 1;
                else
-                  if state_after = ST_IDLE then
+                  -- WIP-V2-A9: while a write episode is open the engine
+                  -- never parks. A one-poll sample of a non-existent unit
+                  -- (df1/df2 with Drives=1, the field default) would
+                  -- otherwise starve the <= 104 us pipe into an underrun,
+                  -- and ST_IDLE would fire the announce and the read-FIFO
+                  -- discard-pop that must stay silent during a write.
+                  if state_after = ST_IDLE and wr_epi = '1' then
+                     delay_cnt <= C_GAP_DELAY;
+                     state     <= ST_POLL_OPEN;
+                  elsif state_after = ST_IDLE then
                      delay_cnt <= G_POLL_DELAY;
+                     state     <= state_after;
                   else
                      delay_cnt <= C_GAP_DELAY;
+                     state     <= state_after;
                   end if;
-                  state <= state_after;
                end if;
 
          end case;
@@ -1525,6 +1807,17 @@ begin
             sig_state    <= SG_IDLE;              -- freeze a torn signature
             state        <= ST_IDLE;
             delay_cnt    <= G_POLL_DELAY;
+            -- WIP-V2-A9: a global abort of an OPEN write episode raises the
+            -- abort LEVEL (the writer cuts WGATE in the same cycle and the
+            -- episode is dead), but does NOT clear the episode itself: Paula
+            -- still holds trackwr until its FIFO drains, so the engine must
+            -- keep re-opening inherited drains and popping until DSKBLK
+            -- fires. The episode-end rule releases it. Re-poll fast, not
+            -- after the 1 ms park, so the pipe cannot starve.
+            if wr_epi = '1' then
+               epi_abort <= '1';
+               delay_cnt <= C_GAP_DELAY;
+            end if;
             if reset_i = '1' then
                track_valid <= (others => '0');
                sector_next <= (others => (others => '0'));
@@ -1591,6 +1884,25 @@ begin
       end if;
    end process p_phys_data;
    phys_data_o <= phys_data_r;
+
+   -- WIP-V2-A9 exports. wr_epi is used COMBINATIONALLY inside the FSM (the
+   -- decisions above must see it in the cycle the latches change), but the
+   -- exported level is REGISTERED: it crosses into the 50 MHz domain through
+   -- an asynchronous 2-FF, and epi_bound/epi_phys can toggle in the same
+   -- cycle - the A7 phys_data_o lesson.
+   wr_epi <= epi_bound and epi_phys;
+
+   p_wr_epi : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         wr_epi_r <= wr_epi;
+      end if;
+   end process p_wr_epi;
+
+   phys_wr_session_o <= wr_epi_r;
+   phys_wr_abort_o   <= epi_abort;
+   phys_wr_precomp_o <= epi_precomp;
+   phys_wr_track_o   <= std_logic_vector(epi_track);
 
    p_dirty_scan : process (clk_main_i)
    begin

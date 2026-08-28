@@ -176,6 +176,22 @@ entity main is
       -- to clk_main in mega65.vhd; 1 = disable the surface (see paula_floppy.v):
       hwf_obs_legacy_i        : in  std_logic := '0';
 
+      -- WIP-V2-A9: the physical WRITE datapath (spec section 2). The tap and
+      -- the FIFO level are pure core-domain wires to physical_fdd_top; the
+      -- writer's status levels and the precomp mode arrive already
+      -- cdc_stable'd from the 50 MHz domain in mega65.vhd.
+      hwf_wr_valid_o          : out std_logic;
+      hwf_wr_data_o           : out std_logic_vector(15 downto 0);
+      hwf_wr_session_o        : out std_logic;
+      hwf_wr_abort_o          : out std_logic;
+      hwf_wr_precomp_o        : out std_logic;
+      hwf_wr_track_o          : out std_logic_vector(7 downto 0);
+      hwf_wr_level_i          : in  unsigned(2 downto 0) := (others => '0');
+      hwf_wr_busy_i           : in  std_logic := '0';
+      hwf_wr_ok_i             : in  std_logic := '0';
+      hwf_selected_i          : in  std_logic := '0';   -- real per-drive /SEL
+      hwf_wr_precmode_i       : in  std_logic_vector(1 downto 0) := "00";
+
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
       joy_1_down_n_i          : in  std_logic;
@@ -723,6 +739,19 @@ begin
          phys_sig_c256_o     => hwf_eng_c256_o,
          phys_serving_o      => hwf_serving_o,
          phys_data_o         => hwf_serving_data_o,
+
+         -- WIP-V2-A9: the write episode contract
+         phys_wr_level_i     => hwf_wr_level_i,
+         phys_wr_busy_i      => hwf_wr_busy_i,
+         phys_wr_ok_i        => hwf_wr_ok_i,
+         phys_sel_i          => hwf_selected_i,
+         phys_wr_precmode_i  => hwf_wr_precmode_i,
+         phys_wr_valid_o     => hwf_wr_valid_o,
+         phys_wr_data_o      => hwf_wr_data_o,
+         phys_wr_session_o   => hwf_wr_session_o,
+         phys_wr_abort_o     => hwf_wr_abort_o,
+         phys_wr_precomp_o   => hwf_wr_precomp_o,
+         phys_wr_track_o     => hwf_wr_track_o,
 
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,

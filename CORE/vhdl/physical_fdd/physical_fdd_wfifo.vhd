@@ -58,7 +58,16 @@ entity physical_fdd_wfifo is
     rd_rst_i   : in  std_logic;
     rd_en_i    : in  std_logic;
     rd_data_o  : out std_logic_vector(15 downto 0);
-    rd_empty_o : out std_logic
+    rd_empty_o : out std_logic;
+    -- Read-side occupancy, the mirror of wr_level_o: the Gray-synced
+    -- (decoded) write pointer minus the binary read pointer, in the
+    -- rd_clk_i domain. Conservative-LOW: writes show up only after their
+    -- Gray pointer has crossed the 2-FF sync, so a consumer that waits for
+    -- a threshold can never be told there is more than there really is.
+    -- ADDITIVE (WIP-V2-A9): the read path's instance leaves it open and is
+    -- bit-identical; the write path's instance uses it for the writer's
+    -- STREAM threshold (spec 3.1).
+    rd_level_o : out unsigned(G_AW downto 0)
   );
 end entity physical_fdd_wfifo;
 
@@ -126,6 +135,9 @@ begin
   -- Write-side occupancy tap (see the port comment). The pointer difference is
   -- taken modulo 2**(G_AW+1), which is exact for any fill level 0..2**G_AW.
   wr_level_o <= wbin - gray2bin(wq2_rgray);
+
+  -- Read-side occupancy tap (the mirror; see the port comment).
+  rd_level_o <= gray2bin(rq2_wgray) - rbin;
 
   wr_domain : process (wr_clk_i)
   begin

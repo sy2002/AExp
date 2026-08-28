@@ -163,9 +163,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   that the aligner's realign-at-every-4489 turns the once-per-rev
   write-splice slip into a seam ([gap run][hybrid][aligned 4489], e.g.
   run-end long $22444489) that matches NO trackdisk hunt-table entry:
-  every spliced attempt dies $1A (written gap > ~560 B) or $17 (second
-  post-gap boundary inside the $67C window -> mis-anchor, failslot ==
-  SG) in BOTH separator modes, except the SG=11 escape (serve start =
+  every spliced attempt dies `$1A` (written gap > ~560 B) or `$17` (second
+  post-gap boundary inside the `$67C` window -> mis-anchor, `failslot ==
+  SG`) in BOTH separator modes, except the SG=11 escape (serve start =
   first-written sector, 11-start sweep = exactly one escape), while a
   constant-framing capture of the SAME flux decodes GREEN (chunk-2
   shift absorbs the splice - real-Paula behavior, ROM-designed). THE
@@ -245,14 +245,35 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   fix (below); the write milestone moves to A9+ - sy2002 paused the write
   session to land Copylock first.**
 - **`WIP-V2-A8` - THE COPYLOCK READ FIX (reg 0x01 = 0x000C; register
-  CONTENT identical to v10; statically verified + full gate green
-  2026-08-27, NOT yet synthesized).** Rob Northen COPYLOCK protected
+  CONTENT identical to v10; BUILT AND FIELD-CONFIRMED 2026-08-28, zero
+  regressions - sy2002 calls it "very stable", and A9 is built on it).**
+  Field round (dejavu4u2, from `40263eb` + submodule `cf934cb`): all
+  three target titles - Cannon Fodder disk 2, The Chaos Engine,
+  Terminator 2 - load and play normally, and the CAUSAL A/B held exactly
+  as pre-registered: `M C 7035 8100` (surface off = the A7 stub) brings
+  the hang back on all three, `M C 7035 8000` restores them, on the same
+  disks in the same session. That pins the failure to this one register
+  rather than to anything else the build changed. The regression sweep
+  covered the only two theoretical exposures the review named, X-Copy and
+  trackdisk/old originals, and both are clean: X-Copy full-disk copies of
+  Alfred Chicken and Workbench 1.3 still 100%, and Giana Sisters, Alfred
+  Chicken, R-Type II, X-Copy Pro, Workbench 1.3, Arkanoid, Arkanoid
+  Revenge of Doh, Superfrog, Addams Family, New Zealand Story, Ruff'N
+  Tumble, Apidya and Benefactor all boot flawlessly. New Zealand Story is
+  itself a Copylock title - the very loader keirf disassembled - so it
+  doubles as a second positive control. The one open thread is Tier 2
+  (the seven dirk9880 titles), still UNCLASSIFIED for want of data: if
+  they are Copylock they are covered now, and if any fails on A8 it is a
+  different class and the classification-before-theory rule applies
+  again. Details + the shelf list behind `0x35` bit 8:
+  `.research/HANDOVER-protected-disks.md` (FIELD RESULT).
+  THE ORIGINAL DEFECT: Rob Northen COPYLOCK protected
   originals (Cannon Fodder disk 2, Terminator 2, The Chaos Engine) hung
   reading their protection track (Amiga track 1 = cyl 0 head 1) on the
   Hardware Floppy while booting fine on the tester's real A500+.
   ROOT CAUSE (established from keirf's Copylock disassemblies + flux +
   the A7 dumps, three independent lines converging): Copylock times the
-  disk by CPU-polling Paula's **DSKBYTR** ($DFF01A) - poll bit 12
+  disk by CPU-polling Paula's **DSKBYTR** (`$DFF01A`) - poll bit 12
   WORDEQUAL for the sync, then count poll iterations while bit 15
   BYTEREADY toggles as raw MFM bytes arrive - comparing a 5%-short
   sector (sync 0x8912) against a 5%-long one (0x8914); it needs
@@ -300,6 +321,195 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   local regression TB is `.research/tb_paula_obs.v` (+
   `tb_paula_floppy_a7ref.v` + `build_tb_paula_obs.sh`). Field A/B recipe
   for dejavu4u2 in the handover.
+- **`WIP-V2-A9` - THE HARDWARE FLOPPY WRITE DATAPATH (reg 0x01 = 0x000D;
+  the first time any M2M core writes a real floppy). Implemented + the sim
+  loop is GREEN; NOT synthesized, NOT committed, and NO REAL DISK HAS BEEN
+  WRITTEN.** A dumb, format-agnostic bit pipe from Paula's write DMA to the
+  WDATA pin - we never parse what we write, so AmigaDOS tracks, X-Copy
+  images and trackloader formats pass through identically. The contract is
+  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` **revision 3.6**
+  (five adversarial audit rounds: 36 -> 45 -> 22 -> 10 -> 11 findings, all
+  folded; round 5 was the implementation session's own fold-check).
+  THE STRUCTURE: Paula's 2048-word FIFO + the dmal backpressure loop IS the
+  elastic buffer (supply 21.3 us/word beats demand 32 us/word, so a paced
+  drain can never starve mid-track), the engine pops ONE word per frame and
+  only when the writer is nearly dry, and a deliberately SHALLOW 4-deep CDC
+  FIFO feeds `physical_fdd_writer.vhd` (50 MHz: 100-cycle cells, MSB-first,
+  FWFT reload, 500 ns active-low WDATA pulses, ROM-faithful precomp, WGATE
+  hard-gated). Shallowness is the whole safety mechanism: Paula fires DSKBLK
+  when the HOST empties its FIFO, so every word still in our pipe then is
+  flux the Amiga already believes written - the in-flight residue is <= 3
+  word times (~104 us), which is REAL-AMIGA SCALE, so X-Copy's 40-100 us
+  post-DSKBLK deselect truncates exactly the words it truncates on a real
+  A500, inside its own 406/918-word self-overlap.
+  THE EPISODE MODEL (the structural critical of audit round 2): Paula's
+  write DMA survives every engine-side drain abort - trackwr stays high
+  until the host drains the FIFO - so the unit of write-session state is the
+  trackwr EPISODE, not the engine drain. Ownership binds ONCE at the first
+  drain (`epi_bound`/`epi_phys`); every later drain INHERITS it
+  (drain_unit = the physical unit, drain_commit = '0', wr_track_lat kept),
+  which is what stops a foreign-sel sample from re-latching the physical
+  DMA's remainder as an ADF-owned COMMITTING drain that would decode and
+  write the flux into a mounted .adf image. The abort is a LEVEL held for
+  the episode; an aborted episode is DEAD (the writer discards, Paula's DMA
+  still completes, DSKBLK fires) - exactly what a real Amiga leaves after a
+  mid-write fault, and trackdisk has no write verify, so the loss is silent
+  until the next read. While an episode is open the engine NEVER enters
+  ST_IDLE, so the 0x1nnn announce and the physical read-FIFO discard-pop are
+  both suspended - load-bearing beyond pacing, because each such pop would
+  fire the A8 obs tap into Paula's DSKBYTR surface in the middle of a write.
+  SAFETY: WGATE opens only while enable AND selected AND motor AND
+  STREAMing AND `wr_ok`, the tab qualifier - wprot_n read writable for 10 ms
+  of CUMULATIVE SELECTED time (the PC mechanism drives its outputs only
+  while selected), 50 us select-settle blanking, an 80 ns-filtered revoke,
+  and the disk-change latch as a filtered EVENT rather than a level (a level
+  would block X-Copy single-drive writes, which swap disks and rewrite the
+  same track WITHOUT stepping). Any gate term lost mid-stream, the engine's
+  abort level, or an underrun cuts WGATE in the SAME cycle and LATCHES the
+  abort for the rest of the episode - a returning term, a re-opened drain or
+  a re-select cannot re-open the gate. The read decode chain is held in
+  reset for the WHOLE episode (`chain_rst` gains `or wr_epi`, NOT merely
+  `or wgate`: a tab-blocked or aborted episode keeps the gate shut while the
+  disk still spins, and a decoding chain would refill the read FIFO behind
+  the write and feed the Copylock surface).
+  PRECOMP is ROM-faithful: a 7-channel-bit window whose middle bit is the
+  one written, gap-before shorter than gap-after -> EARLY and the mirror ->
+  LATE (the mega65-core `f_write_buf` table), ONE magnitude of 140 ns =
+  Paula's PRECOMP0, boundary bits explicitly unshifted. KS1.3 trackdisk
+  programs exactly this for every track >= 81 (FEA2DA..FEA306, the ROM's
+  track-80 exclusion honored); the decision is made ENGINE-side at the
+  episode bind so no multi-bit track value crosses a clock domain, and
+  arrives at the writer as one level. Diag 0x7C selects OFF/ON/AUTO.
+  Files: NEW `CORE/vhdl/physical_fdd/physical_fdd_writer.vhd`; the engine
+  gains the episode/tap/pacing/abort/interlock/announce; `physical_fdd_top`
+  instantiates the writer + a second `physical_fdd_wfifo` (G_AW=2) whose
+  write side is the CORE clock; the FIFO gains an ADDITIVE `rd_level_o`
+  (the read instance leaves it open and stays bit-identical); diag map
+  0x000D adds 0x70..0x7D; mega65/main thread it and add the 0x7C register
+  plus two cdc_stable crossings; **the four board tops now ROUTE
+  f_wdata/f_wgate instead of tying them '1' - an extension of M2M exception
+  7 (`floppy-pins`) that sy2002 owns and signs off**; CORE_VERSION becomes
+  WIP-V2-A9 (settings file `/amiga/aexp-WIP-V2-A9.cfg`, content identical,
+  OPTM_SIZE 146); all four .xpr list the new file. Zero firmware, zero menu,
+  zero BRAM impact (4x16 LUTRAM + registers).
+  VERIFIED IN SIM (nothing on hardware yet): the new `.research/tb_fdd_write.vhd`
+  closes the loop Paula-write-model -> REAL engine -> REAL write FIFO ->
+  REAL writer -> a LIVE ROTATING FLUX MODEL in 50 MHz cycle timestamps ->
+  REAL read chain -> REAL engine read service -> verdicts. The model is
+  pre-seeded with a DIFFERENT track and every writing scenario asserts
+  POSITIVELY that the gate opened and the old flux is gone, so a no-op
+  writer cannot pass by re-reading the seed. S1 (trackdisk cadence, full
+  6815-word track): WGATE window = 10,904,000 cycles = 6815 x 16 x 100
+  EXACTLY pin-to-pin; the ROM-exact KS1.3 trackdisk checker decodes our
+  own re-read (err=$00, SG=11); the constant-framing real-Paula referee
+  decodes; all 11 sectors byte-compare; 0x7D overflow 0, underrun 0,
+  in-flight <= 3; and the INDEPENDENT Python twin `td_write_check.py`
+  agrees EDGE FOR EDGE (38536 = 38536, +/-1 cycle, incl. the 109 %-of-a-
+  revolution self-overlap). S3 (tab open / pre-qualifier / qualified),
+  S4 (short+long engine abort), S5 (all seven gate terms), S9 (both click
+  classes + persisting foreign sel), S10 (df0 sel ambiguity), S11 (all
+  three reset classes + the sub-threshold DMA) pass in BOTH separator arms.
+  The whole pre-existing TB matrix stays green against the modified HDL.
+  A 12-mutant matrix (`.research/run_write_mutants.sh`) enforces the spec
+  rule that every mutant must turn a verdict RED.
+  **S7 and S8 are the two proofs to trust most.** S7 (T8 in
+  tb_adf_multidrive): a physical write carrying valid AmigaDOS sectors, a
+  mounted and write-ARMED ADF drive at the same track, and a PERSISTING
+  foreign selection injected mid-stream - RED against git HEAD ("Avalon
+  write to the wrong image offset": the pre-A9 engine really does commit
+  real-floppy data into a user's .adf) and GREEN against A9. That is the
+  episode model's whole reason to exist, demonstrated rather than argued.
+  S8 (`run_s8_golden.sh`): the engine's io-channel word stream over an
+  ADF-only workload is **19,481 words BYTE-IDENTICAL** between the pre-A9
+  and A9 engines - the bit-identity proof for every shipped ADF and read
+  behaviour.
+  **THE INCREMENT WAS ADVERSARIALLY REVIEWED (6 lenses + refuting
+  skeptics, 30 findings, all folded)** because the implementation session
+  was fragmented by repeated safeguard false positives and model switches.
+  It found two REAL HDL bugs that would have reached a disk: an episode
+  ending in ST_ARM left 1-2 words in the CDC FIFO to be written ahead of
+  the NEXT episode's first word, and the underrun abort was gated on the
+  whole precomp window emptying, so a 1-6 cell dry spell deasserted and
+  then RE-ASSERTED WGATE mid-track - an erased hole with no abort, no
+  reason code and no 0x75 tick, which is the path every real underrun
+  would have taken. It also found that the WGATE expression relied on a
+  monitor that is blind during the 50 us select-settle (so a stale wr_ok
+  from a PREVIOUS disk could open the gate on a just-swapped protected
+  one), that the read chain was released at DSKBLK while the writer still
+  had ~104 us of tail to write, and eight defects in the TESTBENCH itself
+  including one assert that could not fail. The mutant matrix then caught
+  five more checker gaps on its first run - each fixed rather than
+  excused, per the spec's rule.
+  **THE FULL-TRACK BLOCK THEN RAN FOR THE FIRST TIME (2026-08-28) AND PAID
+  FOR ITSELF.** The RPM x separator x framing sweep, S1p, S2, S6 and S12
+  are now all executed. They exposed no HDL defect but seven CHECKER
+  defects, every one of the same shape - a test that reported success
+  without exercising what it claimed: a mutant kill criterion that scored
+  TIMEOUTS as kills; nvc's "analysed unit older than its source" warning
+  ignored, so an edit mid-run left 26 of 27 cells testing stale code; a
+  mutant paired with the wrong cell, which was concealing that NEITHER
+  interlock gate had a working detector (hence the new mutant xiii, read
+  side, and x re-paired to S12/1); S12 grading a 600-word fragment with a
+  ROM-exact decoder, which no design could pass; the S2 X-Copy capture
+  modelled at the full DMA length instead of the spec's 6496 words, which
+  made the residue branch dead code and the tail cut destroy real sector
+  data; the twin's precomp tolerance applied per EDGE to a per-INTERVAL
+  quantity, guaranteeing a false RED on every precomp-active dump; and all
+  five S1p dumps colliding on one filename with the precomp-OFF one
+  surviving, so spec 3.4 had never actually been machine-checked. It has
+  now: the twin agrees EDGE-FOR-EDGE on a precomp-active cyl-90 track
+  (38546/38546, 10061 early + 10017 late), red-controlled against the old
+  tolerance. All runners now fail loudly on stale analysis, and a mutant
+  kill is credited only if the cell is GREEN on the unmutated design.
+  **THE 88-AGENT REGRESSION AUDIT THEN FOUND A REAL ONE (see spec 9a):**
+  the episode bound `epi_phys` from ONE sample of Paula's priority-encoded
+  sel field, whose "nothing selected" default is `2'd0` = "df0 selected",
+  so with the mechanism at df0 an ordinary deselect gap bound an ordinary
+  .adf write as physical - irreversibly, since that suspends the ownership
+  guard and pins `drain_commit` at '0' - and the whole track write was
+  discarded in silence (0 Avalon writes vs 256 pre-A9) while DSKBLK fired
+  and trackdisk, which has no write verify, believed it. FIXED by
+  qualifying the bind with the REAL per-drive select line
+  (`main_hwf_selected`, already in the engine's clock domain, no new CDC) -
+  a deliberate deviation from the original spec 2.1, **signed off by sy2002
+  on 2026-08-28 and folded into the contract as revision 3.6**, where the
+  qualifier is now the rule and 9a records why.
+  Control: `tb_adf_multidrive` T9, RED unfixed / GREEN fixed; T8 now drives
+  the select line, and without it caught a physical write committing into
+  an ADF image. The A8 read-path guards (`tb_hwf_obs_tap` and the
+  `paula_obs` golden diff) were MISSING from the regression suite and are
+  now permanent cells; a forked `tb_engine_paula` additionally proved the
+  physical read-FIFO pop stream - which IS the A8 DSKBYTR observation
+  stream - cycle-timestamp identical to git HEAD over 17061 pops.
+  **THE SIM GATE IS COMPLETE AND GREEN (2026-08-28, device fingerprint
+  46ee06de):** write matrix FULL 0 failures, all 5 twin cross-checks OK,
+  mutants i..xiii all KILLED on real assertions under a baseline-green
+  guard, regression 15/15 (now including the two A8 read-path guards that
+  were MISSING - `tb_hwf_obs_tap` and the `paula_obs` golden diff - plus a
+  new `run_pop_identity.sh` that runs the PRE-A9 engine on a physical read
+  workload and proves the read-FIFO pop stream, which IS the A8 DSKBYTR
+  observation stream, cycle-exact at 17061 pops), S7 red control RED
+  against git HEAD / GREEN against A9, and S8 in BOTH arms: byte-identical
+  with no physical unit, and with one CONFIGURED exactly 1525 announce
+  words differing in that unit's writable nibble and nothing else - the
+  second half of spec 6.2 S8, pre-registered and never run until now.
+  Late coverage added after the regression audit named the gaps: T10
+  (combo B, the mechanism at df0, where "nothing selected" and "df0" are
+  the same encoding), T11 (an ADF write against a BUSY writer with a full
+  CDC FIFO - every earlier ADF result had the writer stubbed at 0/0/0),
+  and T12 (a reset inside an open episode, which also settles the audit's
+  one latent finding by measurement: `epi_bound` does NOT survive a
+  reset). Results are recorded with per-scope fingerprints in the
+  session ledger, so no result can be quoted against a tree it did not
+  describe.
+  NOT YET DONE: bench and field (spec 6.3/6.4) -
+  **NOS DD blanks only, originals' tabs OPEN, and a real Amiga must read a
+  core-written disk before this ships.** `doc/hardware_floppy.md` still
+  says "AExp never writes to a real disk" and MUST be rewritten at
+  packaging (it is user-facing and feeds the website). Note also that the
+  four board tops no longer tie `f_wdata`/`f_wgate` inactive, so the
+  Hardware Floppy is no longer PHYSICALLY read-only: the guards are the
+  writer's conjunction and the disk's own tab, with no runtime disable.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
@@ -377,7 +587,7 @@ the deep material lives in `doc/` (see "Key documents").
 
 - Amiga 500, **OCS only** (no ECS/AGA), **PAL only**, 68000 (fx68k,
   cycle-exact)
-- 512 KB Chip RAM ($000000–$07FFFF) + 512 KB Slow RAM ($C00000–$C7FFFF,
+- 512 KB Chip RAM (`$000000`–`$07FFFF`) + 512 KB Slow RAM (`$C00000`–`$C7FFFF`,
   the "trapdoor" expansion) + 256 KB Kickstart 1.3 — **all in FPGA BRAM**,
   no SDRAM involved (R3 has none; R4+ SDRAM is unused). The Slow RAM is
   OSM-switchable: "Slow RAM (A501)" toggle, default on (issue #20, for
@@ -523,8 +733,8 @@ the deep material lives in `doc/` (see "Key documents").
   DiskDoctor whole-disk sweep (v2 build) then PROVED: disk HEALTHY
   (18254 captures = 11.00 headers/rev over 1659 streamed revs, LOL
   0.60/rev = splice only), side mapping correct on BOTH heads (track
-  74 @ cyl37/h0 + track 105 @ cyl52/h1, cylinder == DiskDoctor
-  display → stepping 1:1), index edges 1:1 with streamed revs — yet
+  74 @ cyl37/h0 + track 105 @ cyl52/h1, `cylinder == DiskDoctor
+  display` → stepping 1:1), index edges 1:1 with streamed revs — yet
   hard errors on ~every track at ~10 fast retries × 2 surfaces per
   cylinder. Open findings: (a) /RDY WART — the PC mechanism gates
   INDEX on /SEL, so idx_fresh starves across deselect gaps and the

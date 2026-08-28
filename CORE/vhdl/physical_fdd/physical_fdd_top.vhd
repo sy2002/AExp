@@ -82,6 +82,11 @@ entity physical_fdd_top is
     clk_i               : in  std_logic;
     rst_i               : in  std_logic;
 
+    -- raw connector outputs of the WRITE path (WIP-V2-A9; registered
+    -- inside physical_fdd_writer, both idle high = inactive)
+    f_wdata_o           : out std_logic := '1';
+    f_wgate_o           : out std_logic := '1';
+
     -- raw connector inputs (async, active-low at pin)
     f_index_i           : in  std_logic;
     f_track0_i          : in  std_logic;
@@ -129,6 +134,26 @@ entity physical_fdd_top is
     ready_n_o           : out std_logic;   -- active low = ready (synthesized, see header)
     index_o             : out std_logic;   -- qualified index LEVEL (1.5..5 ms per rev)
     present_o           : out std_logic;   -- '1' = disk present (= change latch clear)
+
+    -- THE WRITE PATH (WIP-V2-A9, spec sections 2 and 3). The write CDC
+    -- FIFO's WRITE side lives in the core clock domain (rd_clk_i, the same
+    -- clock the engine runs on) and its READ side in this 50 MHz domain -
+    -- the exact mirror of the read FIFO above. Both resets derive from the
+    -- QNICE reset (the Gray-pointer discipline).
+    wr_push_i           : in  std_logic := '0';                    -- engine tap
+    wr_data_i           : in  std_logic_vector(15 downto 0) := (others => '0');
+    -- write-side occupancy back to the engine, which computes its own
+    -- pop-when-nearly-dry "ready" from it (no cross-domain path for ready)
+    wr_level_o          : out unsigned(2 downto 0);
+    -- engine episode levels (core domain; synchronized inside the writer)
+    wr_session_i        : in  std_logic := '0';
+    wr_abort_i          : in  std_logic := '0';
+    wr_precomp_i        : in  std_logic := '0';
+    wr_track_i          : in  std_logic_vector(7 downto 0) := (others => '0');
+    wr_precmode_i       : in  std_logic_vector(1 downto 0) := "00";
+    -- writer status (50 MHz; cdc_stable'd to the core domain in mega65.vhd)
+    wr_busy_o           : out std_logic;
+    wr_ok_o             : out std_logic;
 
     -- reconstructed MFM word stream, read side in the core clock domain
     rd_clk_i            : in  std_logic;
@@ -193,7 +218,23 @@ entity physical_fdd_top is
     diag_lol_srv_o      : out unsigned(15 downto 0) := (others => '0');
     diag_lol_idle_o     : out unsigned(15 downto 0) := (others => '0');
     diag_chain_win_o    : out unsigned(15 downto 0) := (others => '0');
-    diag_frame_stat_o   : out std_logic_vector(3 downto 0) := (others => '0')
+    diag_frame_stat_o   : out std_logic_vector(3 downto 0) := (others => '0');
+
+    -- diag map 0x000D: the write instruments (0x70..0x7D)
+    dwr_epi_cnt_o       : out unsigned(15 downto 0) := (others => '0');
+    dwr_words_last_o    : out unsigned(15 downto 0) := (others => '0');
+    dwr_words_tot_o     : out unsigned(15 downto 0) := (others => '0');
+    dwr_wgate_lo_o      : out unsigned(15 downto 0) := (others => '0');
+    dwr_wgate_hi_o      : out unsigned(15 downto 0) := (others => '0');
+    dwr_underrun_o      : out unsigned(15 downto 0) := (others => '0');
+    dwr_discard_o       : out unsigned(15 downto 0) := (others => '0');
+    dwr_tail_o          : out unsigned(15 downto 0) := (others => '0');
+    dwr_precomp_cnt_o   : out unsigned(15 downto 0) := (others => '0');
+    dwr_flags79_o       : out std_logic_vector(15 downto 0) := (others => '0');
+    dwr_gateopen_o      : out unsigned(15 downto 0) := (others => '0');
+    dwr_abortreason_o   : out std_logic_vector(7 downto 0) := (others => '0');
+    dwr_ctrl7c_o        : out std_logic_vector(4 downto 0) := (others => '0');
+    dwr_overflow_o      : out unsigned(15 downto 0) := (others => '0')
   );
 end entity physical_fdd_top;
 
@@ -325,6 +366,23 @@ architecture rtl of physical_fdd_top is
   signal fifo_full    : std_logic;
   signal fifo_level   : unsigned(5 downto 0);
 
+  -- the WRITE path (WIP-V2-A9)
+  signal wfifo_full   : std_logic;
+  signal wfifo_empty  : std_logic;
+  signal wfifo_data   : std_logic_vector(15 downto 0);
+  signal wfifo_rdlvl  : unsigned(2 downto 0);
+  signal wfifo_rd     : std_logic;
+  signal wr_sess_s    : std_logic;                    -- synced episode level
+  signal wr_busy_s    : std_logic;                    -- writer not IDLE (50 MHz)
+  -- 0x7D: pushes refused by a full write FIFO. The event is visible ONLY on
+  -- the FIFO's core-clock write side (a refused write moves no Gray
+  -- pointer), so it is counted there and crossed to this domain as a Gray
+  -- code, exactly like the engine's served-word counter (spec 5./7.).
+  signal ovf_bin      : unsigned(15 downto 0) := (others => '0');
+  signal ovf_gray     : std_logic_vector(15 downto 0) := (others => '0');
+  signal ovf_m, ovf_s : std_logic_vector(15 downto 0) := (others => '0');
+  attribute async_reg of ovf_m : signal is "true";
+
   -- diag counters (wrapping)
   signal cnt_index    : unsigned(15 downto 0) := (others => '0');
   signal cnt_sync     : unsigned(15 downto 0) := (others => '0');
@@ -376,9 +434,24 @@ begin
       change_n_o       => change_n
     ); -- i_inputs
 
-  -- the decode chain only runs while the drive can actually deliver flux;
-  -- each selection starts with a clean sync hunt
-  chain_rst <= rst_i or not (en_s and sel_s and mot_s);
+  -- The decode chain only runs while the drive can actually deliver flux;
+  -- each selection starts with a clean sync hunt. WIP-V2-A9 adds the write
+  -- EPISODE term: while a physical write episode is open the front end must
+  -- decode NOTHING - not merely while WGATE is asserted, because a
+  -- tab-blocked (DISCARD) or aborted episode keeps the gate shut while the
+  -- disk keeps spinning, and a decoding chain would refill the read FIFO
+  -- behind the write. That would pollute the A4-A7 read instruments and,
+  -- worse, feed the A8 DSKBYTR observation surface with bytes during a
+  -- write DMA (a real Paula shows none). Spec 3.3.
+  -- ... and through the writer's post-DSKBLK TAIL: the episode LEVEL falls
+  -- when Paula completes its DMA, but the writer keeps WGATE open and keeps
+  -- magnetizing for up to ~104 us after that while it drains its residue.
+  -- Releasing the chain at the episode fall would decode the drive's read
+  -- channel during the last three word-times of every write, polluting the
+  -- A4-A7 instruments and feeding the A8 DSKBYTR surface. wr_busy_s is in
+  -- this same 50 MHz domain, so the extra term costs no CDC.
+  chain_rst <= rst_i or not (en_s and sel_s and mot_s)
+               or wr_sess_s or wr_busy_s;
   dpll_en   <= not dpll_dis_i;
 
   -- WORDSYNC-conditional framing hold (the sync-seam fix): once the engine
@@ -454,6 +527,107 @@ begin
       rd_data_o  => rd_data_o,
       rd_empty_o => rd_empty_o
     ); -- i_wfifo
+
+  -----------------------------------------------------------------------------
+  -- THE WRITE PATH (WIP-V2-A9): the CDC FIFO mirror + the writer.
+  -- G_AW = 2 (4 words) is deliberately SHALLOW: Paula fires DSKBLK when the
+  -- HOST empties its FIFO, so every word still in our pipe at that moment is
+  -- flux the Amiga already believes written. The occupancy proof of spec 2.2
+  -- keeps this FIFO at 1..2 words, so the in-flight residue at episode end
+  -- stays <= 3 word times - real-Amiga scale, which is what lets X-Copy's
+  -- 40-100 us post-DSKBLK deselect truncate inside its own self-overlap.
+  -----------------------------------------------------------------------------
+  i_wr_fifo : entity work.physical_fdd_wfifo
+    generic map (
+      G_AW => 2
+    )
+    port map (
+      wr_clk_i   => rd_clk_i,          -- the engine's core clock
+      wr_rst_i   => rd_rst_i,          -- the SAME QNICE reset, synced there
+      wr_en_i    => wr_push_i,
+      wr_data_i  => wr_data_i,
+      wr_full_o  => wfifo_full,
+      wr_level_o => wr_level_o,
+      rd_clk_i   => clk_i,
+      rd_rst_i   => rst_i,
+      rd_en_i    => wfifo_rd,
+      rd_data_o  => wfifo_data,
+      rd_empty_o => wfifo_empty,
+      rd_level_o => wfifo_rdlvl
+    ); -- i_wr_fifo
+
+  wr_busy_o <= wr_busy_s;
+
+  i_writer : entity work.physical_fdd_writer
+    port map (
+      clk_i         => clk_i,
+      rst_i         => rst_i,
+      en_i          => en_s,
+      sel_i         => sel_s,
+      mot_i         => mot_s,
+      side_i        => side_s,
+      step_n_i      => step_s,
+      wprot_n_i     => wprot_n,
+      change_n_i    => change_n,
+      wr_session_i  => wr_session_i,
+      wr_abort_i    => wr_abort_i,
+      wr_precomp_i  => wr_precomp_i,
+      wr_track_i    => wr_track_i,
+      wr_precmode_i => wr_precmode_i,
+      fifo_empty_i  => wfifo_empty,
+      fifo_data_i   => wfifo_data,
+      fifo_level_i  => wfifo_rdlvl,
+      fifo_rd_o     => wfifo_rd,
+      f_wdata_o     => f_wdata_o,
+      f_wgate_o     => f_wgate_o,
+      busy_o        => wr_busy_s,
+      wr_ok_o       => wr_ok_o,
+      sess_s_o      => wr_sess_s,
+      d_epi_cnt_o    => dwr_epi_cnt_o,
+      d_words_last_o => dwr_words_last_o,
+      d_words_tot_o  => dwr_words_tot_o,
+      d_wgate_lo_o   => dwr_wgate_lo_o,
+      d_wgate_hi_o   => dwr_wgate_hi_o,
+      d_underrun_o   => dwr_underrun_o,
+      d_discard_o    => dwr_discard_o,
+      d_tail_o       => dwr_tail_o,
+      d_precnt_o     => dwr_precomp_cnt_o,
+      d_flags79_o    => dwr_flags79_o,
+      d_gateopen_o   => dwr_gateopen_o,
+      d_reason_o     => dwr_abortreason_o,
+      d_ctrl7c_o     => dwr_ctrl7c_o
+    ); -- i_writer
+
+  -- 0x7D: count refused pushes in the CORE domain (the only place they are
+  -- visible) and Gray-cross the counter into this domain for the readout.
+  -- It must read 0 forever; any tear is itself the alarm.
+  ovf_proc : process (rd_clk_i)
+  begin
+    if rising_edge(rd_clk_i) then
+      if rd_rst_i = '1' then
+        ovf_bin  <= (others => '0');
+        ovf_gray <= (others => '0');
+      elsif wr_push_i = '1' and wfifo_full = '1' then
+        ovf_bin  <= ovf_bin + 1;
+        ovf_gray <= std_logic_vector(shift_right(ovf_bin + 1, 1)
+                                     xor (ovf_bin + 1));
+      end if;
+    end if;
+  end process ovf_proc;
+
+  ovf_sync : process (clk_i)
+    variable b : std_logic_vector(15 downto 0);
+  begin
+    if rising_edge(clk_i) then
+      ovf_m <= ovf_gray;
+      ovf_s <= ovf_m;
+      b(15) := ovf_s(15);
+      for i in 14 downto 0 loop
+        b(i) := b(i + 1) xor ovf_s(i);
+      end loop;
+      dwr_overflow_o <= unsigned(b);
+    end if;
+  end process ovf_sync;
 
   -- status towards the CIA muxes: registered 50 MHz levels
   track0_n_o <= track0_n;

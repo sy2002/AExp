@@ -29,21 +29,47 @@ choice, let the machine restart, and then insert your disk. There is nothing
 to mount and no file to pick: the disk in the slot *is* the disk in the
 drive.
 
-## It is read-only, and that is fine
+## Writing: new, and the one thing to be careful about
 
-AExp never writes to a real disk. Not a byte, not a sector, not ever. The
-emulated Amiga sees the Hardware Floppy as a write-protected drive, exactly
-as if the little plastic tab were open, so programs will politely tell you
-the disk is protected rather than falling over.
+For a long time this feature only read disks. It can now write them too —
+the first time any core on the MEGA65 has written a real floppy. That is
+worth being careful with, so please read this section rather than skimming
+it.
 
-In practice this matters less than it sounds. Hardly anybody wants to write
-to a 30-year-old floppy; what people want is to get things *off* one before
-it dies. Read-only also rules out the worst thing that can happen to an
-original disk: being damaged by a half-finished write. The disk you put in
-comes out exactly as it went in.
+**The disk's own write-protect tab is the only thing standing between a
+program and your floppy.** There is no switch in the menu, no "are you sure",
+nothing in AExp that will stop a write. If the tab is closed, the emulated
+Amiga can write, and it will.
 
-For saving games, formatting and everyday Workbench work, use a disk image in
-one of the other drives. Those are fully read/write.
+On a 3.5" disk the tab is the little sliding shutter in the corner:
+
+* **Hole open** — the disk is protected. Nothing can be written to it. This
+  is what you want for anything you care about.
+* **Hole closed** — the disk can be written.
+
+So the rule for your own collection is short: **originals stay open.** Every
+disk from the attic, every game, every disk you could not replace — slide the
+tab open before it goes anywhere near the slot. Then the drive physically
+cannot alter it, no matter what a program tries.
+
+For writing, use blank disks or ones whose contents you would not miss.
+
+### How far along this is
+
+Writing has been tested extremely thoroughly in simulation — the flux the
+core produces has been decoded back by a faithful model of the Amiga's own
+disk routines, edge for edge — but at the time of writing **no real disk has
+been written yet**. You may well be the first. Treat it as what it is: a new
+feature in an alpha release, being tried on hardware for the first time.
+
+Also worth knowing: the Amiga does not check its own writing. Nothing on a
+real Amiga reads a track back to confirm it landed correctly, so a write that
+goes wrong does so quietly, and you will only find out the next time you read
+that disk. That is not an AExp quirk; it is how the machine has always
+behaved. It is another reason to keep the tab open on anything irreplaceable.
+
+For everyday saving, formatting and Workbench work, disk images in the other
+drives remain the easy and safe choice, and they always will be.
 
 ## Double density only
 
@@ -69,6 +95,9 @@ is doing right now:
 * `df2:HW Floppy: Motor` — the motor is spinning, but no data is reaching the
   Amiga.
 * `df2:HW Floppy: Reading` — decoded data is streaming into the Amiga.
+
+A write shows as `Motor`, not `Reading`: while the Amiga is writing, nothing
+is being read back, so there is no data flowing towards it to report.
 
 That makes a surprisingly useful little instrument. If a program sits there
 and the line says "Motor", the drive is turning but nothing readable is
