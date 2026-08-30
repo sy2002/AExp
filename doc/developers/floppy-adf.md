@@ -169,6 +169,10 @@ consumed by the match and the second is stored.
 After the 11th sector of a track, `350` filler words (`0xAAAA`) form the track
 gap. So a full track is `11 × 544 + 350 = 6334` words of flux.
 
+(The `0xAAAA` filler words above carry no data, only clock cells — so they come
+out as `0xAAAA`, or `0x2AAA` when the preceding word ended on a data `1` and the
+leading clock has to be suppressed. See the clock-bit note below.)
+
 The **info long word** is the sector's self-description: a format tag (always
 `0xFF`), the track number, the sector number (`0..10`), and how many sectors
 remain until the gap. The **checksums** protect the header and the data with the
@@ -183,6 +187,32 @@ into VHDL, and verified byte-identical output through the whole chain; it is the
 ground truth for both the encoder and the decoder. Every "magic" mask (`0x55`,
 `0xAA`, `0x5555`) in `adf_track_engine.vhd` traces directly to a line in that
 file.
+
+**With one deliberate departure: we compute real MFM clock bits.** Half of every
+MFM word is data cells, the other half clock cells whose only job is to keep the
+reader in step; a clock cell is 1 exactly when the data cells on both sides of it
+are 0. The reference does not bother: its comment says *"we do not insert clock
+bits because they will be stripped by the Amiga software anyway"*, so it forces
+every clock cell to 1 (`| 0xAA`) in the data and checksum words and leaves them
+all 0 in the four info words. That is harmless while the stream only ever reaches
+Paula - Amiga software decodes the data cells alone and masks its checksums with
+`0x55555555`, so the clock cells are never looked at.
+
+It stops being harmless the moment the stream can be copied onto a real disk. A
+tool like X-Copy copies whole raw tracks, so an ADF-to-floppy copy asks the drive
+to write clock cells that are physically impossible: all-ones demands flux
+reversals `2 us` apart where DD media needs `4`, and the clock-less info words
+leave 15-cell silences where the maximum is 3. `f_mfm_clocks` in
+`adf_track_engine.vhd` therefore computes the true clock cells over the whole
+stream, carrying the last data cell across word *and sector* boundaries exactly
+as the Kickstart 1.3 encoder does (`$FEA9E2`, which reads `-1(a0)` and encodes
+all eleven sectors into one contiguous buffer). The two sync words are the single
+exception and go out verbatim: a sync carries a *missing* clock, which is
+precisely the pattern an encoder can never produce and is therefore
+unambiguously findable in the stream.
+
+The data cells are untouched by this, so nothing a reader can see changes - and
+the served words now match, bit for bit, what a genuine Amiga disk carries.
 
 ---
 

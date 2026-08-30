@@ -551,22 +551,62 @@ architecture synthesis of adf_track_engine is
    signal wrbuf_q      : std_logic_vector(15 downto 0);
    attribute ram_style of wrbuf : signal is "distributed";
 
-   -- MFM byte helpers (minimig_fdd.cpp SendSector)
+   -- MFM DATA CELLS of a byte (minimig_fdd.cpp SendSector, data half only).
+   -- The reference ORs in 0xAA - it forces every clock cell to 1 and says so:
+   -- "we do not insert clock bits because they will be stripped by the Amiga
+   -- software anyway". True while the words only ever reach Paula, but the
+   -- stream can be raw-copied onto real magnetic media, where all-ones clock
+   -- cells demand flux reversals 2 us apart (the medium needs 4) and the
+   -- clock-less info words leave 15-cell silences (the limit is 3). These
+   -- helpers therefore emit the DATA cells alone and f_mfm_clocks computes
+   -- the real clock cells over the whole stream.
    function f_mfm_odd(b : std_logic_vector(7 downto 0)) return std_logic_vector is
    begin
-      return ('0' & b(7 downto 1)) or x"AA";             -- (b >> 1) | 0xAA
+      return ('0' & b(7 downto 1)) and x"55";            -- (b >> 1) & 0x55
    end function f_mfm_odd;
 
    function f_mfm_even(b : std_logic_vector(7 downto 0)) return std_logic_vector is
    begin
-      return b or x"AA";                                 -- b | 0xAA
+      return b and x"55";                                -- b & 0x55
    end function f_mfm_even;
 
-   -- info-longword bytes (NO clock fill - the only stream words without |0xAA)
+   -- REAL MFM clock cells - the Kickstart 1.3 encoder ($FEA9E2) in hardware.
+   -- Channel order is MSB first, so in a served word the ODD bit numbers are
+   -- clock cells, the EVEN bit numbers data cells, and bit 0 of one word is
+   -- immediately adjacent to bit 15 of the next. A clock cell is 1 exactly
+   -- when the data cells on both sides of it are 0.
+   --   prev = the data cell that preceded this word (the previous word's
+   --   bit 0). The chain runs UNBROKEN across sector boundaries, exactly as
+   --   the ROM does: it reads -1(a0), the previous sector's last byte, and
+   --   encodes all eleven sectors into one contiguous buffer. Restarting the
+   --   chain per sector would emit two adjacent 1 cells at roughly half of
+   --   the ten intra-track seams - the very defect this removes.
+   function f_mfm_clocks(w : std_logic_vector(15 downto 0); prev : std_logic)
+                         return std_logic_vector is
+      variable d : std_logic_vector(15 downto 0);
+      variable r : std_logic_vector(15 downto 0);
+   begin
+      d := w and x"5555";                                -- data cells only
+      r := d;
+      r(15) := not (prev or d(14));
+      for i in 6 downto 0 loop
+         r(2*i + 1) := not (d(2*i + 2) or d(2*i));
+      end loop;
+      return r;
+   end function f_mfm_clocks;
+
+   -- info-longword bytes (data cells only, like every other stream word)
    signal inf_t_odd, inf_t_even : std_logic_vector(7 downto 0);   -- track
    signal inf_s_odd, inf_s_even : std_logic_vector(7 downto 0);   -- sector
    signal inf_g_odd, inf_g_even : std_logic_vector(7 downto 0);   -- sectors until gap (11-sector)
    signal hc1, hc2, hc3         : std_logic_vector(7 downto 0);   -- header checksum (hc0 = 0 always)
+
+   -- The MFM carry: the data cell of the last word served to Paula, i.e. the
+   -- cell that immediately precedes the next word's bit 15. Cleared only when
+   -- a NEW read session begins; it must survive the per-sector io frames,
+   -- because Paula's FIFO sees word 543 of one sector and word 0 of the next
+   -- as adjacent channel cells (the frame handshake words never enter it).
+   signal mfm_prev              : std_logic := '0';
 
 begin
 
@@ -623,27 +663,43 @@ begin
          variable w : std_logic_vector(15 downto 0);
       begin
          case to_integer(k) is
-            when 0 | 1  => w := x"AAAA";                                  -- preamble
+            when 0 | 1  => w := x"0000";                                  -- preamble
             when 2 | 3  => w := sync_word;                                -- 2x DSKSYNC
             when 4      => w := x"55" & inf_t_odd;                        -- info odd
             when 5      => w := inf_s_odd & inf_g_odd;
             when 6      => w := x"55" & inf_t_even;                       -- info even
             when 7      => w := inf_s_even & inf_g_even;
-            when 8 to 23  => w := x"AAAA";                                -- label
-            when 24 | 25  => w := x"AAAA";                                -- hdr cksum odd half (0)
-            when 26     => w := x"AA" & (hc1 or x"AA");                   -- hc0|AA = AA
-            when 27     => w := (hc2 or x"AA") & (hc3 or x"AA");
-            when 28 | 29  => w := x"AAAA";                                -- data cksum odd half (0)
-            when 30     => w := (dc0 or x"AA") & (dc1 or x"AA");
-            when 31     => w := (dc2 or x"AA") & (dc3 or x"AA");
+            when 8 to 23  => w := x"0000";                                -- label
+            when 24 | 25  => w := x"0000";                                -- hdr cksum odd half (0)
+            when 26     => w := x"00" & (hc1 and x"55");                  -- hc0 = 0 always
+            when 27     => w := (hc2 and x"55") & (hc3 and x"55");
+            when 28 | 29  => w := x"0000";                                -- data cksum odd half (0)
+            when 30     => w := (dc0 and x"55") & (dc1 and x"55");        -- dc* carry
+            when 31     => w := (dc2 and x"55") & (dc3 and x"55");        -- junk above 0x55
             when 32 to 287 =>                                             -- data odd bits
                w := f_mfm_odd(bw(15 downto 8)) & f_mfm_odd(bw(7 downto 0));
             when 288 to 543 =>                                            -- data even bits
                w := f_mfm_even(bw(15 downto 8)) & f_mfm_even(bw(7 downto 0));
-            when others => w := x"AAAA";                                  -- track gap
+            when others => w := x"0000";                                  -- track gap
          end case;
          return w;
       end function f_stream_word;
+
+      -- The word actually served to Paula: f_stream_word supplies the data
+      -- cells, f_mfm_clocks the clock cells. The two DSKSYNC words are the ONE
+      -- exception and go out verbatim - a sync word carries a MISSING clock,
+      -- which is precisely the pattern an encoder can never produce and is
+      -- therefore unambiguously findable in the stream.
+      impure function f_serve_word(k    : unsigned(9 downto 0);
+                                   bw   : std_logic_vector(15 downto 0);
+                                   prev : std_logic)
+                                   return std_logic_vector is
+      begin
+         if k = 2 or k = 3 then
+            return sync_word;
+         end if;
+         return f_mfm_clocks(f_stream_word(k, bw), prev);
+      end function f_serve_word;
 
       -- dsksync substitution (minimig_fdd.cpp Copy Lock workaround)
       function f_sync_subst(s : std_logic_vector(15 downto 0)) return std_logic_vector is
@@ -674,6 +730,9 @@ begin
       variable v_serve     : unsigned(1 downto 0);           -- unit the read service will use
       variable v_present   : std_logic_vector(3 downto 0);   -- announce: per-unit present nibble
       variable v_writable  : std_logic_vector(3 downto 0);   -- announce: per-unit writable nibble
+
+      -- the word served to Paula (data cells + computed clock cells)
+      variable v_mfm       : std_logic_vector(15 downto 0);
 
       -- write-decoder scratch
       variable v_hi        : std_logic_vector(7 downto 0);   -- popped word, high byte
@@ -1101,6 +1160,10 @@ begin
                               v_serve := serve_unit;
                            else
                               v_serve := unsigned(status(15 downto 14));
+                              -- a NEW session starts the MFM carry chain. Every
+                              -- abort clears adf_stream, so this is the single
+                              -- point at which the chain can be re-seeded.
+                              mfm_prev <= '0';
                            end if;
                            if f_is_mounted(adf_en_i, disk_mounted_i, v_serve) = '1'
                               and f_tracks(disk_tracks_i, v_serve) /= 0 then
@@ -1589,7 +1652,9 @@ begin
                         else
                            word_total <= to_unsigned(C_MFM_SECTOR_WORDS, 10);
                         end if;
-                        io_din_o     <= f_stream_word(to_unsigned(0, 10), secbuf_q);
+                        v_mfm        := f_serve_word(to_unsigned(0, 10), secbuf_q, mfm_prev);
+                        io_din_o     <= v_mfm;
+                        mfm_prev     <= v_mfm(0);
                         secbuf_raddr <= f_buf_idx(to_unsigned(1, 10));   -- prime word 1
                         xfer         <= XF_STROBE;
                         state        <= ST_STREAM_DATA;
@@ -1607,7 +1672,9 @@ begin
                      state       <= ST_CLOSE;
                   else
                      word_cnt     <= word_cnt + 1;
-                     io_din_o     <= f_stream_word(word_cnt + 1, secbuf_q);
+                     v_mfm        := f_serve_word(word_cnt + 1, secbuf_q, mfm_prev);
+                     io_din_o     <= v_mfm;
+                     mfm_prev     <= v_mfm(0);
                      secbuf_raddr <= f_buf_idx(word_cnt + 2);    -- prime next word
                      xfer         <= XF_STROBE;
                   end if;
