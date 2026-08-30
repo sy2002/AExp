@@ -138,7 +138,20 @@ architecture rtl of physical_fdd_writer is
   -- magnetic constants (spec 3.2; mechanism spec 0.2-1.1 us WDATA pulse)
   -----------------------------------------------------------------------------
   constant C_CELL       : natural := C_HALF_CELL_CYC;  -- 100 = 2.000 us
-  constant C_WR_LAUNCH  : natural := 10;               -- pulse start in cell
+  -- The falling edge IS the flux reversal, so C_WR_LAUNCH places the written
+  -- transition inside the cell and C_WR_PULSE only has to be a width the
+  -- mechanism reliably registers (spec window 0.2-1.1 us).
+  --   LAUNCH at the cell MIDPOINT, like the reference encoder: it gives the
+  --   write amplifier a full microsecond to come up after WGATE opens before
+  --   the track's first reversal, and leaves 860 ns of headroom to either cell
+  --   boundary once precomp has shifted the edge - against 60 ns when the
+  --   launch sat at cycle 10.
+  --   WIDTH stays 500 ns, i.e. the MIDDLE of the mechanism's window, rather
+  --   than the reference's half-cell 988 ns which grazes its upper limit. A
+  --   MEGA65 carries a salvaged drive of unknown provenance, so the pulse
+  --   sits mid-window by choice; the trailing edge is a don't-care as long as
+  --   WDATA is back high before the next launch, and 1500 -> 2000 ns is ample.
+  constant C_WR_LAUNCH  : natural := 50;               -- 1000 ns: cell midpoint
   constant C_WR_PULSE   : natural := 25;               -- 500 ns low
   constant C_WR_PRECOMP : natural := 7;                -- 140 ns = PRECOMP0
 
