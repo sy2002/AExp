@@ -7,8 +7,8 @@ WORK-IN-PROGRES see doc/inofficial.md
   read/write `*.adf` disk image or the built-in MEGA65 drive. Choose how many
   drives you want and what each one is in the "Drive Settings" menu
 
-* Hardware Floppy: the built-in MEGA65 disk drive reads real Amiga disks
-  (read-only, double density media only)
+* Hardware Floppy: the built-in MEGA65 disk drive reads and writes real
+  Amiga disks (double density media only)
 
 * Authentic A500 sound: A500 Filter + LED Filter (both default on)
 

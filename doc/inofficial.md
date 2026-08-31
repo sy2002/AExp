@@ -17,6 +17,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A6     | 08/15/26 | cfd3cde | More robust reading of older floppy disks due to sync-seam fix, WORDSYNC-conditional framing hold
 | WIP-V2-A7     | 08/25/26 | 183eb1d | Improved hardware FDD debugging instruments
 | WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
+| WIP-V2-A9     | 08/31/26 | 3edf736 | Physical disk writing implemented
 
 ## Version 1
 
