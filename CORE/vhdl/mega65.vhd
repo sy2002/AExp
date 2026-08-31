@@ -386,6 +386,7 @@ signal main_hwf_obs_legacy        : std_logic;                     -- DSKBYTR ob
 signal main_hwf_wr_valid          : std_logic;                     -- engine tap pulse
 signal main_hwf_wr_data           : std_logic_vector(15 downto 0);
 signal main_hwf_wr_session        : std_logic;                     -- episode level
+signal main_hwf_selpin_n          : std_logic := '1';              -- mirror of f_selecta_o
 signal main_hwf_wr_abort          : std_logic;                     -- abort level
 signal main_hwf_wr_precomp        : std_logic;                     -- precomp for the episode
 signal main_hwf_wr_track          : std_logic_vector(7 downto 0);  -- episode track
@@ -1556,21 +1557,102 @@ begin
             -- unit u sits at bit 3 + u. df2 is the DEFAULT hardware unit, so
             -- getting this wrong leaves the real drive completely unselected.
             v_sel_n := main_hwf_ctrl(3 + to_integer(unsigned(main_hwf_unit)));
-            f_selecta_o <= v_sel_n;
             f_motora_o  <= not main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
-            f_side1_o   <= main_hwf_ctrl(2) xor main_hwf_sideinv;  -- side (verify on hardware)
-            f_stepdir_o <= main_hwf_ctrl(1);                 -- direc: '1' = toward track 0
             main_fdd_dir <= main_hwf_ctrl(1);
             if v_sel_n = '0' then
-               f_step_o        <= main_hwf_ctrl(0);
                main_fdd_step_n <= main_hwf_ctrl(0);
             else
-               f_step_o        <= '1';
                main_fdd_step_n <= '1';
             end if;
             main_hwf_selected <= not v_sel_n;
+
+            f_stepdir_o <= main_hwf_ctrl(1);                 -- direc: '1' = toward track 0
+            if v_sel_n = '0' then
+               f_step_o <= main_hwf_ctrl(0);
+            else
+               f_step_o <= '1';
+            end if;
+
+            -- WIP-V2-A9 round 2: THE POST-DSKBLK PIN HOLD, SELECT AND SIDE
+            -- ONLY. Paula reports the write complete when the ENGINE takes
+            -- the last word out of its FIFO, so at that instant our CDC FIFO
+            -- and the writer's shifter still owe ~3 word times of flux; a
+            -- real Paula owes ONE, its own output shifter. X-Copy sizes its
+            -- margin for a real Paula - a single trailing $AAAA word - and
+            -- toggles SIDE about 30 us after DSKBLK. Letting that reach the
+            -- pin lays the tail on the WRONG SURFACE; refusing to write it
+            -- destroyed sector 10's last word on every upper-side track
+            -- (measured: 85 bytes of 901,120, all sector 10, all head 1).
+            --
+            -- The two pins are held for DIFFERENT reasons and neither is
+            -- redundant. SIDE: a mechanism switches heads the moment /SIDE1
+            -- moves, so without this the tail lands on the other surface.
+            -- SELECT: a mechanism gates its write circuitry on /SELn, so a
+            -- deselected drive IGNORES WGATE and the tail is lost anyway -
+            -- silently, with no abort and no tail-cut tick.
+            --
+            -- STEP AND DIR ARE DELIBERATELY *NOT* HELD. STEP is a PULSE, and
+            -- nothing here latches or replays one, so a pulse that began and
+            -- ended inside a hold would be DESTROYED rather than delayed -
+            -- the host would advance its cylinder counter while the head
+            -- stayed put, and every later access would silently go to the
+            -- wrong cylinder. Holding it would also buy nothing: the
+            -- writer's STEP abort term is left live and unqualified and
+            -- closes WGATE in the same cycle, in tens of nanoseconds, while
+            -- a head needs milliseconds to move.
+            --
+            -- SCOPE: the DRAIN only - the writer is still busy but the host
+            -- has already been told the write finished. NOT the whole
+            -- episode: during the DMA the host is blocked waiting for
+            -- DSKBLK, and gating on busy alone would freeze the pins for the
+            -- ~207 ms of a full track, for the remainder of a tab-blocked or
+            -- aborted episode, and - because a held reset leaves the episode
+            -- latched (adf_track_engine 'does NOT clear the episode itself')
+            -- - across a reset, right where trackdisk recalibrates with a
+            -- burst of steps. Keying on the drain makes all three impossible:
+            -- a stuck episode keeps wr_session HIGH, so the hold never
+            -- engages at all.
+            --
+            -- The window is the pipe depth, <= ~104 us, far inside X-Copy's
+            -- own 253 us post-side settle and trackdisk's 2000 us
+            -- post-DSKBLK wait. It is a strict SUPERSET of the writer's own
+            -- v_hold: wr_session is native to this domain and falls first,
+            -- while wr_busy returns through a cdc_stable and falls last.
+            -- Note wr_session falls when the ENGINE OBSERVES the DMA end
+            -- (dmaen clear and Paula's FIFO empty), which is one poll frame
+            -- after DSKBLK itself, so the honest guard band against X-Copy's
+            -- ~30 us side toggle is ~25 us, not the full 30.
+            --
+            -- HOLD ONLY AN *ASSERTED* SELECT. Freezing a DESELECTED value
+            -- protects nothing - there is no flux in flight to protect, and
+            -- every route that reaches the guard deselected has the gate
+            -- already shut (a tab-blocked DISCARD, an episode aborted
+            -- mid-stream, or a deselect inside the DSKBLK-to-observation
+            -- gap). It can only do harm: a mechanism qualifies STEP by
+            -- /SELn, so a drive pinned deselected IGNORES a step pulse that
+            -- reaches its pin, and the head silently stays behind the host's
+            -- cylinder counter - the same failure class that took STEP out
+            -- of this freeze in the first place.
+            --
+            -- Only the PINS are held. main_hwf_selected, main_fdd_step_n and
+            -- main_fdd_dir keep following the live Amiga values, because the
+            -- engine's episode-bind qualifier (spec 9a) and the diagnostics
+            -- must keep describing what the host is doing.
+            --
+            -- Holding SELECT asserted past a host deselect is safe on this
+            -- board because there is exactly ONE physical drive on the
+            -- cable: f_selectb/f_motorb stay tied inactive (M2M exception 7),
+            -- so no second mechanism can contend for the shared open-
+            -- collector status lines.
+            if not (main_hwf_wr_busy = '1' and main_hwf_wr_session = '0'
+                    and main_hwf_selpin_n = '0') then
+               f_selecta_o       <= v_sel_n;
+               main_hwf_selpin_n <= v_sel_n;
+               f_side1_o         <= main_hwf_ctrl(2) xor main_hwf_sideinv;
+            end if;
          else
             f_selecta_o       <= '1';
+            main_hwf_selpin_n <= '1';
             f_motora_o        <= '1';
             f_side1_o         <= '1';
             f_stepdir_o       <= '1';

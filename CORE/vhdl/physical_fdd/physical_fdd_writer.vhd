@@ -240,6 +240,7 @@ begin
     variable v_shift  : integer range -C_WR_PRECOMP to C_WR_PRECOMP;
     variable v_inflt  : natural;
     variable v_term   : std_logic;
+    variable v_hold   : std_logic;   -- post-DSKBLK drain hold (round 2)
     variable v_reload : std_logic;
     variable v_dry    : std_logic;
   begin
@@ -310,10 +311,55 @@ begin
       ---------------------------------------------------------------------
       -- gate-term monitoring while streaming
       ---------------------------------------------------------------------
+      -- THE POST-DSKBLK DRAIN HOLD (WIP-V2-A9 round 2, bench 2026-08-31).
+      -- Paula fires DSKBLK when the HOST empties its FIFO, i.e. when the
+      -- ENGINE takes the last word out of it - so at that instant the word
+      -- just handed over is unwritten by definition, and our CDC FIFO and
+      -- shifter hold more. Residue is ~3 word times where a real Paula owes
+      -- ONE (its own shifter). X-Copy's DOS engine leaves exactly one
+      -- sacrificial $AAAA word for that (DSKLEN $D955 = 6485 = 500 + 11x544
+      -- + 1) and then toggles the SIDE line ~30 us after DSKBLK, which used
+      -- to cut WGATE mid-cell and destroy sector 10's last word - measured
+      -- on real media as 85 bytes of 901,120, every one in sector 10 of an
+      -- ODD track at byte 510/511.
+      --
+      -- Once wr_session has fallen the host has ALREADY been told the write
+      -- completed, and the flux we still owe is flux the Amiga believes is
+      -- on the disk. Cutting it is strictly worse than writing it. So a
+      -- SELECT or SIDE change during the drain no longer aborts - and
+      -- mega65.vhd holds f_selecta_o/f_side1_o at their episode values over
+      -- a window that strictly CONTAINS this one (it keys on wr_busy and
+      -- wr_session, and wr_busy returns through a cdc_stable so it falls
+      -- last), so the tail lands on the head it belongs to instead of the
+      -- one the host has already moved on to. The window is the pipe depth,
+      -- <= ~104 us, far inside X-Copy's own 253 us post-side settle and
+      -- trackdisk's 2000 us post-DSKBLK wait.
+      --
+      -- EVERY OTHER TERM STAYS LIVE, and STEP deliberately so: a seek moves
+      -- the head, and writing across it smears the data over two cylinders.
+      -- Motor and enable stay live because a stopped spindle or a disabled
+      -- unit means the flux would be laid down in the wrong place or not at
+      -- all. The tab and disk-change revokes are also unqualified here, and
+      -- they stay genuinely live in the SIDE arm - the head-1 path that IS
+      -- the measured defect - because X-Copy makes no selection change
+      -- between its two write passes, so sel_i stays '1' and their filters
+      -- keep sampling. In a DESELECT arm their filters freeze with the
+      -- settle counter (see the wr_ok section). That IS a real
+      -- consequence of suppressing the deselect abort - before the fix
+      -- the episode ended there, and now it continues with the revokes
+      -- blind - but it is bounded by the drain, the mechanism really is
+      -- still selected through the held pin, and the tab was qualified
+      -- at the episode arm. The medium cannot change under a head that
+      -- is mid-write.
+      v_hold := '0';
+      if state = ST_STREAM and sess_s = '0' then
+        v_hold := '1';
+      end if;
+
       step_p  <= step_n_i;
       v_term  := '0';
       if state = ST_STREAM then
-        if sel_i = '0' then
+        if sel_i = '0' and v_hold = '0' then
           v_term := '1'; reason <= x"01";
         elsif mot_i = '0' or en_i = '0' then
           v_term := '1'; reason <= x"02";
@@ -323,7 +369,7 @@ begin
           v_term := '1'; reason <= x"08";
         elsif step_n_i = '0' and step_p = '1' then
           v_term := '1'; reason <= x"10";
-        elsif side_i /= side_lat then
+        elsif side_i /= side_lat and v_hold = '0' then
           v_term := '1'; reason <= x"20";
         elsif abrt_s = '1' then
           v_term := '1'; reason <= x"80";
@@ -410,8 +456,12 @@ begin
       -- v_term is blind for the whole C_SEL_SETTLE window after a select
       -- edge, and a wr_ok_r left qualified by a PREVIOUS disk would
       -- otherwise open WGATE on a just-swapped write-protected one.
+      -- sel_i is satisfied by v_hold during the drain: mega65.vhd is holding
+      -- f_selecta_o asserted for exactly this window, so the mechanism IS
+      -- still selected even though the host has logically moved on. Every
+      -- other term is unchanged and still evaluated every cycle.
       if vwin(C_MID) = '1' and abort_lat = '0' and state = ST_STREAM
-         and en_i = '1' and sel_i = '1' and mot_i = '1'
+         and en_i = '1' and (sel_i = '1' or v_hold = '1') and mot_i = '1'
          and wr_ok_r = '1' then
         gate_r    <= '1';
         f_wgate_o <= '0';
