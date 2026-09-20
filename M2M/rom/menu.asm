@@ -169,8 +169,13 @@ OPTM_IR_STDSEL  .EQU 17
 ; array of 0s and 1s to define horizontal separator lines
 OPTM_IR_LINES   .EQU 18
 
+; M2M-UPSTREAM osm-deps
+; pointer to the RESOLVED per-line dependency array (see optm_deps.asm), or 0
+; when the dependency feature is switched off / not supported by config.vhd
+OPTM_IR_DEPS    .EQU 19
+
 ; size of initialization record in words
-OPTM_STRUCTSIZE .EQU 19
+OPTM_STRUCTSIZE .EQU 20
 
 OPTM_NL         .DW  0x005C, 0x006E, 0x0000     ; \n
 
@@ -613,6 +618,42 @@ OPTM_RUN        SYSCALL(enter, 1)
                 MOVE    OPTM_STRUCT, R7         ; remember pointer to struct.
                 MOVE    SP, @R7
 
+                ; M2M-UPSTREAM osm-deps
+                ; Normalize the entry cursor position. Since dependency format 2
+                ; a dependent line may be selectable and may even carry
+                ; OPTM_G_START (the per-drive mount lines), so the position we
+                ; are entered with - the remembered one, the start one, or the
+                ; one carried over a submenu switch or a dependency redraw - can
+                ; be hidden right now. The first thing the main loop does is a
+                ; screen-coordinate conversion, which goes FATAL on a line that
+                ; the current level does not show, so walk forward (with
+                ; wrap-around) to the next visible AND selectable line instead.
+                ; R0 = amount of menu items, R1 = groups array, R2 = cursor,
+                ; SP+3 = the structure array behind its size word.
+                MOVE    R0, R9                  ; R9: guard, at most N tries
+_OPTM_RUN_INI   MOVE    SP, R7                  ; structure word of position R2
+                ADD     3, R7
+                ADD     R2, R7
+                MOVE    @R7, R7
+                SHL     1, R7                   ; bit 15: shown at this level?
+                RBRA    _OPTM_RUN_INIA, !C      ; no: advance
+                MOVE    R1, R7                  ; GROUPS[R2]
+                ADD     R2, R7
+                MOVE    @R7, R7
+                MOVE    R7, R8                  ; submenu labels are selectable
+                AND     OPTM_SUBMENU, R8
+                RBRA    _OPTM_RUN_INID, !Z
+                AND     0x00FF, R7              ; group id != 0: selectable
+                RBRA    _OPTM_RUN_INID, !Z
+_OPTM_RUN_INIA  ADD     1, R2                   ; next flat position
+                CMP     R0, R2                  ; wrap around at the end
+                RBRA    _OPTM_RUN_INIB, !Z
+                XOR     R2, R2
+_OPTM_RUN_INIB  SUB     1, R9                   ; a menu without any selectable
+                RBRA    _OPTM_RUN_INI, !Z       ; line cannot happen, but never
+                XOR     R2, R2                  ; loop forever either
+_OPTM_RUN_INID  MOVE    R2, R3                  ; old selected item = current
+
                 ; Main loop
 _OPTM_RUN_SEL   MOVE    SP, R8                  ; update (SP+1), i.e. update..
                 ADD     3, R8                   ; ..the pointer to the curr..
@@ -814,7 +855,17 @@ _OPTM_RUN_6C    MOVE    R8, R11                 ; R11: remember selection key
                 MOVE    R11, R10                ; selection key
                 MOVE    OPTM_CLBK_SEL, R7       ; call callback
                 RSUB    _OPTM_CALL, 1
-                
+
+                ; M2M-UPSTREAM osm-deps
+                ; A single-select item was just switched off. If its group is the
+                ; mother of a dependent line, the set of visible lines changed and
+                ; the level has to be redrawn. Read the group word back from the
+                ; array instead of trusting a register across the callback.
+                MOVE    R1, R8
+                ADD     R2, R8
+                MOVE    @R8, R8
+                RSUB    OPTM_DEPS_AFFECTS, 1
+                RBRA    _OPTM_RUN_SM_4, C       ; mother changed: redraw level
                 RBRA    _OPTM_RUN_SEL, 1        ; continue main loop of menu
 
                 ; proceed in case of multi-sel. with the not yet selected item
@@ -858,25 +909,34 @@ _OPTM_RUN_7     CMP     R4, R0                  ; R4 < R0 (size of structure)
 
                 MOVE    OPTM_TEMP, R8           ; save R10
                 MOVE    R10, @R8
+                MOVE    0, @R12                 ; unselect in OPTM_IR_STDSEL
 
+                ; M2M-UPSTREAM osm-deps
+                ; Since dependency format 2 the members of one group may carry
+                ; different dependencies, so a group can be PARTIALLY visible
+                ; (AExp swaps the "Off" item of a drive against its two normal
+                ; items). Deselecting such a member must still happen in the
+                ; model above - otherwise two members stay selected and
+                ; OPTM_DEP_OK reads the wrong one - but there is nothing to
+                ; unpaint for a line that is not on screen, and the coordinate
+                ; conversion would go fatal on it.
                 MOVE    R10, R8                 ; transform flat lst itm pos..
                 RSUB    _OPTM_R_F2M, 1          ; ..into relative list pos..
-                RBRA    _OPTM_R_FATAL, C        ; failed? fatal!                
+                RBRA    _OPTM_RUN_7A, C         ; hidden: model updated, no paint
                 MOVE    OPTM_Y, R7              ; ..and then..
                 ADD     @R7, R8                 ; transform into screen coord
                 ADD     1, R8                   ; add 1 because of top frame
                 MOVE    R8, R10                 ; R10: OPTM_FP_PRINTXY y coord
 
                 MOVE    OPTM_FP_PRINTXY, R7     ; delete marker at current pos
-                MOVE    R11, @--SP              ; save R11            
+                MOVE    R11, @--SP              ; save R11
                 MOVE    OPTM_MENULEVEL, R11     ; R11: current (sub)menu level
                 MOVE    @R11, R11
-                MOVE    0, @R12
                 MOVE    _OPTM_RUN_SPCE, R8      ; R8: use space char to delete
                 RSUB    _OPTM_CALL, 1
 
                 MOVE    @SP++, R11              ; restore R11
-                MOVE    OPTM_TEMP, R8           ; restore R10
+_OPTM_RUN_7A    MOVE    OPTM_TEMP, R8           ; restore R10
                 MOVE    @R8, R10
 
 _OPTM_RUN_8     ADD     1, R10                  ; y-pos + 1
@@ -944,8 +1004,23 @@ _OPTM_RUN_15    DECRB
                 RSUB    _OPTM_CALL, 1
 
                 CMP     OPTM_CLOSE, R6          ; Close?
-                RBRA    _OPTM_RUN_SEL, !Z       ; no: continue menu loop
-                MOVE    R2, R8                  ; yes: return selected item               
+                RBRA    _OPTM_RUN_SCHG, !Z      ; no: check for a structure change
+                MOVE    R2, R8                  ; yes: return selected item
+                RBRA    _OPTM_RUN_RET, 1
+
+                ; M2M-UPSTREAM osm-deps
+                ; A radio selection or a single-select toggle just changed the
+                ; menu state. If the changed group is the mother of a dependent
+                ; line, the set of visible lines may have changed, so redraw the
+                ; current level. The cursor stays on the just-selected mother
+                ; line, which is by construction visible, so the restart is safe.
+                ; Without dependencies OPTM_DEPS_AFFECTS always reports "no".
+_OPTM_RUN_SCHG  MOVE    R1, R8                  ; group word of the changed line
+                ADD     R2, R8
+                MOVE    @R8, R8
+                RSUB    OPTM_DEPS_AFFECTS, 1
+                RBRA    _OPTM_RUN_SM_4, C       ; mother changed: redraw level
+                RBRA    _OPTM_RUN_SEL, 1        ; otherwise continue menu loop
 
 _OPTM_RUN_RET   MOVE    OPTM_STRUCT, R7         ; important to reset to zero..
                 MOVE    0, @R7                  ; b/c it is also used as flag
@@ -995,6 +1070,9 @@ _OPTM_RUN_SM_2  ADD     1, R2                   ; next item
                 MOVE    @R6, R7
                 AND     0x00FF, R7              ; selectable item?
                 RBRA    _OPTM_RUN_SM_2, Z       ; no: continue to search
+                MOVE    R2, R8                  ; M2M-UPSTREAM osm-deps: honor
+                RSUB    OPTM_DEP_OK, 1          ; dependency visibility - keep
+                RBRA    _OPTM_RUN_SM_2, !C      ; searching past a hidden line
                 RBRA    _OPTM_RUN_SM_4, 1
 
                 ; Fatal: No selectable menu item found
@@ -1041,13 +1119,22 @@ OPTM_SELECT     SYSCALL(enter, 1)
 
                 MOVE    OPTM_F_MS_SLCT, R9
                 RSUB    _OPTM_R_F2M_O, 1        ; convert R8 to screen coord.
+                RBRA    _OPTM_SELECT_R, C       ; M2M-UPSTREAM osm-deps: the index
+                                                ; is not part of the currently
+                                                ; active (sub)menu - which since
+                                                ; dependency format 2 also means
+                                                ; "hidden right now". Tolerate it
+                                                ; and draw nothing; without this
+                                                ; guard the cursor bar lands on
+                                                ; whatever row the failed scan
+                                                ; happened to count to.
 
                 ; Select menu item
                 MOVE    OPTM_FP_SELECT, R7      ; select line
                 MOVE    OPTM_SEL_SEL, R9        ; R8 contains screen coords.
                 RSUB    _OPTM_CALL, 1
 
-                SYSCALL(leave, 1)
+_OPTM_SELECT_R  SYSCALL(leave, 1)
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -1368,6 +1455,53 @@ _OPTM_STRUCT_12 ADD     1, R7                   ; next list element
                 SUB     1, R4                   ; one less item to process
                 RBRA    _OPTM_STRUCT_9, !Z
 
+                ; M2M-UPSTREAM osm-deps
+                ; Third pass: hide every line whose menu dependency is not
+                ; satisfied (see optm_deps.asm).
+                ;
+                ; This MUST be a separate pass that runs AFTER the special-case
+                ; correction above - folding the test into _OPTM_STRUCT_5..8
+                ; silently does nothing on the main menu level. Reason: the
+                ; correction re-sets bit 15 on the first not-shown entry of a
+                ; region (_OPTM_STRUCT_10), and on the main-menu level
+                ; (R3 = 0) _OPTM_STRUCT_11 returns without ever clearing the
+                ; first-occurrence flag R5, so R5 stays 1 across main-menu
+                ; lines and a line hidden earlier would be made visible again
+                ; plus counted into R9. Clearing bit 15 here is safe because
+                ; nothing after this point re-derives it.
+                ;
+                ; When config.vhd does not support the feature, OPTM_IR_DEPS is
+                ; 0 and the whole pass is skipped, so this is a no-op for every
+                ; core that does not use dependencies.
+                MOVE    R8, R0                  ; R0: preserve the struct base
+                MOVE    @R8, R4                 ; R4: overall amount of items
+                MOVE    R8, R7                  ; R7: ptr. to curr. itm in lst
+                ADD     1, R7                   ; skip size info
+                XOR     R1, R1                  ; R1: flat menu line index
+
+                MOVE    OPTM_DATA, R2           ; is the feature active at all?
+                MOVE    @R2, R2                 ; (no init record: no)
+                RBRA    _OPTM_STRUCT_14, Z
+                ADD     OPTM_IR_DEPS, R2
+                MOVE    @R2, R2                 ; (no resolved array: no)
+                RBRA    _OPTM_STRUCT_14, Z
+
+_OPTM_STRUCT_13 MOVE    @R7, R6
+                AND     0x8000, R6              ; shown at this menu level?
+                RBRA    _OPTM_STRUCT_13A, Z     ; no: nothing to hide
+                MOVE    R1, R8                  ; R8: flat index of this line
+                RSUB    OPTM_DEP_OK, 1          ; preserves all registers
+                RBRA    _OPTM_STRUCT_13A, C     ; dependency satisfied: keep
+                AND     0x7FFF, @R7             ; not satisfied: hide the line
+                SUB     1, R9                   ; one less active item
+
+_OPTM_STRUCT_13A ADD    1, R7                   ; next list element
+                ADD     1, R1                   ; next flat index
+                CMP     R1, R4                  ; all lines processed?
+                RBRA    _OPTM_STRUCT_13, !Z
+
+_OPTM_STRUCT_14 MOVE    R0, R8                  ; restore the struct base
+
                 DECRB
                 RET
 
@@ -1476,3 +1610,223 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
 
                 DECRB
                 RET
+
+; ----------------------------------------------------------------------------
+; M2M-UPSTREAM live-text
+;
+; OPTM_LIVE_TEXT
+;
+; Replace a fixed-width part of one menu item in the live OPTM_IR_ITEMS copy
+; and repaint only those characters when that item is currently visible.
+; This is intended for short real-time status updates. It does not clear or
+; redraw the menu, its frame, selection marker or attributes.
+;
+; Backported from C64MEGA65, where it drives the live status field of the
+; "8:Internal 1581" line; AExp uses it for the three "dfN:Hardware Floppy"
+; lines. Purely ADDITIVE: nothing else in the framework calls it, so a core
+; that does not use it is bit-identical.
+;
+; The one deliberate difference to the C64MEGA65 original: that framework has an
+; OPTM_FOREGROUND flag which this routine consults before painting. M2M V2.0.1
+; has no such flag, and introducing one would mean touching OPTM_RUN and the
+; selection callback path - so the "does the menu own the screen right now"
+; question is left to the CALLER (see the contract below). Everything the
+; routine can decide by itself - is there a menu structure at all, is the line
+; visible at the current level, does the replacement fit inside the item - it
+; still decides, and it never invokes the fatal callback.
+;
+; Input:
+;   R8:  flat menu item index, counting every OPTM_ITEMS line from zero
+;   R9:  character offset from the beginning of that menu item
+;   R10: pointer to the fixed-width replacement string
+;   R11: exact number of characters to replace
+; Output:
+;   None; all registers are preserved
+;
+; Contract:
+;   * OPTM_IR_ITEMS must point to a writable live copy, as it does in the M2M
+;     Shell while the options menu is open.
+;   * THE CALLER must only ask for painting while the options menu owns the
+;     screen. Call it from a context that has already established that the OSM
+;     is open and that no sub-activity (file browser, help viewer) is showing.
+;     Getting this wrong is cosmetic, never fatal: the worst case is a few
+;     characters painted over a browser screen.
+;   * The destination range must already exist inside one menu item. It may not
+;     cross the literal backslash-n line separator or the final terminator.
+;   * The replacement string must contain exactly R11 characters followed by a
+;     terminator and may not contain a line separator. Pad shorter status text
+;     with spaces so old characters are always erased.
+;   * The backing copy is updated even when the item is hidden. A later
+;     OPTM_SHOW will therefore use the new text - which is exactly what keeps a
+;     live field coherent across a full menu redraw.
+;   * Invalid input is ignored. The routine never invokes the fatal callback.
+; ----------------------------------------------------------------------------
+
+OPTM_LT_BSLASH  .EQU    0x005C                  ; the literal backslash
+OPTM_LT_N       .EQU    0x006E                  ; the literal lower-case n
+
+OPTM_LIVE_TEXT  SYSCALL(enter, 1)
+
+                MOVE    R8, R0                  ; flat menu item index
+                MOVE    R9, R1                  ; character offset
+                MOVE    R10, R2                 ; replacement string
+                MOVE    R11, R3                 ; replacement length
+
+                CMP     0, R3                   ; empty updates are no-ops
+                RBRA    _OPTM_LT_RET, Z
+                CMP     0, R2                   ; null replacement pointer
+                RBRA    _OPTM_LT_RET, Z
+
+                MOVE    OPTM_DATA, R4           ; active initialization record
+                MOVE    @R4, R4
+                CMP     0, R4
+                RBRA    _OPTM_LT_RET, Z
+                ADD     OPTM_IR_ITEMS, R4       ; writable OPTM_ITEMS pointer
+                MOVE    @R4, R4
+                CMP     0, R4
+                RBRA    _OPTM_LT_RET, Z
+
+                ; Find the beginning of flat menu item R0. Only a literal
+                ; backslash followed by lower-case n is a line separator.
+                MOVE    R0, R5
+_OPTM_LT_ITEM   CMP     0, R5
+                RBRA    _OPTM_LT_OFFSET, Z
+_OPTM_LT_SCAN   CMP     0, @R4
+                RBRA    _OPTM_LT_RET, Z
+                CMP     OPTM_LT_BSLASH, @R4
+                RBRA    _OPTM_LT_NEXTC, !Z
+                MOVE    R4, R6
+                ADD     1, R6
+                CMP     OPTM_LT_N, @R6
+                RBRA    _OPTM_LT_NEXTC, !Z
+                ADD     2, R4                   ; next menu item
+                SUB     1, R5
+                RBRA    _OPTM_LT_ITEM, 1
+_OPTM_LT_NEXTC  ADD     1, R4
+                RBRA    _OPTM_LT_SCAN, 1
+
+                ; Move to the requested character offset without crossing the
+                ; end of this menu item.
+_OPTM_LT_OFFSET MOVE    R1, R5
+_OPTM_LT_OFFL   CMP     0, R5
+                RBRA    _OPTM_LT_DSTCHK, Z
+                RSUB    _OPTM_LT_ISEND, 1
+                RBRA    _OPTM_LT_RET, C
+                ADD     1, R4
+                SUB     1, R5
+                RBRA    _OPTM_LT_OFFL, 1
+
+                ; Validate that the complete destination range stays inside
+                ; the selected menu item.
+_OPTM_LT_DSTCHK MOVE    R4, R6
+                MOVE    R3, R5
+_OPTM_LT_DSTL   RSUB    _OPTM_LT_ISEND, 1
+                RBRA    _OPTM_LT_RET, C
+                ADD     1, R6
+                MOVE    R6, R4
+                SUB     1, R5
+                RBRA    _OPTM_LT_DSTL, !Z
+                SUB     R3, R4                  ; restore destination pointer
+
+                ; Validate the fixed-width source including the terminator.
+                MOVE    R2, R6
+                MOVE    R3, R5
+_OPTM_LT_SRCL   CMP     0, @R6
+                RBRA    _OPTM_LT_RET, Z
+                CMP     OPTM_LT_BSLASH, @R6     ; reject a line separator
+                RBRA    _OPTM_LT_SRCN, !Z
+                MOVE    R6, R7
+                ADD     1, R7
+                CMP     OPTM_LT_N, @R7
+                RBRA    _OPTM_LT_RET, Z
+_OPTM_LT_SRCN   ADD     1, R6
+                SUB     1, R5
+                RBRA    _OPTM_LT_SRCL, !Z
+                CMP     0, @R6                  ; exactly R3 characters?
+                RBRA    _OPTM_LT_RET, !Z
+
+                ; Update the backing text first so later full redraws remain
+                ; coherent with the directly painted characters.
+                MOVE    R2, R8
+                MOVE    R4, R9
+                MOVE    R3, R10
+                SYSCALL(memcpy, 1)
+
+                ; No menu structure means OPTM_RUN is not running: the backing
+                ; copy is updated, but there is nothing on screen to paint.
+                MOVE    OPTM_STRUCT, R5
+                CMP     0, @R5
+                RBRA    _OPTM_LT_RET, Z
+
+                ; Convert the flat item index to its position in the current
+                ; menu level. Read the structure directly so malformed live
+                ; update input can never enter the fatal menu error path.
+                ; OPTM_STRUCT points at the stack frame built by OPTM_RUN:
+                ; +2 is the size word of the structure array, +3 its first
+                ; item word, bit 15 = shown at the current menu level.
+                MOVE    @R5, R5
+                ADD     2, R5
+                MOVE    @R5++, R4               ; number of flat menu items
+                XOR     R6, R6                  ; relative visible position
+                XOR     R7, R7                  ; flat position
+_OPTM_LT_MAP    CMP     R7, R4                  ; target outside structure?
+                RBRA    _OPTM_LT_RET, Z
+                CMP     R7, R0                  ; target reached?
+                RBRA    _OPTM_LT_TARGET, Z
+                MOVE    @R5, R8
+                SHL     1, R8                   ; bit 15 marks a visible item
+                RBRA    _OPTM_LT_MAPN, !C
+                ADD     1, R6
+_OPTM_LT_MAPN   ADD     1, R5
+                ADD     1, R7
+                RBRA    _OPTM_LT_MAP, 1
+
+_OPTM_LT_TARGET MOVE    @R5, R8
+                SHL     1, R8
+                RBRA    _OPTM_LT_RET, !C        ; hidden at the current level
+
+                MOVE    OPTM_Y, R10             ; screen y = frame + item
+                MOVE    @R10, R10
+                ADD     R6, R10
+                ADD     1, R10
+                MOVE    OPTM_X, R9              ; screen x = frame + offset
+                MOVE    @R9, R9
+                ADD     1, R9
+                ADD     R1, R9
+                MOVE    R2, R8                  ; replacement text
+                MOVE    OPTM_MENULEVEL, R11
+                MOVE    @R11, R11
+                MOVE    OPTM_FP_PRINTXY, R7
+                RSUB    _OPTM_CALL, 1
+
+_OPTM_LT_RET    SYSCALL(leave, 1)
+                RET
+
+; Return Carry=1 when the character at R4 ends the current menu item, either
+; through the final terminator or through a literal backslash-n separator.
+; R4 and all other registers are preserved.
+_OPTM_LT_ISEND
+                MOVE    R0, @--SP
+                CMP     0, @R4
+                RBRA    _OPTM_LT_END, Z
+                CMP     OPTM_LT_BSLASH, @R4
+                RBRA    _OPTM_LT_NOTEND, !Z
+                MOVE    R4, R0
+                ADD     1, R0
+                CMP     OPTM_LT_N, @R0
+                RBRA    _OPTM_LT_END, Z
+_OPTM_LT_NOTEND MOVE    @SP++, R0
+                AND     0xFFFB, SR              ; clear Carry
+                RET
+_OPTM_LT_END    MOVE    @SP++, R0
+                OR      0x0004, SR              ; set Carry
+                RET
+
+; ----------------------------------------------------------------------------
+; M2M-UPSTREAM osm-deps
+; Dependent menu entries ("smart dependencies"). Included here so that the menu
+; component stays self-contained: OPTM_DEP_OK is called from _OPTM_STRUCT above
+; and OPTM_DEPS_AFFECTS from the selection handling in _OPTM_RUN.
+; ----------------------------------------------------------------------------
+
+#include "optm_deps.asm"

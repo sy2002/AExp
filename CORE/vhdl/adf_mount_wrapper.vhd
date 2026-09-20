@@ -1,7 +1,7 @@
 ---------------------------------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- adf_mount_wrapper: QNICE device 0x0103 (C_DEV_AMIGA_ADF) - the ADF mount buffer in HyperRAM
+-- adf_mount_wrapper: one QNICE ADF mount buffer in HyperRAM (C_DEV_AMIGA_ADF0/1/2)
 --
 -- The M2M Shell's OSM file browser loads the selected .ADF byte by byte into this device
 -- (C_CRTROMTYPE_DEVICE manual load; see CORE/vhdl/globals.vhd). The device has two faces:
@@ -14,7 +14,7 @@
 --     STATUS=ST_LDNG before streaming, then file size + STATUS=ST_OK, then polls PARSEST until
 --     the core answers READY or ERROR (M2M/rom/crts-and-roms.asm, HANDLE_CRTROM_M).
 --   * 4k window 0xFFFE   : the write-back CSR (WBC) - the ADF write support's core<->firmware
---     interface (see doc/floppy-adf.md). The track engine commits
+--     interface (see doc/developers/floppy-adf.md). The track engine commits
 --     Amiga-written sectors into HyperRAM and queues the track number over a two-phase toggle
 --     handshake (CDC in mega65.vhd); this wrapper collects them in a 166-bit dirty bitmap and
 --     runs the vdrives-style anti-thrashing ms-countdown. The firmware (HANDLE_CORE_IO in
@@ -51,7 +51,7 @@ entity adf_mount_wrapper is
       G_BASE_ADDRESS : std_logic_vector(21 downto 0)
    );
    port (
-      -- QNICE clock domain: the C_DEV_AMIGA_ADF device (4k-window byte protocol + CSR)
+      -- QNICE clock domain: the C_DEV_AMIGA_ADF* device (4k-window byte protocol + CSR)
       qnice_clk_i          : in  std_logic;
       qnice_rst_i          : in  std_logic;
       qnice_addr_i         : in  std_logic_vector(27 downto 0);

@@ -24,7 +24,9 @@ use work.video_modes_pkg.all;
 entity main is
    generic (
       G_VDNUM                 : natural;                    -- amount of virtual drives
-      G_ADF_BASE_ADDRESS      : std_logic_vector(21 downto 0)  -- ADF image HyperRAM word base
+      G_ADF_BASE_DF0          : std_logic_vector(21 downto 0);  -- df0 image HyperRAM word base
+      G_ADF_BASE_DF1          : std_logic_vector(21 downto 0);  -- df1 image HyperRAM word base
+      G_ADF_BASE_DF2          : std_logic_vector(21 downto 0)   -- df2 image HyperRAM word base
    );
    port (
       clk_main_i              : in  std_logic;
@@ -89,16 +91,16 @@ entity main is
 
       -- ADF floppy mount status (from adf_mount_wrapper via mega65.vhd,
       -- already CDC'd to clk_main)
-      adf_mounted_i           : in  std_logic;
-      adf_tracks_i            : in  std_logic_vector(7 downto 0);
+      adf_mounted_i           : in  std_logic_vector( 2 downto 0);
+      adf_tracks_i            : in  std_logic_vector(23 downto 0);
 
       -- ADF write-back: arming flag (CDC'd like the mount status) and the
       -- dirty-track event channel (two-phase toggle handshake towards
       -- adf_mount_wrapper; the cdc_stable instances live in mega65.vhd)
-      adf_writable_i          : in  std_logic;
+      adf_writable_i          : in  std_logic_vector(2 downto 0);
       adf_wr_track_o          : out std_logic_vector(7 downto 0);
-      adf_wr_req_o            : out std_logic;
-      adf_wr_ack_i            : in  std_logic;
+      adf_wr_req_o            : out std_logic_vector(2 downto 0);
+      adf_wr_ack_i            : in  std_logic_vector(2 downto 0);
 
       -- ADF floppy image read/write port: Avalon-MM master in the clk_main
       -- domain (post avm_cache; mega65.vhd crosses it to the HyperRAM clock)
@@ -124,6 +126,71 @@ entity main is
       -- (default), '0' = chip-RAM-only A500. Static OSM bit, sampled by amiga_config
       -- while the Amiga is in reset and encoded in the replayed userio memory config.
       slow_ram_i              : in  std_logic;
+
+      -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
+      -- Drive map from the OSM "Configure Drives" radio (static in clk_main;
+      -- changes trigger the amiga_cold_boot reset in mega65.vhd):
+      drv_count_i             : in  std_logic_vector(1 downto 0);  -- Amiga units minus one
+      hwf_adf_en_i            : in  std_logic_vector(2 downto 0);  -- unit is a simulated drive
+      hwf_phys_unit_i         : in  std_logic_vector(1 downto 0);  -- unit of the physical drive
+      hwf_phys_en_i           : in  std_logic;                     -- '1' = physical unit exists
+      -- CIA-B drive-control taps towards the connector (pin driving lives in
+      -- mega65.vhd next to the f_* ports):
+      hwf_fdd_ctrl_o          : out std_logic_vector(7 downto 0);  -- {motor_n,sel3..0_n,side,direc,step_n}
+      hwf_motor_on_o          : out std_logic_vector(3 downto 0);  -- per-unit motor latches
+      -- conditioned real drive status (synced to clk_main in mega65.vhd):
+      hwf_change_n_i          : in  std_logic;
+      hwf_wprot_n_i           : in  std_logic;
+      hwf_track0_n_i          : in  std_logic;
+      hwf_ready_n_i           : in  std_logic;
+      hwf_index_i             : in  std_logic;
+      hwf_present_i           : in  std_logic;
+      -- reconstructed MFM word stream (read side of the front-end FIFO):
+      hwf_rd_data_i           : in  std_logic_vector(15 downto 0);
+      hwf_rd_empty_i          : in  std_logic;
+      hwf_rd_en_o             : out std_logic;
+      -- live DSKSYNC towards the front-end bit-aligner:
+      hwf_dsksync_o           : out std_logic_vector(15 downto 0);
+      -- diag: Gray-coded count of physical data words served into Paula:
+      hwf_served_gray_o       : out std_logic_vector(15 downto 0);
+      -- diag: store-signature pair (engine-served vs Paula-stored, first
+      -- 1024 words after the sync match of each read attempt) + counters:
+      hwf_eng_sig_o           : out std_logic_vector(15 downto 0);
+      hwf_eng_ses_o           : out std_logic_vector(7 downto 0);
+      hwf_eng_done_o          : out std_logic;
+      hwf_eng_c64_o           : out std_logic_vector(15 downto 0);
+      hwf_eng_c256_o          : out std_logic_vector(15 downto 0);
+      -- diag: '1' while a physical read stream session is open (gates the
+      -- margin instrumentation in physical_fdd_top):
+      hwf_serving_o           : out std_logic;
+      -- '1' while that session streams words past its serve-start sync
+      -- (gates the WORDSYNC-conditional framing hold - the sync-seam fix):
+      hwf_serving_data_o      : out std_logic;
+      hwf_pau_sig_o           : out std_logic_vector(15 downto 0);
+      hwf_pau_att_o           : out std_logic_vector(7 downto 0);
+      hwf_pau_c64_o           : out std_logic_vector(15 downto 0);
+      hwf_pau_c256_o          : out std_logic_vector(15 downto 0);
+      hwf_pau_tap_o           : out std_logic_vector(127 downto 0);
+      hwf_pau_ws_o            : out std_logic;
+      -- DSKBYTR observation surface A/B revert bit (diag 0x35 bit 8), synced
+      -- to clk_main in mega65.vhd; 1 = disable the surface (see paula_floppy.v):
+      hwf_obs_legacy_i        : in  std_logic := '0';
+
+      -- WIP-V2-A9: the physical WRITE datapath (spec section 2). The tap and
+      -- the FIFO level are pure core-domain wires to physical_fdd_top; the
+      -- writer's status levels and the precomp mode arrive already
+      -- cdc_stable'd from the 50 MHz domain in mega65.vhd.
+      hwf_wr_valid_o          : out std_logic;
+      hwf_wr_data_o           : out std_logic_vector(15 downto 0);
+      hwf_wr_session_o        : out std_logic;
+      hwf_wr_abort_o          : out std_logic;
+      hwf_wr_precomp_o        : out std_logic;
+      hwf_wr_track_o          : out std_logic_vector(7 downto 0);
+      hwf_wr_level_i          : in  unsigned(2 downto 0) := (others => '0');
+      hwf_wr_busy_i           : in  std_logic := '0';
+      hwf_wr_ok_i             : in  std_logic := '0';
+      hwf_selected_i          : in  std_logic := '0';   -- real per-drive /SEL
+      hwf_wr_precmode_i       : in  std_logic_vector(1 downto 0) := "00";
 
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
@@ -216,6 +283,26 @@ architecture synthesis of main is
          pwr_led        : out std_logic;
          fdd_led        : out std_logic;
          hdd_led        : out std_logic;
+
+         -- physical-drive support (see minimig_m65.v / paula_floppy.v)
+         fdd_ctrl          : out std_logic_vector(7 downto 0);
+         fdd_motor_on      : out std_logic_vector(3 downto 0);
+         fdd_dsig          : out std_logic_vector(15 downto 0);
+         fdd_datt          : out std_logic_vector(7 downto 0);
+         fdd_dc64          : out std_logic_vector(15 downto 0);
+         fdd_dc256         : out std_logic_vector(15 downto 0);
+         fdd_dtap          : out std_logic_vector(127 downto 0);
+         fdd_dws           : out std_logic;
+         -- DSKBYTR observation surface (Copylock; see paula_floppy.v)
+         fdd_obs_word      : in  std_logic_vector(15 downto 0);
+         fdd_obs_stb       : in  std_logic;
+         fdd_obs_legacy    : in  std_logic;
+         fdd_phys_mask     : in  std_logic_vector(3 downto 0);
+         fdd_phys_change_n : in  std_logic;
+         fdd_phys_wprot_n  : in  std_logic;
+         fdd_phys_track0_n : in  std_logic;
+         fdd_phys_ready_n  : in  std_logic;
+         fdd_phys_index    : in  std_logic;
 
          rtc            : in  std_logic_vector(64 downto 0);
 
@@ -372,6 +459,14 @@ architecture synthesis of main is
    -- outside its refill state, and (b) the engine cannot issue new reads until
    -- bus grant + poll delay (>> 1 ms), long after any residue has drained.
    signal adf_cache_rst    : std_logic;
+   signal adf_avm_busy     : std_logic;
+   signal adf_avm_write_int : std_logic;
+   signal adf_avm_read_int  : std_logic;
+   signal adf_mounted_q    : std_logic_vector(2 downto 0) := (others => '0');
+   signal adf_flush_req    : std_logic := '1';   -- flush once after power-up
+   constant C_ADF_QUIET    : natural := 15;      -- quiet clocks before a flush
+   signal adf_quiet        : natural range 0 to C_ADF_QUIET := 0;
+   signal adf_quiet_s      : std_logic;
 
    -- keyboard
    signal kbd_mouse_data   : std_logic_vector(7 downto 0);
@@ -435,6 +530,18 @@ architecture synthesis of main is
    -- Amiga mouse buttons in minimig format: active high {middle, right, left}
    signal mouse_btn        : std_logic_vector(2 downto 0);
    signal kbd_mouse_rmb    : std_logic;   -- RUN/STOP held (right mouse button substitute)
+
+   -- Hardware Floppy: one-hot mask of the physical unit for paula_floppy's
+   -- status muxes (0000 whenever the feature is off = bit-identical core)
+   signal hwf_phys_mask    : std_logic_vector(3 downto 0);
+
+   -- DSKBYTR observation surface (Copylock): the engine's front-end FIFO pop
+   -- IS the reconstructed real-disk word stream at true flux pace. s_hwf_rd_en
+   -- is the engine pop strobe (also driving the hwf_rd_en_o port); on it the
+   -- current FWFT word is captured and pulsed to Paula as obs_word/obs_stb.
+   signal s_hwf_rd_en      : std_logic;
+   signal hwf_obs_word     : std_logic_vector(15 downto 0) := (others => '0');
+   signal hwf_obs_stb      : std_logic := '0';
 
    -- POT-line mouse buttons for active adapters (mouSTer and friends), see
    -- the comment block at the mouse_btn assignment and doc/mouse.md.
@@ -570,6 +677,10 @@ begin
          clk_main_i       => clk_main_i,
          reset_i          => amiga_rst,
          slow_ram_i       => slow_ram_i,
+         -- two drives only when BOTH the ADF drive and the physical unit
+         -- exist (Configure Drives combos A/B); the single-drive combos
+         -- C/D announce one drive
+         floppy_drives_i  => drv_count_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
          io_din_o         => cfg_din,
@@ -585,7 +696,7 @@ begin
    -- pushes them into Paula's FIFO; Amiga writes are MFM-decoded and committed
    -- back into the HyperRAM image (dirty tracks flushed to SD by the QNICE
    -- firmware). Details and protocol contract in adf_track_engine.vhd /
-   -- doc/floppy-adf.md (read path and write path).
+   -- doc/developers/floppy-adf.md (read path and write path).
    ---------------------------------------------------------------------------
 
    -- the strobe OR is safe only because the enables are mutually exclusive
@@ -594,7 +705,9 @@ begin
 
    i_adf_track_engine : entity work.adf_track_engine
       generic map (
-         G_BASE_ADDRESS => G_ADF_BASE_ADDRESS
+         G_BASE_DF0 => G_ADF_BASE_DF0,
+         G_BASE_DF1 => G_ADF_BASE_DF1,
+         G_BASE_DF2 => G_ADF_BASE_DF2
       )
       port map (
          clk_main_i          => clk_main_i,
@@ -608,12 +721,45 @@ begin
          wr_req_o            => adf_wr_req_o,
          wr_ack_i            => adf_wr_ack_i,
 
+         -- Drive configuration, real-disk presence and the reconstructed
+         -- word stream from the front-end (mega65.vhd)
+         adf_en_i            => hwf_adf_en_i,
+         phys_unit_i         => hwf_phys_unit_i,
+         phys_en_i           => hwf_phys_en_i,
+         phys_present_i      => hwf_present_i,
+         phys_rd_data_i      => hwf_rd_data_i,
+         phys_rd_empty_i     => hwf_rd_empty_i,
+         phys_rd_en_o        => s_hwf_rd_en,
+         dsksync_o           => hwf_dsksync_o,
+         phys_served_gray_o  => hwf_served_gray_o,
+         phys_sig_o          => hwf_eng_sig_o,
+         phys_sig_ses_o      => hwf_eng_ses_o,
+         phys_sig_done_o     => hwf_eng_done_o,
+         phys_sig_c64_o      => hwf_eng_c64_o,
+         phys_sig_c256_o     => hwf_eng_c256_o,
+         phys_serving_o      => hwf_serving_o,
+         phys_data_o         => hwf_serving_data_o,
+
+         -- WIP-V2-A9: the write episode contract
+         phys_wr_level_i     => hwf_wr_level_i,
+         phys_wr_busy_i      => hwf_wr_busy_i,
+         phys_wr_ok_i        => hwf_wr_ok_i,
+         phys_sel_i          => hwf_selected_i,
+         phys_wr_precmode_i  => hwf_wr_precmode_i,
+         phys_wr_valid_o     => hwf_wr_valid_o,
+         phys_wr_data_o      => hwf_wr_data_o,
+         phys_wr_session_o   => hwf_wr_session_o,
+         phys_wr_abort_o     => hwf_wr_abort_o,
+         phys_wr_precomp_o   => hwf_wr_precomp_o,
+         phys_wr_track_o     => hwf_wr_track_o,
+
          io_fpga_o           => io_fpga,
          io_strobe_o         => eng_strobe,
          io_din_o            => eng_din,
          io_dout_i           => io_dout,
          io_wait_i           => io_wait,
 
+         avm_busy_o          => adf_avm_busy,
          avm_write_o         => flp_avm_write,
          avm_read_o          => flp_avm_read,
          avm_address_o       => flp_avm_address,
@@ -625,11 +771,79 @@ begin
          avm_waitrequest_i   => flp_avm_waitrequest
       ); -- i_adf_track_engine
 
+   -- DSKBYTR observation surface (Copylock): drive the engine's pop strobe
+   -- out to the front end, and tap it for Paula. Every word the engine pops
+   -- from the physical front-end FIFO (idle drain between reads AND served
+   -- reads) is the real disk's reconstructed data, arriving at the true,
+   -- density-modulated flux pace. Paula's gated observation receiver turns
+   -- this stream into a faithful DSKBYTR (physical unit only; see
+   -- paula_floppy.v). Zero effect when no physical drive is configured -
+   -- the FIFO stays empty, the engine never pops, obs_stb never pulses.
+   hwf_rd_en_o <= s_hwf_rd_en;
+
+   -- The pop must be QUALIFIED with rd_empty: the engine's ST_IDLE drain
+   -- re-asserts phys_rd_en_o for one extra cycle when it drains the last word
+   -- (the FIFO's empty flag asserts a cycle late), and the FIFO correctly
+   -- ignores that pop (r_do_read = rd_en and not empty). Without the guard the
+   -- tap would fire a phantom obs_stb on that cycle carrying the stale FWFT
+   -- head (a lap-old word), which Paula's newest-wins receiver would then
+   -- publish over the real word - masking WORDEQUAL and the byte stream. With
+   -- it, obs_stb mirrors the FIFO's ACTUAL pops exactly, one per real word.
+   p_hwf_obs : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         hwf_obs_stb <= '0';
+         if s_hwf_rd_en = '1' and hwf_rd_empty_i = '0' then
+            hwf_obs_word <= hwf_rd_data_i;    -- FWFT: the word being popped
+            hwf_obs_stb  <= '1';
+         end if;
+      end if;
+   end process p_hwf_obs;
+
    -- single-line cache: turns the engine's sequential single-word reads into
    -- 8-word HyperRAM bursts (the proven C64 REU value). The engine's sector
    -- commits pass through as single-word writes (write-through; a write hit
    -- updates the cache line, so read-back after write stays coherent)
-   adf_cache_rst <= amiga_rst or not adf_mounted_i;
+   --
+   -- The cache is SHARED by all three simulated drives, so it must be
+   -- invalidated whenever the Shell has streamed a new image into any drive's
+   -- pool - the stale line would otherwise serve up to eight words of the
+   -- previous image. A mount transition is exactly the observable event
+   -- (disk_mounted drops while the wrapper loads and returns when it is
+   -- validated), so any change of the mount vector arms a flush.
+   --
+   -- The flush must NOT happen while anything is in flight. Two things can be:
+   --   * the engine, which avm_cache would leave waiting forever for a burst
+   --     response that the reset threw away - avm_busy_o covers that, and it
+   --     rises one state before the first read/write is issued, which also
+   --     closes the race against an engine that starts fetching in the same
+   --     cycle the flush is decided;
+   --   * the cache itself, whose master-side write of the LAST word of a
+   --     committed sector may still be waiting for waitrequest to drop. The
+   --     reset clears m_avm_write_o, so that word would be silently dropped
+   --     and the .adf would end up with a torn sector. adf_quiet therefore
+   --     only counts up while the master side is idle as well, and the flush
+   --     waits for a run of quiet cycles.
+   p_adf_cache_flush : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         adf_mounted_q <= adf_mounted_i;
+         if adf_mounted_i /= adf_mounted_q then
+            adf_flush_req <= '1';
+         elsif adf_flush_req = '1' and adf_quiet = C_ADF_QUIET then
+            adf_flush_req <= '0';                 -- the reset below is asserted
+         end if;                                  -- during exactly this cycle
+
+         if adf_avm_busy = '1' or adf_avm_write_int = '1' or adf_avm_read_int = '1' then
+            adf_quiet <= 0;
+         elsif adf_quiet /= C_ADF_QUIET then
+            adf_quiet <= adf_quiet + 1;
+         end if;
+      end if;
+   end process p_adf_cache_flush;
+
+   adf_cache_rst <= amiga_rst or (adf_flush_req and adf_quiet_s);
+   adf_quiet_s   <= '1' when adf_quiet = C_ADF_QUIET else '0';
 
    i_avm_cache : entity work.avm_cache
       generic map (
@@ -650,8 +864,8 @@ begin
          s_avm_readdata_o      => flp_avm_readdata,
          s_avm_readdatavalid_o => flp_avm_readdatavalid,
          m_avm_waitrequest_i   => adf_avm_waitrequest_i,
-         m_avm_write_o         => adf_avm_write_o,
-         m_avm_read_o          => adf_avm_read_o,
+         m_avm_write_o         => adf_avm_write_int,
+         m_avm_read_o          => adf_avm_read_int,
          m_avm_address_o       => adf_avm_address_o,
          m_avm_writedata_o     => adf_avm_writedata_o,
          m_avm_byteenable_o    => adf_avm_byteenable_o,
@@ -659,6 +873,9 @@ begin
          m_avm_readdata_i      => adf_avm_readdata_i,
          m_avm_readdatavalid_i => adf_avm_readdatavalid_i
       ); -- i_avm_cache
+
+   adf_avm_write_o <= adf_avm_write_int;
+   adf_avm_read_o  <= adf_avm_read_int;
 
    ---------------------------------------------------------------------------
    -- Keyboard: MEGA65 keys -> raw Amiga scancode events
@@ -771,6 +988,15 @@ begin
    mouse_btn <= pot_mmb & (kbd_mouse_rmb or pot_rmb) & '0';
 
    ---------------------------------------------------------------------------
+   -- Hardware Floppy: one-hot physical-unit mask for paula_floppy's muxes
+   ---------------------------------------------------------------------------
+
+   hwf_phys_mask <= "0001" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "00" else
+                    "0010" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "01" else
+                    "0100" when hwf_phys_en_i = '1' and hwf_phys_unit_i = "10" else
+                    "0000";
+
+   ---------------------------------------------------------------------------
    -- The Minimig core itself
    ---------------------------------------------------------------------------
 
@@ -818,6 +1044,28 @@ begin
          pwr_led        => pwr_led,
          fdd_led        => fdd_led_o,
          hdd_led        => open,
+
+         -- Hardware Floppy: CIA-B taps out, real drive status in (the
+         -- one-hot mask keeps every mux bit-identical when the feature is
+         -- off; the status levels are already clk_main-synced in mega65.vhd)
+         fdd_ctrl          => hwf_fdd_ctrl_o,
+         fdd_motor_on      => hwf_motor_on_o,
+         fdd_dsig          => hwf_pau_sig_o,
+         fdd_datt          => hwf_pau_att_o,
+         fdd_dc64          => hwf_pau_c64_o,
+         fdd_dc256         => hwf_pau_c256_o,
+         fdd_dtap          => hwf_pau_tap_o,
+         fdd_dws           => hwf_pau_ws_o,
+         fdd_obs_word      => hwf_obs_word,
+         fdd_obs_stb       => hwf_obs_stb,
+         fdd_obs_legacy    => hwf_obs_legacy_i,
+         fdd_phys_mask     => hwf_phys_mask,
+         fdd_phys_change_n => hwf_change_n_i,
+         fdd_phys_wprot_n  => hwf_wprot_n_i,
+         fdd_phys_track0_n => hwf_track0_n_i,
+         fdd_phys_ready_n  => hwf_ready_n_i,
+         fdd_phys_index    => hwf_index_i,
+
          rtc            => rtc_i,
 
          io_uio         => io_uio,

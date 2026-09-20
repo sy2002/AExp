@@ -10,6 +10,14 @@ can be checked in the "About & Help" menu of the core.
 | Name          | Date     | Commit  | Comment
 |---------------|----------|---------|----------------------------------------
 | WIP-V2-A1     | 07/25/26 | 232c584 | Authentic A500 sound: A500 Filter + LED Filter (both default on) and a Stereo Mix option. Master volume control (perceptual loudness taper).
+| WIP-V2-A2     | 07/26/26 | 032aec2 | Hardware Floppy (read-only): First attempt to use the built-in disk drive to read real Amiga disks
+| WIP-V2-A3     | 08/04/26 | 4a394aa | Up to three floppy drives (df0:, df1:, df2:) that are either .adf disk images or the built-in MEGA65 drive reading real Amiga disks (issue #17)
+| WIP-V2-A4     | 08/07/26 | 9b996fb | Improved hardware drive instrumentation / debugging capabilities
+| WIP-V2-A5     | 08/08/26 | 20b9219 | More robust reading of older floppy disks due to DPLL data separator
+| WIP-V2-A6     | 08/15/26 | cfd3cde | More robust reading of older floppy disks due to sync-seam fix, WORDSYNC-conditional framing hold
+| WIP-V2-A7     | 08/25/26 | 183eb1d | Improved hardware FDD debugging instruments
+| WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
+| WIP-V2-A9     | 08/31/26 | 3edf736 | Physical disk writing implemented
 
 ## Version 1
 

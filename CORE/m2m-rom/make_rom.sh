@@ -57,7 +57,11 @@ awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""
     echo ""
 } >> osm_const.asm
 
-awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_ADF", $0)}' ../vhdl/globals.vhd >> osm_const.asm
+# One symbol per ADF mount device: AEXP_DEV_ADF0/1/2 from C_DEV_AMIGA_ADF0/1/2.
+# The name is derived from the constant, so the pattern must be an EXACT per-constant
+# match - a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
+# and the assembler would fail on the duplicate.
+awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
 ##############################################################################
 # M2M framework: Generate globals.asm
@@ -72,6 +76,21 @@ awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31
 } > globals.asm
 
 awk '/constant C_VDNUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("VDRIVES_MAX                 .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
+
+# AExp specific: the accepted ADF file-size range, as two 16-bit halves each.
+# globals.vhd states it as tracks x bytes-per-track, so the product is computed
+# here - the firmware size gate must never drift from the HyperRAM map.
+awk '
+    /constant C_ADF_TRACK_BYTES/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); tb=a[1]+0}
+    /constant C_ADF_MIN_TRACKS/  {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); mn=a[1]+0}
+    /constant C_ADF_MAX_TRACKS/  {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); mx=a[1]+0}
+    END {
+        lo = mn * tb; hi = mx * tb;
+        printf("ADF_MIN_SIZE_HI             .EQU 0x%04X\n", int(lo / 65536));
+        printf("ADF_MIN_SIZE_LO             .EQU 0x%04X\n", lo % 65536);
+        printf("ADF_MAX_SIZE_HI             .EQU 0x%04X\n", int(hi / 65536));
+        printf("ADF_MAX_SIZE_LO             .EQU 0x%04X\n", hi % 65536);
+    }' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_CRTROMS_MAN_NUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("CRTROM_MAN_MAX              .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_CRTROMS_AUTO_NUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("CRTROM_AUT_MAX              .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
 
