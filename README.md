@@ -278,7 +278,9 @@ menu keys, and steering the mouse from the keyboard — is in
 ### Video: HDMI
 
 HDMI outputs 720p at 50 Hz (16:9) by default. The first `HDMI:` menu
-entry offers the other 50 Hz modes: 576p at 50 Hz in 4:3 or 5:4.
+entry offers the other 50 Hz modes — 576p at 50 Hz in 4:3 or 5:4 — plus the
+DVI switch that rescues displays which show nothing at all (see the end of
+this section).
 
 **An OCS PAL Amiga is a 50 Hz machine**, so only faithful 50 Hz modes are
 offered. 
@@ -337,6 +339,72 @@ signal on a 60 Hz panel. Deft recorded
 comparing the Checkmate with a 15 kHz analog monitor and a Samsung HDMI
 monitor in Gaming Mode, which adds almost no HDMI latency.
 
+#### DVI (no sound): when the screen stays black
+
+An HDMI cable carries more than pixels. In the gaps between the visible
+lines it also sends "data islands": the sound, and small packets that
+describe the picture to the display. Not every display wants them. A DVI
+monitor behind a passive HDMI-to-DVI adapter cannot decode them at all, and
+some older monitors, cheap scalers and capture boxes reject the whole stream
+instead of ignoring the parts they do not understand. The symptoms are a
+black screen, a "no signal" or "unsupported format" message, or a picture
+that keeps dropping out — while the very same core runs fine on a different
+display.
+
+**DVI (no sound)**, at the bottom of the first `HDMI:` menu just above
+**Back to main menu**, is the cure. It strips the signal down to plain DVI:
+the pixels, the timing and the resolution stay exactly what they were, and
+only the sound and those extra packets disappear. As the name warns, that costs you the sound over the
+cable — use the MEGA65's 3.5 mm audio jack instead, which carries the same
+audio at the same time anyway.
+
+Leave it off unless you need it. And if you do need it, your display is
+showing nothing right now, so here is how to switch it on blind. Turn the
+MEGA65 off and on first, so the menu starts from a known state, and then, as
+soon as the core has started, press your menu key — <kbd>Help</kbd> unless
+you reassigned it in the Keyboard menu:
+
+1. <kbd>Help</kbd> — opens the menu, with the cursor on the topmost `dfN:`
+   disk-image line, or on **Drive Settings** if no drive is a disk image.
+2. <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past **Drive Settings**, onto the
+   first `HDMI:` line. That is **one <kbd>&darr;</kbd> per drive you have set
+   to Disk Image, plus one for Drive Settings** — two at the factory default.
+3. <kbd>Return</kbd> — opens the HDMI menu, cursor on **720p 50 Hz 16:9**.
+4. <kbd>&darr;</kbd> <kbd>&darr;</kbd> <kbd>&darr;</kbd> — past the two 576p
+   modes, onto **DVI (no sound)**.
+5. <kbd>Return</kbd> — DVI is on, and the picture should appear.
+6. <kbd>Help</kbd> — closes the menu and saves the setting.
+
+If the `aexp-<version>.cfg` file is on your SD card (step 3 of the
+installation), you only have to do this once: the choice is stored there and
+the core comes up in DVI mode from then on. Without that file the setting is
+lost at every power-off, so it is worth copying in.
+
+Two things decide whether those key counts are right. The menu remembers
+where the cursor was, so the sequence only works the **first** time you open
+it after switching the machine on — that is what the power cycle is for. And
+step 2 follows your drive configuration: only a drive set to **Disk Image**
+has a line the cursor can land on, so it adds one <kbd>&darr;</kbd>, while a
+drive set to **Hardware Floppy** shows a status line that the cursor skips
+and a drive set to **Off** shows nothing at all. Neither adds a
+<kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is a
+single <kbd>&darr;</kbd>.
+
+Count carefully, because the main menu has **two** lines starting with
+`HDMI:` — the display modes first, the scaling filter second. One
+<kbd>&darr;</kbd> too many in step 2 opens the filter menu instead, where
+steps 4 and 5 would select and save the **Smooth** filter and leave your
+screen just as black. <kbd>Run/Stop</kbd> backs out of a submenu and closes
+the menu when you are already at the top level, so if you suspect a wrong
+turn, back out, power-cycle and start over. (If it happened, set the filter
+back to **Lanczos** once you can see again.) <kbd>Return</kbd> in step 5 is
+a toggle, so pressing it a second time switches DVI off again.
+
+If DVI does not help, the display is probably rejecting the 50 Hz refresh
+rate itself rather than the data islands, and an OCS Amiga has no 60 Hz mode
+to fall back on. Try the analog VGA output, which always carries the picture
+in parallel, or another display.
+
 ### Video: VGA port (analog RGB)
 
 The VGA connector always carries the picture in parallel to HDMI. The
@@ -386,7 +454,9 @@ one that looks best, or fine-tune your own with the included
 
 ### Audio
 
-Audio is available on HDMI and on the 3.5 mm jack simultaneously. By default
+Audio is available on HDMI and on the 3.5 mm jack simultaneously — unless
+you switch on **DVI (no sound)**, which drops the HDMI audio and leaves the
+jack. By default
 AExp sounds like a real A500: the machine's fixed output filter and its
 software-switchable "LED filter" are both emulated, and the options menu adds
 a loudness-true master volume plus a stereo mix that makes hard-panned Amiga

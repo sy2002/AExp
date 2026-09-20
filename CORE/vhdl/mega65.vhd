@@ -661,41 +661,48 @@ constant C_MENU_HDMI_16_9_50  : natural := 41;
 constant C_MENU_HDMI_4_3_50   : natural := 42;
 constant C_MENU_HDMI_5_4_50   : natural := 43;
 
+-- DVI (no sound): single-select, default OFF. Drives the framework's qnice_dvi
+-- input, which makes M2M's vga_to_hdmi.vhd force plain DVI encoding on every
+-- non-video period - no audio sample packets and no HDMI data islands at all.
+-- Pixel timing is untouched, so the picture geometry stays identical. The bit is
+-- consumed in the qnice_clk domain; vga_to_hdmi.vhd does its own CDC.
+constant C_MENU_HDMI_DVI      : natural := 45;
+
 -- The HDMI Filter radio is read by the firmware only (dispatcher
 -- LOAD_HDMI_FILTER with ASCAL_USAGE=1), never by any VHDL: these eight
 -- lines exist solely as the scrape source for osm_const.asm.
-constant C_MENU_FLT_NO_FILTER     : natural := 49;
-constant C_MENU_FLT_SHARP         : natural := 50;
-constant C_MENU_FLT_BICUBIC       : natural := 51;
-constant C_MENU_FLT_SMOOTH        : natural := 52;
-constant C_MENU_FLT_LANCZOS       : natural := 53;
-constant C_MENU_FLT_SCANLINES     : natural := 54;
-constant C_MENU_FLT_CRT_SVIDEO    : natural := 55;
-constant C_MENU_FLT_CRT_COMPOSITE : natural := 56;
+constant C_MENU_FLT_NO_FILTER     : natural := 51;
+constant C_MENU_FLT_SHARP         : natural := 52;
+constant C_MENU_FLT_BICUBIC       : natural := 53;
+constant C_MENU_FLT_SMOOTH        : natural := 54;
+constant C_MENU_FLT_LANCZOS       : natural := 55;
+constant C_MENU_FLT_SCANLINES     : natural := 56;
+constant C_MENU_FLT_CRT_SVIDEO    : natural := 57;
+constant C_MENU_FLT_CRT_COMPOSITE : natural := 58;
 
 -- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
 -- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
-constant C_MENU_HDMI_FF       : natural := 59;
+constant C_MENU_HDMI_FF       : natural := 61;
 
-constant C_MENU_VGA_STD       : natural := 63;   -- VGA: Standard (scandoubled 31.25 kHz); default
-constant C_MENU_VGA_15KHZHSVS : natural := 67;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
-constant C_MENU_VGA_15KHZCS   : natural := 68;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
+constant C_MENU_VGA_STD       : natural := 65;   -- VGA: Standard (scandoubled 31.25 kHz); default
+constant C_MENU_VGA_15KHZHSVS : natural := 69;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
+constant C_MENU_VGA_15KHZCS   : natural := 70;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
--- OSM Scaling follows the C64 layout: line 75 (100%, default) maps to bit 0,
--- while line 83 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
-subtype C_MENU_OSM_SCALING is natural range 83 downto 75;
+-- OSM Scaling follows the C64 layout: line 77 (100%, default) maps to bit 0,
+-- while line 85 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
+subtype C_MENU_OSM_SCALING is natural range 85 downto 77;
 
--- Volume radio (master volume, 5% steps): line 92 (100%, default) down to line 112
+-- Volume radio (master volume, 5% steps): line 94 (100%, default) down to line 114
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
-subtype C_MENU_VOLUME is natural range 112 downto 92;
+subtype C_MENU_VOLUME is natural range 114 downto 94;
 
--- Stereo crossfeed radio ("Stereo: %s" submenu): line 118 (Full Stereo, default)
--- down to line 121 (Mono). Decoded below into main_stereo_mix using MiSTer's
+-- Stereo crossfeed radio ("Stereo: %s" submenu): line 120 (Full Stereo, default)
+-- down to line 123 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
-subtype C_MENU_STEREO is natural range 121 downto 118;
+subtype C_MENU_STEREO is natural range 123 downto 120;
 
 -- Paula output filters (MiSTer Minimig.sv parity), both single-select toggles
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
@@ -703,31 +710,31 @@ subtype C_MENU_STEREO is natural range 121 downto 118;
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
 -- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
-constant C_MENU_A500FILT      : natural := 124;
-constant C_MENU_LEDFILT       : natural := 125;
+constant C_MENU_A500FILT      : natural := 126;
+constant C_MENU_LEDFILT       : natural := 127;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 130 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 132 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
-constant C_MENU_KBD_AMIGA     : natural := 129;
+constant C_MENU_KBD_AMIGA     : natural := 131;
 
 -- OSM-open key radio (issue #8): selects which key(s) drive the framework's
 -- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
 -- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 134 (Help) carries
+-- byte-identical (bit 7 keeps its "the menu key" meaning). Line 136 (Help) carries
 -- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
-constant C_MENU_OSMKEY_HELP   : natural := 134;
-constant C_MENU_OSMKEY_F11    : natural := 135;
-constant C_MENU_OSMKEY_F13    : natural := 136;
-constant C_MENU_OSMKEY_COMBO  : natural := 137;
+constant C_MENU_OSMKEY_HELP   : natural := 136;
+constant C_MENU_OSMKEY_F11    : natural := 137;
+constant C_MENU_OSMKEY_F13    : natural := 138;
+constant C_MENU_OSMKEY_COMBO  : natural := 139;
 
 -- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
 -- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
 -- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
 -- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
 -- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
-constant C_MENU_SLOWRAM       : natural := 141;
+constant C_MENU_SLOWRAM       : natural := 143;
 
 begin
 
@@ -840,8 +847,8 @@ begin
    osm_combo_o <= main_osm_control_i(C_MENU_OSMKEY_COMBO);
 
    -- Master volume: the OSM "Volume" radio (C_MENU_VOLUME) is a 21-way one-hot
-   -- selection in 5% steps; its lowest bit (line 60) is 100% and its highest bit
-   -- (line 80) is 0%. Translate it into a 0..20 step index (0 = mute, 20 = 100%),
+   -- selection in 5% steps; its lowest bit (line 94) is 100% and its highest bit
+   -- (line 114) is 0%. Translate it into a 0..20 step index (0 = mute, 20 = 100%),
    -- defaulting to 100% when no bit is set (e.g. while QNICE is still booting), so
    -- the core never powers up muted. Like the OSM-key decode above this is static,
    -- pure combinational routing in the core clock domain - no CDC. The perceptual
@@ -852,14 +859,14 @@ begin
       main_volume <= 20;                                  -- default: 100%
       for b in C_MENU_VOLUME'low to C_MENU_VOLUME'high loop
          if main_osm_control_i(b) = '1' then
-            main_volume <= C_MENU_VOLUME'high - b;        -- bit 92 -> 20 (100%) .. bit 112 -> 0 (mute)
+            main_volume <= C_MENU_VOLUME'high - b;        -- bit 94 -> 20 (100%) .. bit 114 -> 0 (mute)
          end if;
       end loop;
    end process volume_decode_proc;
 
    -- Stereo crossfeed: the OSM "Stereo" radio (C_MENU_STEREO) is a 4-way one-hot
-   -- pick; translate it into MiSTer's aud_mix encoding (bit 118 -> 00 = Full
-   -- Stereo .. bit 121 -> 11 = Mono), defaulting to full separation when no bit
+   -- pick; translate it into MiSTer's aud_mix encoding (bit 120 -> 00 = Full
+   -- Stereo .. bit 123 -> 11 = Mono), defaulting to full separation when no bit
    -- is set yet. Static combinational routing like the volume decode above.
    stereo_decode_proc : process (main_osm_control_i)
    begin
@@ -1166,7 +1173,7 @@ begin
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
-   qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
+   qnice_dvi_o                <= qnice_osm_control_i(C_MENU_HDMI_DVI);        -- 0=HDMI (with sound), 1=DVI (no sound)
 
    -- VGA (analog) output mode, three-way radio in the OSM (decode as in
    -- C64MEGA65). The Amiga outputs a 15.625 kHz signal:

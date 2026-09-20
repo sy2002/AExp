@@ -570,8 +570,9 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `Off` and NO drive is the Hardware Floppy. Reason (issue #27 comment):
   several games and demos misbehave when the Amiga sees more than one drive
   - Riverraid Reloaded is the reported case. Everything beyond one drive is
-  opt-in through `Drive Settings`; nothing is removed, no menu line moves,
-  `OPTM_SIZE` stays 146 and the firmware ROM is untouched.
+  opt-in through `Drive Settings`; nothing is removed, and for THIS part of
+  A10 no menu line moves and the firmware ROM is untouched - the DVI item
+  described at the end of this entry is what grows `OPTM_SIZE` to 148.
   MECHANICALLY this is three `OPTM_G_STDSEL` flags moving in
   `config.vhd` OPTM_GROUPS (Drives 15 -> 13, df1 24 -> 26, df2 31 -> 32)
   plus the decoders that MIRROR them. The load-bearing rule is that a
@@ -613,12 +614,13 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   new map (G_MAP default), one with the old (`-gG_MAP="10010000"
   -gG_EXPECT_BOOT=true`), and that the assertion can fail
   (`-gG_EXPECT_BOOT=true` alone). Settings file
-  renames to `/amiga/aexp-WIP-V2-A10.cfg` (content identical, 146 x 0xFF) -
-  generate a FRESH one, never copy the A9 file forward: a used A9 file
-  holds the old three-drive selections and, since the firmware accepts a
-  settings file on LENGTH alone, would silently restore them.
-  Zero firmware/menu-size/BRAM/.xpr impact; the diag map stays 0x000D (no
-  floppy behaviour changed).
+  becomes `/amiga/aexp-WIP-V2-A10.cfg`, **148 x 0xFF** because of the DVI
+  item below - generate a FRESH one, never copy the A9 file forward: a used
+  A9 file holds the old three-drive selections and, since the firmware
+  accepts a settings file on LENGTH alone, would silently restore them. Here
+  the length change happens to make that impossible, but do not rely on it.
+  The one-drive change itself has zero firmware/menu-size/BRAM/.xpr impact;
+  the diag map stays 0x000D (no floppy behaviour changed).
   A10 ALSO CARRIES THE HARDWARE-FLOPPY DOCUMENTATION PASS (issue #27): the
   user-facing docs still said the Hardware Floppy was read-only and that old
   media produce read errors - both falsified long ago and fixed in the core
@@ -655,6 +657,69 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   truncated the measurement and the too-long page passed. Mutants: an
   over-long page, an over-wide line, and a semicolon-bearing over-long page
   all go red on a green baseline.
+  A10 ALSO CARRIES THE DVI ITEM, ported from C64MEGA65. `DVI (no sound)` is
+  a single-select toggle, **default OFF**, inside the HDMI Settings submenu:
+  it lands at line 45 (after the separator that follows `576p 50 Hz 5:4`),
+  followed by a new separator at 46, so `Back to main menu` moves 45 -> 47
+  and EVERY line from the old 45 onwards shifts by +2. It drives the
+  framework's `qnice_dvi` input - `qnice_dvi_o <= qnice_osm_control_i(
+  C_MENU_HDMI_DVI)` replaces the `'0'` tie-off - and `vga_to_hdmi.vhd` then
+  forces `ENC_DVI` on every non-video period, so the audio packets and ALL
+  HDMI data islands vanish while the pixels, the timing and the resolution
+  stay identical. That is the cure for displays which reject an HDMI stream
+  and show nothing, and the cost is that sound is only on the 3.5 mm jack.
+  The signal is consumed in the qnice domain and `vga_to_hdmi.vhd` does its
+  own CDC, so the core needs none.
+  THE BLAST RADIUS IS THE RENUMBERING, and it is mechanical but wide: 20
+  `C_MENU_*` constants and the three subtypes (`C_MENU_OSM_SCALING`,
+  `_VOLUME`, `_STEREO`) in `mega65.vhd`, every `-- NN:` comment in BOTH
+  `OPTM_ITEMS` and `OPTM_GROUPS`, the "OSM bit positions" comment block and
+  the `OPTM_DY` view-height list (HDMI Settings submenu 7 -> 9 lines;
+  `OPTM_DY` itself STAYS 34, because the new lines live in a submenu).
+  `OPTM_DEP`/`OPTM_DEP2` encode GROUP ids, not line numbers, so no
+  dependency changes; the firmware has no hard-coded menu index at all
+  (`osm_const.asm` is scraped from `C_MENU_*` and `OPTM_G_*`), so keep the
+  new `C_MENU_HDMI_DVI : natural := 45;` and `OPTM_G_HDMIDVI : integer :=
+  22;` SINGLE-LINE for awk (`$6`). Group ids must stay monotonic increasing,
+  which is why the DVI group is 22, after the floppy block.
+  THE HEAP HAD TO BE REBUDGETED (hard rule 11): demand 2298 -> 2325, so
+  `MENU_HEAP_SIZE` 2304 -> 2336 and both `HEAP_SIZE` constants drop by the
+  same 32 (debug 4736 -> 4704, release 27776 -> 27744) to keep the combined
+  total at 7040 / 30080 - `HEAP`, `VAR$STACK_START` and `STACK_SIZE` do not
+  move. THE ROUNDING RULE ITSELF CHANGED HERE, on sy2002's challenge: it said
+  "next 128-word boundary", which cost 6 words at 146 items but would have
+  left 107 dead words at 148 - and since `FB_HEAP` starts at `HEAP +
+  MENU_HEAP_SIZE`, those words come straight out of the file browser. It now
+  says 32, and `check_osm_menu.py` enforces the new quantum. Tight is safe
+  because both budget checks are FATAL (`ERR_FATAL_HEAP1` at boot,
+  `ERR_FATAL_HEAP2` on every menu open) and the checker is exact, so a
+  shortfall can never be a silent regression. HELP_5 gained a three-line DVI note paid for out of its own footer
+  padding, so the page stays at 33 of 34 rows.
+  Verified: `check_osm_menu.py` all checks passed (148 lines, 41 singles + 3
+  ranges cross-checked against the item TEXT, demand 2325, 8 help pages),
+  `check_firmware.py` clean, `nvc --std=2008` clean on config.vhd (which
+  also ELABORATES) and on mega65.vhd in the full M2M + CORE chain. Two red
+  controls, run rather than assumed: `C_MENU_HDMI_DVI := 46` fails with
+  "points at '', expected 'DVI (no sound)'" (the checker's `expected` table
+  gained that entry - without it the loop, which iterates `expected` and not
+  the HDL, would silently lose coverage for the new constant), and an extra
+  `OPTM_GROUPS` entry fails nvc with "expected at most 148 positional
+  associations". Zero `.xpr`/XDC/board-top impact: `qnice_dvi` is already
+  routed in all four tops. README.md documents the feature and, because the
+  symptom it cures is a black screen, the exact BLIND key sequence: `Help`,
+  2 x Down, Return, 3 x Down, Return - derived from `OPTM_G_START` on line 2
+  plus `_OPTM_RUN_SM_2` (a submenu opens on its first selectable line, 41),
+  and valid only on the FIRST menu open after a core start (`OPTM_SELECTED`
+  is sticky). The count rule is ONE DOWN PER DRIVE SET TO DISK IMAGE PLUS ONE
+  for `Drive Settings` - NOT one per drive, which is what the first README
+  draft said and what the review caught: a Hardware-Floppy drive contributes
+  only a non-selectable `OPTM_G_TEXT` twin, and df0 as Hardware Floppy
+  REMOVES a Down because `_OPTM_RUN_INI` normalises the hidden start cursor
+  forward to `Drive Settings`. Verified over all nine reachable drive
+  configurations. Getting it wrong is not harmless: one Down too many opens
+  the SECOND `HDMI:` line (the filter submenu), where the same three Downs
+  and Return select and SAVE the `Smooth` scaling filter while the screen
+  stays black. Working doc: `.research/HANDOVER-dvi-osm.md`.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
@@ -1151,14 +1216,33 @@ the deep material lives in `doc/` (see "Key documents").
     addresses prove that `STACK_SIZE` still fits. Keep `MENU_HEAP_SIZE` tight:
     every extra word directly reduces
     file-browser capacity (a file entry costs three list words plus its name,
-    terminator and directory flag). Round the calculated demand only to the
-    next 128-word boundary, not to a large power of two. The exact demand
-    formula (from `HELP_MENU` in `M2M/rom/options.asm`): 19 (menu struct) +
-    `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 3 ×
+    terminator and directory flag) - `FB_HEAP` literally starts at
+    `HEAP + MENU_HEAP_SIZE` (`M2M/rom/shell.asm`). **Round the calculated
+    demand up to the next 32-word boundary and no further.** This rule used to
+    say 128, which was harmless while it happened to cost 6 words at 146 items
+    but would have left 107 dead words at 148. Allocating tight is safe
+    because a shortfall is LOUD rather than silent: `HELP_MENU` checks the
+    permanent structure against `MENU_HEAP_SIZE` (`ERR_FATAL_HEAP1`) and the
+    `OPTM_HEAP` demand against the remainder (`ERR_FATAL_HEAP2`), so the core
+    stops with a fatal screen at boot and on every menu open, and
+    `check_osm_menu.py` recomputes the demand statically long before that.
+    The demand is fully static: every term comes from config.vhd constants,
+    and `SCR$OSM_O_DX` is latched once at screen init from `M2M$CFG_OPTM_DIM`
+    (OSM Scaling scales the overlay in hardware, not the character grid).
+    The exact demand
+    formula (from `HELP_MENU` in `M2M/rom/options.asm`): 20 (menu struct) +
+    `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 4 ×
     `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
-    (`OPTM_DX` + 2) for `OPTM_HEAP`. WIP-V2-A3 with the 146-item menu needs
-    exactly 2298 words and uses `MENU_HEAP_SIZE` 2304, headroom 6 —
-    `.research/check_osm_menu.py` recomputes all of this from `config.vhd`.
+    (`OPTM_DX` + 2) for `OPTM_HEAP`. The struct is 20 words and there are FOUR
+    per-item arrays since the menu-dependency backport (M2M exception 8); the
+    boot-time dependency validator transiently needs 20 + 3 × `OPTM_SIZE`,
+    which is always far below the permanent demand. Since the A10 DVI item,
+    the 148-item menu needs exactly 2325 words and uses `MENU_HEAP_SIZE` 2336,
+    headroom 11 (it was 146 items / 2298 / 2304 / headroom 6 from WIP-V2-A3 up
+    to that point, so the A10 edit moved both `HEAP_SIZE` constants down by 32,
+    not by the 128 the old rounding rule would have cost) —
+    `.research/check_osm_menu.py` recomputes all of this from
+    `config.vhd`.
     **Firmware VARIABLES count too**, even though this rule is about the menu:
     they sit below the heap, so every word added there pushes `HEAP` up and
     comes straight out of the stack. The per-drive write-back and the live

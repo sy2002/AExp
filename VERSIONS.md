@@ -14,6 +14,12 @@ WORK-IN-PROGRES see doc/inofficial.md
   including the widespread Rob Northen Copylock scheme, and disks written
   here are read back by real Amigas.
 
+* "DVI (no sound)" in the HDMI menu: sends a plain DVI signal instead of
+  HDMI, for displays that stay black on an HDMI stream. The picture is
+  unchanged; only the sound over the cable is dropped, so use the 3.5 mm
+  audio jack. README.md explains how to switch it on without being able to
+  see the menu.
+
 * Authentic A500 sound: A500 Filter + LED Filter (both default on)
 
 * Stereo Mix option

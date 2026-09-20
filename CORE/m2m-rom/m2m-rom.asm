@@ -1306,7 +1306,7 @@ HANDLE_UNMOUNT_KEY INCRB
                 ; by .research/check_osm_menu.py), and OPTM_CUR_SEL is the live
                 ; highlight in the same flat coordinate - so this gate is three
                 ; compares. Asking CRTROM_M_GI once per drive instead would
-                ; rescan the whole 146-line menu three times on EVERY key-wait
+                ; rescan the whole 148-line menu three times on EVERY key-wait
                 ; poll. The scan needs no visibility test of its own: a mount
                 ; line hidden by a menu dependency can never carry the cursor.
                 MOVE    OPTM_CUR_SEL, R0
@@ -2666,26 +2666,33 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; instead, but when doing the sanity check calculations, you use 30208
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
-; LOG_HEAP2): the 146 menu items are a 1392-character string plus the 20-word
-; menu structure plus FOUR per-item arrays = 20 + 1392 + 1 + 4 x 146 + 1 =
-; 1998 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
+; LOG_HEAP2): the 148 menu items are a 1411-character string plus the 20-word
+; menu structure plus FOUR per-item arrays = 20 + 1411 + 1 + 4 x 148 + 1 =
+; 2025 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
 ; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
-; 12 x 25 = 300 words. Total demand is 2298 words, rounded up to the next
-; 128-word boundary: 2304 words, leaving 6 words headroom. Do not reserve a
-; large safety margin here: every word is taken directly from the file-browser
-; heap. Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
+; 12 x 25 = 300 words. Total demand is 2325 words, rounded up to the next
+; 32-word boundary: 2336 words, leaving 11 words headroom. Round to 32 and no
+; further. Every word reserved here is taken directly from the file browser -
+; FB_HEAP starts at HEAP + MENU_HEAP_SIZE (M2M/rom/shell.asm) - and a small
+; quantum still absorbs the usual menu-text tweak without an edit. Allocating
+; tight is safe because a shortfall is LOUD, never silent: HELP_MENU checks
+; the permanent structure against MENU_HEAP_SIZE (ERR_FATAL_HEAP1) and the
+; OPTM_HEAP demand against whatever is left over (ERR_FATAL_HEAP2), so the
+; core stops with a fatal screen at boot and on every menu open - and
+; .research/check_osm_menu.py catches it statically long before that.
+; Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
 ; manual-ROM counts grow, recalculate both budgets and rebalance the
 ; HEAP_SIZE constants below by the same delta.
 ; .research/check_osm_menu.py recomputes all of this from config.vhd.
 ;
-; HELP_MENU_INIT additionally borrows 20 + 3 x 146 = 458 words of this region
+; HELP_MENU_INIT additionally borrows 20 + 3 x 148 = 464 words of this region
 ; as transient scratch for the boot-time dependency validation (_HLP_DEPVAL in
 ; M2M/rom/options.asm) - far below the permanent demand, so it never binds.
 ;
 ; The fourth per-item array and the 19th->20th structure word are the menu
 ; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
 ; 1 to 3 with the second and third simulated floppy drive.
-MENU_HEAP_SIZE  .EQU 2304
+MENU_HEAP_SIZE  .EQU 2336
 
 #ifndef RELEASE
 
@@ -2702,13 +2709,13 @@ MENU_HEAP_SIZE  .EQU 2304
 ; HEAP 0x8280 + 30080 = 0xF800, VAR$STACK_START 0xFEE0, so 1760 words remain
 ; for a STACK_SIZE of 1536 - a 224-word margin, slightly better than the 1728
 ; words the 30208 total used to leave.
-HEAP_SIZE       .EQU 4736                       ; 7040 - 2304 = 4736
+HEAP_SIZE       .EQU 4704                       ; 7040 - 2336 = 4704
 HEAP            .BLOCK 1
 
-; in RELEASE mode: 27.125k of heap for folders with many files
+; in RELEASE mode: 27.09k of heap for folders with many files
 #else
 
-HEAP_SIZE       .EQU 27776                      ; 30080 - 2304 = 27776
+HEAP_SIZE       .EQU 27744                      ; 30080 - 2336 = 27744
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract
@@ -2716,9 +2723,9 @@ HEAP            .BLOCK 1
 ; can use as RAM: 0xFEE0
 ; The stack starts at 0xFEE0 (search var VAR$STACK_START in osm_rom.lis to
 ; calculate the address). To see, if there is enough room for the stack
-; given the HEAP_SIZE do this calculation: Add 30208 words to HEAP which
-; is currently 0x8220 and subtract the result from 0xFEE0. This yields
-; 1728 stack words, 192 more than STACK_SIZE. Recheck the HEAP and
+; given the HEAP_SIZE do this calculation: Add 30080 words to HEAP which
+; is currently 0x8280 and subtract the result from 0xFEE0. This yields
+; 1760 stack words, 224 more than STACK_SIZE. Recheck the HEAP and
 ; VAR$STACK_START addresses in m2m-rom.lis whenever variables are added.
 
                 .ORG    0xFEE0                  ; TODO: automate calculation

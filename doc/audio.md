@@ -1,7 +1,10 @@
 # Audio: volume, stereo and the Amiga's filters
 
 AExp plays the Amiga's sound on HDMI and on the MEGA65's 3.5 mm audio jack at
-the same time, and every setting described here affects both outputs equally.
+the same time — unless the
+[DVI (no sound)](../README.md#dvi-no-sound-when-the-screen-stays-black)
+option is on, which drops the HDMI half — and every setting described here
+affects both outputs equally.
 All of it lives in the "Audio" section of the options menu (press Help). Out
 of the box, AExp sounds like a real Amiga 500 — including the machine's two
 famous audio filters, one of which is wired to the power LED. Really. The
