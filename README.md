@@ -390,21 +390,6 @@ and a drive set to **Off** shows nothing at all. Neither adds a
 <kbd>&darr;</kbd>. If `df0:` itself is the Hardware Floppy, step 2 is a
 single <kbd>&darr;</kbd>.
 
-Count carefully, because the main menu has **two** lines starting with
-`HDMI:` — the display modes first, the scaling filter second. One
-<kbd>&darr;</kbd> too many in step 2 opens the filter menu instead, where
-steps 4 and 5 would select and save the **Smooth** filter and leave your
-screen just as black. <kbd>Run/Stop</kbd> backs out of a submenu and closes
-the menu when you are already at the top level, so if you suspect a wrong
-turn, back out, power-cycle and start over. (If it happened, set the filter
-back to **Lanczos** once you can see again.) <kbd>Return</kbd> in step 5 is
-a toggle, so pressing it a second time switches DVI off again.
-
-If DVI does not help, the display is probably rejecting the 50 Hz refresh
-rate itself rather than the data islands, and an OCS Amiga has no 60 Hz mode
-to fall back on. Try the analog VGA output, which always carries the picture
-in parallel, or another display.
-
 ### Video: VGA port (analog RGB)
 
 The VGA connector always carries the picture in parallel to HDMI. The
