@@ -235,15 +235,13 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   Settings file renames to `/amiga/aexp-WIP-V2-A7.cfg` (content
   identical, OPTM_SIZE 146). Zero firmware/menu/BRAM/.xpr impact. The
   write-datapath spec is at
-  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (revision 3.3
-  after three adversarial audit rounds; the increment is **WIP-V2-A9,
-  diag map 0x000D** since A8 went to the Copylock fix; NO write code
-  exists yet - implementation starts only after the rev-3.3 re-audit;
-  write research ground truth in `.research/RESEARCH-write-mega65-
-  core.md` + `RESEARCH-write-paula-engine.md`; working doc
-  `.research/HANDOVER-hardware-floppy-write.md`). **RE-SEQUENCED 2026-08-27: A8 is now the Copylock read
-  fix (below); the write milestone moves to A9+ - sy2002 paused the write
-  session to land Copylock first.**
+  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (now at revision
+  3.6; the increment is **WIP-V2-A9, diag map 0x000D**, implemented and
+  field-proven - see its entry below; write research ground truth in
+  `.research/RESEARCH-write-mega65-core.md` +
+  `RESEARCH-write-paula-engine.md`; working doc
+  `.research/HANDOVER-hardware-floppy-write.md`). A8 went to the Copylock
+  read fix, which is why the write milestone is A9.
 - **`WIP-V2-A8` - THE COPYLOCK READ FIX (reg 0x01 = 0x000C; register
   CONTENT identical to v10; BUILT AND FIELD-CONFIRMED 2026-08-28, zero
   regressions - sy2002 calls it "very stable", and A9 is built on it).**
@@ -322,9 +320,10 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   `tb_paula_floppy_a7ref.v` + `build_tb_paula_obs.sh`). Field A/B recipe
   for dejavu4u2 in the handover.
 - **`WIP-V2-A9` - THE HARDWARE FLOPPY WRITE DATAPATH (reg 0x01 = 0x000D;
-  the first time any M2M core writes a real floppy). Implemented + the sim
-  loop is GREEN; NOT synthesized, NOT committed, and NO REAL DISK HAS BEEN
-  WRITTEN.** A dumb, format-agnostic bit pipe from Paula's write DMA to the
+  the first time any M2M core writes a real floppy). BUILT, FIELD-PROVEN AND
+  RELEASED AS A PUBLIC ALPHA (tag `WIP-V2-A9` = `b5da87a`): real Amigas read
+  the disks this core writes, and sy2002 called it good to go on
+  2026-09-20 - see FIELD RESULT at the end of this block.** A dumb, format-agnostic bit pipe from Paula's write DMA to the
   WDATA pin - we never parse what we write, so AmigaDOS tracks, X-Copy
   images and trackloader formats pass through identically. The contract is
   `.research/INTEGRATION-SPEC-hardware-floppy-write.md` **revision 3.6**
@@ -338,10 +337,12 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   FWFT reload, 500 ns active-low WDATA pulses, ROM-faithful precomp, WGATE
   hard-gated). Shallowness is the whole safety mechanism: Paula fires DSKBLK
   when the HOST empties its FIFO, so every word still in our pipe then is
-  flux the Amiga already believes written - the in-flight residue is <= 3
-  word times (~104 us), which is REAL-AMIGA SCALE, so X-Copy's 40-100 us
-  post-DSKBLK deselect truncates exactly the words it truncates on a real
-  A500, inside its own 406/918-word self-overlap.
+  flux the Amiga already believes written - the in-flight residue is 2 to 3
+  word times (~72-104 us). That is about THREE TIMES a real Paula's, which
+  owes exactly one word because it fires DSKBLK when its own FIFO empties
+  into its own shifter. Shallow is necessary and NOT sufficient: a host that
+  touches a pin inside that window still cuts the tail, which is what the
+  drain hold in FIELD RESULT below exists for.
   THE EPISODE MODEL (the structural critical of audit round 2): Paula's
   write DMA survives every engine-side drain abort - trackwr stays high
   until the host drains the FIFO - so the unit of write-session state is the
@@ -392,7 +393,7 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   WIP-V2-A9 (settings file `/amiga/aexp-WIP-V2-A9.cfg`, content identical,
   OPTM_SIZE 146); all four .xpr list the new file. Zero firmware, zero menu,
   zero BRAM impact (4x16 LUTRAM + registers).
-  VERIFIED IN SIM (nothing on hardware yet): the new `.research/tb_fdd_write.vhd`
+  VERIFIED IN SIM: the new `.research/tb_fdd_write.vhd`
   closes the loop Paula-write-model -> REAL engine -> REAL write FIFO ->
   REAL writer -> a LIVE ROTATING FLUX MODEL in 50 MHz cycle timestamps ->
   REAL read chain -> REAL engine read service -> verdicts. The model is
@@ -502,14 +503,67 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   reset). Results are recorded with per-scope fingerprints in the
   session ledger, so no result can be quoted against a tree it did not
   describe.
-  NOT YET DONE: bench and field (spec 6.3/6.4) -
-  **NOS DD blanks only, originals' tabs OPEN, and a real Amiga must read a
-  core-written disk before this ships.** `doc/hardware_floppy.md` still
-  says "AExp never writes to a real disk" and MUST be rewritten at
-  packaging (it is user-facing and feeds the website). Note also that the
-  four board tops no longer tie `f_wdata`/`f_wgate` inactive, so the
-  Hardware Floppy is no longer PHYSICALLY read-only: the guards are the
-  writer's conjunction and the disk's own tab, with no runtime disable.
+  FIELD RESULT. Three bench fixes landed on top of the datapath `cb1823d`.
+  `c3a20dc`: the ADF encoder emits real MFM clock cells - it was a bit-exact
+  port of minimig_fdd.cpp, which omits them, harmless while the words only
+  reached Paula and fatal once X-Copy could raw-copy them onto media.
+  `c9e8538`: the write pulse launches at the cell midpoint. `3edf736`: **HOLD
+  SELECT AND SIDE THROUGH THE POST-DSKBLK DRAIN.** X-Copy's DOS engine writes
+  `[500 x $AAAA][11 x 544-word sectors][1 x $AAAA]`, DSKLEN 6485, so its
+  whole post-DSKBLK margin is ONE pad word, sized for a real Paula; it then
+  toggles /SIDE1 about 30 us after DSKBLK, the writer treated that as a gate
+  term, and the last word of sector 10 was lost on every upper-side track
+  (85 bytes of 901,120, all sector 10, all head 1, all offset 510/511). The
+  fix is a PAIR that must never ship apart: `mega65.vhd` holds `f_selecta_o`
+  and `f_side1_o` at their episode values while the writer is busy AND the
+  session has already fallen (the drain only - keying on busy alone would
+  freeze the pins for a whole track and across a reset), and only if the
+  held select is the ASSERTED one; `physical_fdd_writer.vhd` stops aborting
+  on SELECT/SIDE once the session has fallen. STEP and DIR are deliberately
+  NOT held - STEP is a pulse, freezing it would destroy it and leave the head
+  behind the host's cylinder counter, and the STEP abort term stays live.
+  This extends M2M exception 7 and the writer's abort contract; sy2002
+  approved both. Builds: R3 WNS +0.198, R6 +0.088 postroute-physopted (judge
+  R6 from THAT report, never `_routed`), BRAM 364/365, LUTRAM 8550, both
+  unchanged. Gate: write matrix 77/77, mutants 15/15 killed.
+  On real media: Workbench `format`, copy, REBOOT, run; X-Copy whole disk,
+  160 tracks, VERIFY ON, read-back byte-identical to a proven reference.
+  **The referee (dejavu4u2, 2026-09-02..20): an A500 (OCS, KS1.3) and an
+  A500+ (ECS, KS2.0) read all four core-written disks**, a repaired A1200
+  (KS3.2) reads the core-cloned Extras disk, a bootable Workbench clone was
+  written end to end by the core, Giana Sisters' high score survived a power
+  cycle (a custom trackloader format writing and re-reading its own data),
+  and the read regression against A8 is clean over 18 titles including the
+  Copylock originals.
+  **Flux analysis of his Greaseweazle dumps (2026-09-20), no core defect:**
+  the 140 ns precompensation REACHES THE MEDIUM - neighbour-conditioned
+  interval means step exactly at the track 80/81 boundary on both heads, by
+  +220/+248 ns on the core-formatted disk against +217/+248 ns on a disk a
+  real A500 formatted; every X-Copy write ends 15 cells after sector 10's
+  last data bit, i.e. at the end of the pad word, on BOTH heads; structure
+  matches the A500's apart from spindle speed. The tester's "intermittent
+  RAM-route boot failure" was three unrelated things: a voided test (X-Copy
+  RAM mode holds 73 cylinders in 1 MB and the second pass was missed), a disk
+  that was NEVER WRITTEN (statistically identical to its own never-written
+  tracks 160-163; X-Copy's pass was aimed elsewhere or - unproven, and the
+  writer has no state that blocks a whole pass - the core discarded 160
+  episodes), and a disk with PHYSICAL MEDIA DEFECTS (13 of 16 analog patches
+  at one rotational angle across five cylinders and both heads, which logic
+  that does not know where the index is cannot produce). He can no longer
+  reproduce either. His own theory, not waiting for the yellow ADF-flush LED,
+  explains neither disk: a simulated drive is served from HyperRAM, the flush
+  only copies it to the SD file.
+  **If a write problem is ever reported again, do not theorise - run the
+  protocol** at the top of `.research/HANDOVER-hardware-floppy-write.md`
+  (START HERE): untouched disk as source `.adf` + X-Copy read-back + raw
+  `.scp`, then `adf_compare.py` and the flux instruments in
+  `.research/scp_flux/`; for a disk that comes back virgin, `M 7000 707D`
+  before any reset (`0x70` episodes bound, `0x7A` episodes that opened
+  WGATE, `0x76` tab-blocked). Advise users to copy with VERIFY ON.
+  `doc/hardware_floppy.md` describes the write feature. Note that the four
+  board tops no longer tie `f_wdata`/`f_wgate` inactive, so the Hardware
+  Floppy is not PHYSICALLY read-only: the guards are the writer's conjunction
+  and the disk's own tab, with no runtime disable.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the
