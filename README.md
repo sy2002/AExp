@@ -37,10 +37,11 @@ Features
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
   total; the Slow RAM can be switched off in the menu for the few games
   that need a chip-RAM-only A500
-* Up to three floppy drives (`df0:`, `df1:`, `df2:`): mount standard
-  880 KB `*.adf` disk images via the on-screen-menu, read and write — and
-  hand one of the drives to the MEGA65's own internal 3.5" drive to read
-  genuine Amiga disks (read-only)
+* Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
+  as a disk image — switched on by default: mount standard 880 KB `*.adf`
+  disk images via the on-screen-menu, read and write — and hand one of the
+  drives to the MEGA65's own internal 3.5" drive to read and write genuine
+  Amiga disks, copy-protected originals included
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
@@ -88,8 +89,11 @@ Each one is either a **disk image** (an `*.adf` file on your SD card), the
 Amiga disks), or switched off. How many drives exist and what each of them
 is, you choose in the **Drive Settings** submenu of the options menu; a
 change there cold-boots the Amiga, because it has to re-detect its drives.
-Out of the box you get three: `df0:` and `df1:` as disk images, `df2:` as
-the Hardware Floppy.
+Out of the box you get exactly one: `df0:` as a disk image drive. `df1:` and
+`df2:` are off, and no drive is the Hardware Floppy — a number of games and
+demos misbehave when the Amiga sees more than one drive, so AExp starts with
+the configuration those titles expect. Switch the others on when you need
+them.
 
 Press <kbd>Help</kbd> to open the menu, which shows one line per existing
 drive: a disk image drive shows the mounted file name or `<Load>` when it is
@@ -119,19 +123,24 @@ exactly like ejecting a real floppy while its drive light is still on.
 
 The **Hardware Floppy** makes the MEGA65's built-in drive behave like a real
 Amiga drive: you put a genuine Amiga disk into the MEGA65 and the emulated
-Amiga reads it. It is **read-only** — nothing is ever written to a real disk,
-and Amiga programs see a write-protected drive — and it needs
-double-density (DD) media, which is what Amiga disks are. Only one drive can
-have it, since there is only one mechanism. This is an early feature: clean,
-well-kept disks mount and read, while old or marginal media produce read
-errors, so if one disk fails it is worth trying another. Read-only is exactly
-what you want for rescuing an old collection, by the way: put the real disk
-in one drive, an `*.adf` image in another, and copy across with the Amiga's
-own tools.
+Amiga reads **and writes** it. Originals boot — including copy-protected
+ones, such as the widespread Copylock scheme by Rob Northen Computing behind
+titles like Cannon Fodder, The Chaos Engine and Terminator 2 — and so do
+custom trackloader formats that never used AmigaDOS. Disks the core writes
+are read by real Amigas: an A500, an A500+ and an A1200 have all read back
+disks written here, including a bootable Workbench disk cloned end to end.
+
+Two things to know. It needs double-density (DD) media, which is what Amiga
+disks are; a PC-style mechanism physically cannot read Amiga HD disks. And
+because writing is real, **the disk's own write-protect tab is the only thing
+protecting it** — slide the tab open on anything irreplaceable before it goes
+near the slot. Only one drive can have the Hardware Floppy, since there is
+only one mechanism.
 
 The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
-[doc/hardware_floppy.md](doc/hardware_floppy.md) explains reading real Amiga
-disks, including what to expect from thirty-year-old media.
+[doc/hardware_floppy.md](doc/hardware_floppy.md) explains reading and writing
+real Amiga disks, copy protection, and what to expect from thirty-year-old
+media.
 
 ### Mouse and joystick
 
@@ -400,8 +409,6 @@ Version 1 is feature complete, so — among other things — the following known
 gaps remain in this release:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
-* Real Amiga disks in the MEGA65's internal drive can be read, but not
-  written
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
 

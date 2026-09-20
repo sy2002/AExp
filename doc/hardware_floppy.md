@@ -3,9 +3,12 @@
 Your MEGA65 has a proper 3.5" disk drive built in, and AExp can hand that
 drive straight to the emulated Amiga. Put a genuine Amiga floppy — the one
 from the shoebox in the attic, with the hand-written label — into the slot,
-and the Amiga 500 inside your MEGA65 reads it. No image files, no converting
-on a PC first: the actual disk, spinning, being read by the machine you are
-sitting in front of.
+and the Amiga 500 inside your MEGA65 reads it, and writes it. No image files,
+no converting on a PC first: the actual disk, spinning, in the machine you
+are sitting in front of.
+
+Both directions work on real hardware. Originals boot, copy protection and
+all; disks the core writes are read back by real Amigas.
 
 That is the Hardware Floppy. How drives are configured, and everything about
 disk images, lives on [the floppy drives page](drives.md); this page is only
@@ -14,9 +17,15 @@ about the real one.
 ## Turning it on
 
 Press **Help** to open the options menu, go to **Drive Settings**, and set
-one of the drives to **Hardware Floppy**. Out of the box that is already done
-for you: `df2:` is the Hardware Floppy, while `df0:` and `df1:` are disk
-image drives.
+one of the drives to **Hardware Floppy**. Out of the box no drive has it:
+AExp starts with a single disk image drive, `df0:`, because some games and
+demos do not cope with more than one drive being present.
+
+So you have a choice to make. Either hand `df0:` itself to the Hardware
+Floppy — one drive, and it is the real one, which is what you want for
+booting an original disk — or raise **Drives** to 2 or 3 and give the
+Hardware Floppy to one of the extra drives, which is what you want for
+copying between a real disk and a disk image.
 
 There is only one mechanism in your MEGA65, so only one Amiga drive can be
 the Hardware Floppy at a time. Giving it to another drive takes it away from
@@ -29,12 +38,11 @@ choice, let the machine restart, and then insert your disk. There is nothing
 to mount and no file to pick: the disk in the slot *is* the disk in the
 drive.
 
-## Writing: new, and the one thing to be careful about
+## Writing: the one thing to be careful about
 
-For a long time this feature only read disks. It can now write them too —
-the first time any core on the MEGA65 has written a real floppy. That is
-worth being careful with, so please read this section rather than skimming
-it.
+For a long time this feature only read disks. It writes them too now — the
+first time any core on the MEGA65 has written a real floppy. That is worth
+being careful with, so please read this section rather than skimming it.
 
 **The disk's own write-protect tab is the only thing standing between a
 program and your floppy.** There is no switch in the menu, no "are you sure",
@@ -56,11 +64,23 @@ For writing, use blank disks or ones whose contents you would not miss.
 
 ### How far along this is
 
-Writing has been tested extremely thoroughly in simulation — the flux the
-core produces has been decoded back by a faithful model of the Amiga's own
-disk routines, edge for edge — but at the time of writing **no real disk has
-been written yet**. You may well be the first. Treat it as what it is: a new
-feature in an alpha release, being tried on hardware for the first time.
+Writing has been tested in simulation and then on real machines. What the
+core writes, real Amigas read: an A500 (OCS, Kickstart 1.3) and an A500+
+(ECS, Kickstart 2.0) read back all four disks written for the test, and a
+repaired A1200 (Kickstart 3.2) read a disk the core had cloned. A complete,
+bootable Workbench disk was written from end to end by the core and then
+booted on real hardware. Formatting, copying and saving from Workbench all
+behave as they should, and a game that writes in its own format — Giana
+Sisters storing a high score — wrote to a real disk and read it back after a
+power cycle.
+
+Whole-disk copying works too: X-Copy copied 160 tracks with **verify on**
+and the read-back was byte-for-byte identical to a known-good reference.
+Leaving X-Copy's verify switched on is good advice generally — it costs a
+little time and tells you immediately if a disk will not take the data.
+
+Even so, treat this as what it is: a young feature in an alpha release. It
+is careful, it is tested, and it can still surprise us.
 
 Also worth knowing: the Amiga does not check its own writing. Nothing on a
 real Amiga reads a track back to confirm it landed correctly, so a write that
@@ -91,10 +111,13 @@ it back in the box.
 While the options menu is open, the Hardware Floppy line shows what the drive
 is doing right now:
 
-* `df2:Hardware Floppy` — idle, nothing happening.
-* `df2:HW Floppy: Motor` — the motor is spinning, but no data is reaching the
+The line is the one belonging to whichever drive you gave the Hardware
+Floppy to, so the `df0:` below is `df1:` or `df2:` if you put it there:
+
+* `df0:Hardware Floppy` — idle, nothing happening.
+* `df0:HW Floppy: Motor` — the motor is spinning, but no data is reaching the
   Amiga.
-* `df2:HW Floppy: Reading` — decoded data is streaming into the Amiga.
+* `df0:HW Floppy: Reading` — decoded data is streaming into the Amiga.
 
 A write shows as `Motor`, not `Reading`: while the Amiga is writing, nothing
 is being read back, so there is no data flowing towards it to report.
@@ -104,24 +127,48 @@ and the line says "Motor", the drive is turning but nothing readable is
 coming back — a blank, unformatted or badly worn disk. If it says "Reading",
 the disk is talking.
 
+## Copy-protected originals
+
+Plenty of Amiga games never shipped as plain AmigaDOS disks. They used custom
+track formats, their own loaders, and copy protection that deliberately
+depends on how the disk *physically* behaves — sector timings a copier cannot
+reproduce, deliberate errors, tracks that only make sense to the game.
+
+Those disks work. One of the most widespread protection schemes on the Amiga
+was **Copylock**, by Rob Northen Computing, and titles using it — Cannon
+Fodder, The Chaos Engine, Terminator 2, The New Zealand Story — boot and play
+from the real disk in the MEGA65's drive. So do custom trackloader formats and the
+demoscene loaders that never touched AmigaDOS at all.
+
+Getting there took a specific fix. Copylock does not just read the disk: it
+*times* it, by watching one of Paula's registers while raw data goes past and
+comparing a slightly short sector against a slightly long one. The Minimig
+core that AExp is built on left that register as a stub, so the measurement
+always came out the same, the check failed, and the game quietly parked
+itself. The
+register now reports what the real disk is actually doing, which is why these
+titles run.
+
+One thing protection does *not* survive is copying, and that is the whole
+point of it. A copier running on the Amiga — X-Copy and friends — cannot
+reproduce a Copylock track, on AExp no more and no less than on a real
+Amiga. Read your originals directly; do not expect a working copy of one.
+
 ## What to expect from old media
 
-This is an early feature, and it is worth being plain about what that means.
-Clean, well-kept disks mount and read. Old or marginal ones produce read
-errors, sometimes on a handful of tracks, sometimes on most of them.
+Old disks are fine. Originals from the late 1980s and early 1990s boot
+directly, including ones their owners described as marginal on real hardware.
+For a while AExp read such disks badly and the disks got the blame; that was
+wrong. The fault was in how the core re-synchronised at the point on every
+track where the original duplicator stopped writing, and once that was fixed
+the "bad media" went away.
 
-The read path has been measured against real disks, and on healthy media it
-decodes the magnetic flux correctly, revolution after revolution. The usual
-culprit is therefore the disk itself. Floppies from the late 1980s and early
-1990s are decades past their design life; the magnetic coating genuinely
-sheds, and a disk that read perfectly in 1994 may have lost whole tracks
-since. A disk can also *look* immaculate and be unreadable, because the
-damage is invisible.
-
-So the practical advice is simple: **if a disk fails, try another one before
-suspecting the core.** If three disks read fine and a fourth does not, you
-have learned something about the fourth disk. If nothing at all reads, then
-something else is going on, and that is worth reporting.
+That does not make every floppy immortal. The magnetic coating really does
+shed, and a disk that read perfectly in 1994 may have lost whole tracks
+since — invisibly, because that kind of damage does not show. But a failure
+is now worth reporting rather than shrugging at: **if a disk fails, try
+another one, and if something still looks wrong, please tell us.** A disk
+that reads on a real Amiga and not on AExp is a bug, not a tired floppy.
 
 ## If the drive knocks and reads nothing after switching on
 
@@ -145,8 +192,10 @@ different story — see the previous section, and try another disk first.
 Here is what the Hardware Floppy is really good for: rescuing the contents of
 a real disk into a disk image, using nothing but the Amiga's own tools.
 
-1. Keep the default drive layout: `df0:` and `df1:` as Disk Image, `df2:` as
-   the Hardware Floppy.
+1. In **Drive Settings**, set **Drives** to 3, leave `df0:` and `df1:` as
+   Disk Image, and set `df2:` to Hardware Floppy. Out of the box only `df0:`
+   exists, so this layout has to be set up once — and the Amiga cold-boots
+   when you change it.
 2. Mount a Workbench image in `df0:` and a writable image in `df1:` — a
    formatted, empty one is ideal. See [the floppy drives page](drives.md) for
    mounting.

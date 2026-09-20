@@ -564,6 +564,97 @@ Version 2 (audio improvements, Hardware Floppy, more drives).
   board tops no longer tie `f_wdata`/`f_wgate` inactive, so the Hardware
   Floppy is not PHYSICALLY read-only: the guards are the writer's conjunction
   and the disk's own tab, with no runtime disable.
+- **`WIP-V2-A10` - ONE DRIVE BY DEFAULT (issue #29). Statically verified
+  2026-09-20, NOT yet synthesized.** The shipped configuration is now a
+  single Amiga unit, `df0:` as a Disk Image drive; `df1:`/`df2:` default to
+  `Off` and NO drive is the Hardware Floppy. Reason (issue #27 comment):
+  several games and demos misbehave when the Amiga sees more than one drive
+  - Riverraid Reloaded is the reported case. Everything beyond one drive is
+  opt-in through `Drive Settings`; nothing is removed, no menu line moves,
+  `OPTM_SIZE` stays 146 and the firmware ROM is untouched.
+  MECHANICALLY this is three `OPTM_G_STDSEL` flags moving in
+  `config.vhd` OPTM_GROUPS (Drives 15 -> 13, df1 24 -> 26, df2 31 -> 32)
+  plus the decoders that MIRROR them. The load-bearing rule is that a
+  STDSEL line must be VISIBLE under the other groups' defaults - df1/df2
+  `Off` carry `OPTM_DEP(OPTM_G_DRIVES,0)` / `OPTM_DEP2(...,0,1)` and are
+  exactly the variants the one-drive count swaps in, so the new triple is
+  self-consistent, which matters because NOTHING reconciles the drive
+  radios at boot (`DRV_ENFORCE_COUNT` runs only after the user changes
+  something). Three HDL sites had to follow, all of which encoded the old
+  default as a FALL-THROUGH: `drv_decode` in `mega65.vhd` (count chain now
+  tests `C_MENU_DRIVES_3` and falls through to 1; the df1/df2 chains now
+  test IMG/HW positively and fall through to `C_DRV_OFF` - the df2
+  fall-through used to be `C_DRV_HW`, the one value that can assert
+  `main_hwf_en`), its QNICE-domain twin `qnice_hwf_map3_decode` (same count
+  chain; its df2 test became the positive `C_MENU_DF2_HW = '1'` instead of
+  "neither IMG nor OFF", which would have marked df2 physical for an
+  all-zeros vector and made field dumps claim a mechanism that is not
+  there), and `amiga_cold_boot.vhd`, whose `drv_map_applied` power-on value
+  IS the encoded default and became `"00" & "10" & "10" & "00"` - left at
+  the old value it fires a spurious cold boot at t=0.
+  Verified: `check_osm_menu.py` GAINED the boot-state checks the change
+  turned out to need - exactly one OPTM_G_STDSEL per radio, every STDSEL
+  line VISIBLE under the other groups' defaults, and at most one drive
+  defaulting to `Hardware Floppy` (DRV_STEAL_HW does not run at boot
+  either). NOTE what the control actually is: the OLD complete triple is
+  self-consistent and passes, so it is NOT the red control; the check fires
+  on a PARTIALLY migrated triple, which is the regression this edit could
+  have shipped (mutant: Drives STDSEL at line 13 with df2 left at line 31
+  -> `line 31 carries OPTM_G_STDSEL for group 21 but is HIDDEN at boot`).
+  Three mutants kill on real assertions (missing OPTM_G_START, two drives
+  defaulting to Hardware Floppy, partial migration). Also fixed in the
+  checker while there: an UnboundLocalError that aborted every later check
+  when the OPTM_G_START count was wrong, a one-member radio taking the
+  single-select ordinal branch (wrong ordinal, then IndexError), and a
+  height sweep that gave a single-select mother only ONE state and could
+  therefore under-report the tallest view.
+  `check_firmware.py` + the full nvc chain clean.
+  `.research/tb_cold_boot_init.vhd` proves no power-on cold boot with the
+  new map (G_MAP default), one with the old (`-gG_MAP="10010000"
+  -gG_EXPECT_BOOT=true`), and that the assertion can fail
+  (`-gG_EXPECT_BOOT=true` alone). Settings file
+  renames to `/amiga/aexp-WIP-V2-A10.cfg` (content identical, 146 x 0xFF) -
+  generate a FRESH one, never copy the A9 file forward: a used A9 file
+  holds the old three-drive selections and, since the firmware accepts a
+  settings file on LENGTH alone, would silently restore them.
+  Zero firmware/menu-size/BRAM/.xpr impact; the diag map stays 0x000D (no
+  floppy behaviour changed).
+  A10 ALSO CARRIES THE HARDWARE-FLOPPY DOCUMENTATION PASS (issue #27): the
+  user-facing docs still said the Hardware Floppy was read-only and that old
+  media produce read errors - both falsified long ago and fixed in the core
+  (A6 sync seam, A8 Copylock/DSKBYTR, A9 write). README, `doc/drives.md`,
+  `doc/hardware_floppy.md`, VERSIONS.md, `doc/developers/floppy-adf.md` and
+  `doc/developers.md` now say read AND write, carry the A9 field evidence
+  (A500 OCS + A500+ ECS + A1200 read core-written disks, bootable Workbench
+  clone, X-Copy 160 tracks VERIFY ON byte-identical, Giana Sisters high
+  score across a power cycle), gain a new "Copy-protected originals" section
+  (Rob Northen Copylock; Cannon Fodder, The Chaos Engine, Terminator 2, The
+  New Zealand Story = the A8 field-confirmed list) and replace the retracted
+  "blame the media" section. The docs deliberately state that a copier
+  cannot REPRODUCE Copylock (true on a real Amiga too), so "we read
+  protected originals" can never be read as "we clone them". The
+  write-protect tab stays documented as the only write guard. HELP_1 states
+  the one-drive default and no longer claims read-only; no other in-core
+  help page makes a Hardware Floppy claim.
+  HELP-PAGE GEOMETRY, found by the A10 review and FIXED here: the welcome
+  and help screens print into a FULL-SCREEN frame (shell.asm FRAME_FULLSCR
+  over the whole canvas; SCR$PRINTFRAME leaves the cursor at (x+1,y+1) and
+  whs.asm prints from there with no GOTOXY), so rendered row i lands on
+  SCREEN row i+1 and the usable area is rows 1..34 x columns 1..43 of the
+  45x36 canvas. ONE row too many overwrites the bottom border; TWO and the
+  last line is written past CHAR_MEM_SIZE (45*36 = 1620) and never appears.
+  HELP_3 had been at 36 rows since before A9 - its `Space or Run/Stop:
+  Close` footer was invisible on hardware and nobody noticed - and the A10
+  edit pushed HELP_1 to 35. Both fixed by rewording (HELP_3 -> 34, HELP_1
+  -> 33, the budget every other page keeps), and `check_osm_menu.py` now
+  CHECKS all eight pages against the geometry it derives from globals.vhd.
+  Note the trap in that checker, which cost one silent false pass before it
+  was caught: the page text must be scanned to the terminating semicolon
+  with a string-aware scanner, NOT split on the first `;`, because HELP_3
+  prose contained one (`Writes are saved in the background;`) - splitting
+  truncated the measurement and the too-long page passed. Mutants: an
+  over-long page, an over-wide line, and a semicolon-bearing over-long page
+  all go red on a green baseline.
 
 **ADF floppy milestone history (2026-07-03).** Read-only ADF
 support verified on real R3 hardware: Workbench 1.3.2 boots to the

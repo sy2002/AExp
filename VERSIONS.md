@@ -4,11 +4,15 @@ Version 2 - MONTH DAY, YEAR
 WORK-IN-PROGRES see doc/inofficial.md
 
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`), each of them either a
-  read/write `*.adf` disk image or the built-in MEGA65 drive. Choose how many
-  drives you want and what each one is in the "Drive Settings" menu
+  read/write `*.adf` disk image or the built-in MEGA65 drive. One drive
+  (`df0:`, a disk image) is switched on by default, because a number of games
+  and demos misbehave when the Amiga sees more than one. Choose how many
+  drives you want and what each one is in the "Drive Settings" menu.
 
 * Hardware Floppy: the built-in MEGA65 disk drive reads and writes real
-  Amiga disks (double density media only)
+  Amiga disks (double density media only). Copy-protected originals boot,
+  including the widespread Rob Northen Copylock scheme, and disks written
+  here are read back by real Amigas.
 
 * Authentic A500 sound: A500 Filter + LED Filter (both default on)
 

@@ -16,23 +16,33 @@ A drive is one of three things:
 * **Disk Image** — an `.adf` file on the SD card. This is the normal case: a
   file that holds a complete Amiga floppy, which the Amiga reads and writes
   just like the real thing.
-* **Hardware Floppy** — the MEGA65's own internal 3.5" drive. Read-only, and
-  only one drive can have it, because there is only one mechanism. See
-  [the Hardware Floppy](hardware_floppy.md) for the whole story.
+* **Hardware Floppy** — the MEGA65's own internal 3.5" drive, reading and
+  writing genuine Amiga disks, copy-protected originals included. Only one
+  drive can have it, because there is only one mechanism. See
+  [the Hardware Floppy](hardware_floppy.md) for the whole story — including
+  the write-protect tab, which is the only thing standing between a program
+  and your floppy.
 * **Off** — the drive does not exist at all, as far as the Amiga is concerned.
 
-Out of the box you get three drives: `df0:` and `df1:` are Disk Image, and
-`df2:` is the Hardware Floppy. `df0:` is the boot drive.
+Out of the box you get exactly one drive: `df0:`, a Disk Image drive, which
+is also the boot drive. `df1:` and `df2:` are Off, and no drive is the
+Hardware Floppy.
+
+That is deliberate. A number of games and demos do not work when the Amiga
+has more than one drive switched on — Riverraid Reloaded is one reported
+case. One drive is what those titles expect, so it is what AExp starts with.
+Everything else is one visit to **Drive Settings** away.
 
 ## Drive Settings
 
 Open the menu with **Help** and go into **Drive Settings**. At the top is
 **Drives** — 1, 2 or 3 — and below it one mode selection per drive.
 
-The count decides which drives exist. Set it to 2 and `df2:` switches to
-**Off** and disappears; set it back to 3 and `df2:` returns as a Disk Image
-drive. `df0:` always exists, which is why it has no "Off" — an Amiga without
-a boot drive would be a doorstop.
+The count decides which drives exist. It starts at 1. Raise it to 2 and
+`df1:` appears as a Disk Image drive; lower it again and `df1:` switches to
+**Off** and disappears. A drive that comes back always comes back as a Disk
+Image drive, whatever it was before. `df0:` always exists, which is why it
+has no "Off" — an Amiga without a boot drive would be a doorstop.
 
 Only one drive at a time can be the Hardware Floppy. Handing it to another
 drive takes it away from the one that had it, which becomes a Disk Image
@@ -49,8 +59,8 @@ you what kind of drive it is:
 
 * A **Disk Image** drive shows the name of the mounted file, or `<Load>` when
   it is empty.
-* A **Hardware Floppy** drive shows `df2:Hardware Floppy` (or whichever drive
-  it is), and reports live status while the menu is open.
+* A **Hardware Floppy** drive shows `dfN:Hardware Floppy` for whichever drive
+  it is, and reports live status while the menu is open.
 * A drive that is **Off** shows nothing at all. No line, no placeholder.
 
 ## Mounting and ejecting a disk image

@@ -128,7 +128,7 @@ entity main is
       slow_ram_i              : in  std_logic;
 
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
-      -- Drive map from the OSM "Configure Drives" radio (static in clk_main;
+      -- Drive map from the OSM "Drive Settings" submenu (static in clk_main;
       -- changes trigger the amiga_cold_boot reset in mega65.vhd):
       drv_count_i             : in  std_logic_vector(1 downto 0);  -- Amiga units minus one
       hwf_adf_en_i            : in  std_logic_vector(2 downto 0);  -- unit is a simulated drive
@@ -677,9 +677,9 @@ begin
          clk_main_i       => clk_main_i,
          reset_i          => amiga_rst,
          slow_ram_i       => slow_ram_i,
-         -- two drives only when BOTH the ADF drive and the physical unit
-         -- exist (Configure Drives combos A/B); the single-drive combos
-         -- C/D announce one drive
+         -- how many Amiga units the Drive Settings "Drives" radio selects,
+         -- minus one (C_MENU_DRIVES_* in mega65.vhd); independent of what
+         -- each unit IS. The standard configuration is one unit.
          floppy_drives_i  => drv_count_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,

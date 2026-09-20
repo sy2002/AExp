@@ -601,7 +601,7 @@ signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
 
 -- Drive Settings submenu. Two radios decide the floppy configuration:
 --
---   * "Drives" (lines 12..14, line 14 = OPTM_G_STDSEL = three drives) is how
+--   * "Drives" (lines 13..15, line 13 = OPTM_G_STDSEL = one drive) is how
 --     many Amiga units exist. Paula latches the drive count at reset and
 --     AmigaOS enumerates units at boot, so a change cold-boots the emulated
 --     Amiga through amiga_cold_boot.
@@ -610,6 +610,14 @@ signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
 --     "Off". df0 always exists and therefore has no Off item; for df1 and df2
 --     the Off item is what the Drives radio swaps in (menu dependency), which
 --     is also what hides that drive's twin lines in the main menu.
+--
+-- The standard configuration is ONE drive, df0 as a Disk Image (issue #29):
+-- a number of games and demos misbehave when the Amiga sees more than one
+-- unit. Everything beyond that - a second and third unit, and the Hardware
+-- Floppy - is opt-in through this submenu. That is why the fall-through
+-- branches of the decoders below resolve to "one drive, df1/df2 Off, no
+-- physical mechanism": that IS the standard configuration, and it is what
+-- the core runs on while QNICE is still booting and every OSM bit is 0.
 --
 -- Decoded below into main_drv_mode (two bits per unit, see C_DRV_*) plus the
 -- derived drive count. The firmware keeps these two radios consistent in
@@ -673,18 +681,18 @@ constant C_MENU_VGA_STD       : natural := 63;   -- VGA: Standard (scandoubled 3
 constant C_MENU_VGA_15KHZHSVS : natural := 67;   -- VGA: raw 15.625 kHz RGB with separate HS/VS
 constant C_MENU_VGA_15KHZCS   : natural := 68;   -- VGA: raw 15.625 kHz RGB with composite sync (SCART)
 
--- OSM Scaling follows the C64 layout: line 71 (100%, default) maps to bit 0,
--- while line 79 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
+-- OSM Scaling follows the C64 layout: line 75 (100%, default) maps to bit 0,
+-- while line 83 (50%) maps to bit 8 for the framework's first_nonzero_bit decode.
 subtype C_MENU_OSM_SCALING is natural range 83 downto 75;
 
--- Volume radio (master volume, 5% steps): line 88 (100%, default) down to line 108
+-- Volume radio (master volume, 5% steps): line 92 (100%, default) down to line 112
 -- (0% = mute). Decoded below into main_volume (0..20 step index) and applied in
 -- main.vhd as a perceptual Q15 attenuation (C_VOL_LUT) on the final Paula mix,
 -- ahead of the framework's split into the HDMI and analog audio paths.
 subtype C_MENU_VOLUME is natural range 112 downto 92;
 
--- Stereo crossfeed radio ("Stereo: %s" submenu): line 114 (Full Stereo, default)
--- down to line 117 (Mono). Decoded below into main_stereo_mix using MiSTer's
+-- Stereo crossfeed radio ("Stereo: %s" submenu): line 118 (Full Stereo, default)
+-- down to line 121 (Mono). Decoded below into main_stereo_mix using MiSTer's
 -- aud_mix encoding (00 = full separation, 01 = 87.5%/12.5%, 10 = 75%/25%,
 -- 11 = mono) and applied in main.vhd's audio_filters ahead of the master volume.
 subtype C_MENU_STEREO is natural range 121 downto 118;
@@ -700,7 +708,7 @@ constant C_MENU_LEDFILT       : natural := 125;
 
 -- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
 -- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 126 (MEGA65)
+-- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 130 (MEGA65)
 -- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
 constant C_MENU_KBD_AMIGA     : natural := 129;
 
@@ -844,14 +852,14 @@ begin
       main_volume <= 20;                                  -- default: 100%
       for b in C_MENU_VOLUME'low to C_MENU_VOLUME'high loop
          if main_osm_control_i(b) = '1' then
-            main_volume <= C_MENU_VOLUME'high - b;        -- bit 60 -> 20 (100%) .. bit 80 -> 0 (mute)
+            main_volume <= C_MENU_VOLUME'high - b;        -- bit 92 -> 20 (100%) .. bit 112 -> 0 (mute)
          end if;
       end loop;
    end process volume_decode_proc;
 
    -- Stereo crossfeed: the OSM "Stereo" radio (C_MENU_STEREO) is a 4-way one-hot
-   -- pick; translate it into MiSTer's aud_mix encoding (bit 86 -> 00 = Full
-   -- Stereo .. bit 89 -> 11 = Mono), defaulting to full separation when no bit
+   -- pick; translate it into MiSTer's aud_mix encoding (bit 118 -> 00 = Full
+   -- Stereo .. bit 121 -> 11 = Mono), defaulting to full separation when no bit
    -- is set yet. Static combinational routing like the volume decode above.
    stereo_decode_proc : process (main_osm_control_i)
    begin
@@ -874,12 +882,12 @@ begin
       variable v_mode  : std_logic_vector(1 downto 0);
       variable v_phys  : std_logic;
    begin
-      if main_osm_control_i(C_MENU_DRIVES_1) = '1' then
-         v_count := 1;
+      if main_osm_control_i(C_MENU_DRIVES_3) = '1' then
+         v_count := 3;
       elsif main_osm_control_i(C_MENU_DRIVES_2) = '1' then
          v_count := 2;
       else
-         v_count := 3;                                      -- OPTM_G_STDSEL default
+         v_count := 1;                                      -- OPTM_G_STDSEL default
       end if;
       main_drv_count <= std_logic_vector(to_unsigned(v_count - 1, 2));
 
@@ -895,20 +903,20 @@ begin
                v_mode := C_DRV_IMAGE;                       -- OPTM_G_STDSEL default
             end if;
          elsif u = 1 then
-            if main_osm_control_i(C_MENU_DF1_OFF) = '1' then
-               v_mode := C_DRV_OFF;
+            if main_osm_control_i(C_MENU_DF1_IMG) = '1' then
+               v_mode := C_DRV_IMAGE;
             elsif main_osm_control_i(C_MENU_DF1_HW) = '1' then
                v_mode := C_DRV_HW;
             else
-               v_mode := C_DRV_IMAGE;                       -- OPTM_G_STDSEL default
+               v_mode := C_DRV_OFF;                         -- OPTM_G_STDSEL default
             end if;
          else
-            if main_osm_control_i(C_MENU_DF2_OFF) = '1' then
-               v_mode := C_DRV_OFF;
-            elsif main_osm_control_i(C_MENU_DF2_IMG) = '1' then
+            if main_osm_control_i(C_MENU_DF2_IMG) = '1' then
                v_mode := C_DRV_IMAGE;
+            elsif main_osm_control_i(C_MENU_DF2_HW) = '1' then
+               v_mode := C_DRV_HW;
             else
-               v_mode := C_DRV_HW;                          -- OPTM_G_STDSEL default
+               v_mode := C_DRV_OFF;                         -- OPTM_G_STDSEL default
             end if;
          end if;
 
@@ -1554,8 +1562,8 @@ begin
       if rising_edge(main_clk) then
          if main_hwf_en = '1' then
             -- main_hwf_ctrl bits 6..3 are _sel3.._sel0, so the select line of
-            -- unit u sits at bit 3 + u. df2 is the DEFAULT hardware unit, so
-            -- getting this wrong leaves the real drive completely unselected.
+            -- unit u sits at bit 3 + u. Getting this wrong leaves the real
+            -- drive completely unselected.
             v_sel_n := main_hwf_ctrl(3 + to_integer(unsigned(main_hwf_unit)));
             f_motora_o  <= not main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
             main_fdd_dir <= main_hwf_ctrl(1);
@@ -1891,12 +1899,12 @@ begin
       variable v_count : natural range 1 to 3;
       variable v_hw    : boolean;
    begin
-      if qnice_osm_control_i(C_MENU_DRIVES_1) = '1' then
-         v_count := 1;
+      if qnice_osm_control_i(C_MENU_DRIVES_3) = '1' then
+         v_count := 3;
       elsif qnice_osm_control_i(C_MENU_DRIVES_2) = '1' then
          v_count := 2;
       else
-         v_count := 3;
+         v_count := 1;
       end if;
 
       qnice_hwf_map3 <= "000";                               -- no physical unit
@@ -1906,10 +1914,7 @@ begin
          elsif u = 1 then
             v_hw := qnice_osm_control_i(C_MENU_DF1_HW) = '1';
          else
-            -- df2 defaults to Hardware Floppy (OPTM_G_STDSEL), so "neither of
-            -- the other two items" is the default state while QNICE boots
-            v_hw := qnice_osm_control_i(C_MENU_DF2_IMG) = '0' and
-                    qnice_osm_control_i(C_MENU_DF2_OFF) = '0';
+            v_hw := qnice_osm_control_i(C_MENU_DF2_HW) = '1';
          end if;
          if v_hw and u < v_count then
             qnice_hwf_map3 <= std_logic_vector(to_unsigned(u, 2)) & '1';

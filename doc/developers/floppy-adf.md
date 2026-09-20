@@ -328,8 +328,8 @@ An Amiga addresses up to four floppy units; AExp offers three, `df0:` / `df1:` /
 radio: 1 / 2 / 3) and what each one *is* (a mode radio per drive):
 
 - **Disk Image** — a simulated ADF drive, the subject of this document;
-- **Hardware Floppy** — the MEGA65's own internal 3.5" mechanism reading real
-  Amiga disks (read-only, and at most one drive at a time);
+- **Hardware Floppy** — the MEGA65's own internal 3.5" mechanism driving real
+  Amiga disks (read and write, and at most one drive at a time);
 - **Off** — the unit does not exist. `df0:` always exists and has no Off item.
 
 The main menu shows **two permanently allocated lines per drive** — the mount

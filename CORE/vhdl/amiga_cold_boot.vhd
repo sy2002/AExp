@@ -47,9 +47,9 @@ architecture synthesis of amiga_cold_boot is
 
    signal state            : t_state := IDLE;
    signal slow_ram_applied : std_logic := '1'; -- OSM default is A501 enabled
-   signal drv_map_applied  : std_logic_vector(7 downto 0) := "10" & "01" & "00" & "00";
-                                       -- OSM default: three drives, df0/df1 Disk Image,
-                                       -- df2 Hardware Floppy (see mega65.vhd C_DRV_*)
+   signal drv_map_applied  : std_logic_vector(7 downto 0) := "00" & "10" & "10" & "00";
+                                       -- OSM default: one drive, df0 Disk Image,
+                                       -- df1 and df2 Off (see mega65.vhd C_DRV_*)
    signal reset_hold_count : natural range 0 to C_RESET_HOLD_CYCLES - 1 := 0;
 
 begin

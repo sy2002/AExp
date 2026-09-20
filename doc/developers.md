@@ -123,12 +123,20 @@ straight from `config.vhd`:
 
 ```bash
 cd M2M/tools
-./make_config.sh aexp-WIP-V1-A3 auto
+./make_config.sh aexp-WIP-V2-A10.cfg auto
 ```
 
 Run it from inside `M2M/tools` — the `auto` argument reads the required
 size from `config.vhd` via a relative path. Use the same `<version>` as
-the `CORE_VERSION` constant in `CORE/vhdl/config.vhd`.
+the `CORE_VERSION` constant in `CORE/vhdl/config.vhd`, and do type the
+`.cfg` suffix: the script writes exactly the file name you give it, and a
+file without the suffix is never found, so settings are silently not saved.
+
+The file is created empty, which means "use the defaults from
+`config.vhd`". Do not copy an older `aexp-*.cfg` forward under the new
+name even when the two have the same size: a file you have already used
+holds your saved selections, and they override the defaults the new build
+ships with.
 
 ### Going deeper
 

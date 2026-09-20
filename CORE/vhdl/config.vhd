@@ -67,7 +67,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- config filename further down). Update this one line when releasing a new
 -- version; make_release.py parses it and uses it as the official version
 -- string for that release.
-constant CORE_VERSION : string := "WIP-V2-A9";
+constant CORE_VERSION : string := "WIP-V2-A10";
 
 constant SCR_WELCOME : string :=
 
@@ -101,8 +101,7 @@ constant HELP_1 : string :=
 
    " Amiga 500, 68000 CPU, OCS, PAL only\n" &
    " 512 KB Chip RAM + 512 KB Slow RAM\n" &
-   " (the A501 Slow RAM can be disabled\n" &
-   " in the options menu)\n" &
+   " (the A501 Slow RAM can be disabled)\n" &
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
@@ -112,12 +111,12 @@ constant HELP_1 : string :=
    " Mouse:    Port 1\n" &
    " Joystick: Port 2\n\n" &  
 
-   " Up to three floppy drives:\n" &
-   " 880 KB ADF disk images (read/write)\n" &
+   " Up to three floppy drives, but only\n" &
+   " df0: is on by default - some games\n" &
+   " need that. 880 KB ADF disk images,\n" &
    " and real Amiga disks in the MEGA65\n" &
-   " drive (read-only for now). Pick how\n" &
-   " many drives and what each one is in\n" &
-   " the Drive Settings menu.\n\n" &
+   " drive, all read and write. Pick them\n" &
+   " in the Drive Settings menu.\n\n" &
 
    " Not implemented, yet:\n" &
    " Kickstart newer than 1.3\n" &
@@ -178,19 +177,17 @@ constant HELP_3 : string :=
 
    " Mounted disks boot automatically.\n\n" &
 
-   " ADF files are read/write. Saves and\n" &
-   " high scores modify the file on SD.\n" &
-   " Writes are saved in the background;\n" &
-   " the Amiga keeps running normally.\n\n" &
+   " ADF files are read/write: saves and\n" &
+   " high scores change the file on SD.\n" &
+   " This happens in the background.\n\n" &
 
    " Drive LED:\n" &
    " green  = disk access\n" &
    " yellow = changes are being saved\n\n" &
 
-   " Before eject, reset or power off:\n" &
-   " wait until the LED has stayed off\n" &
-   " for a few seconds. Yellow may return\n" &
-   " briefly while data is still flushing.\n\n" &
+   " Before eject, reset or power off,\n" &
+   " wait for the LED to stay off a few\n" &
+   " seconds - yellow can briefly return.\n\n" &
 
    " Crsr left/right: Prev/Next      (3/7)\n" &
    " Space or Run/Stop: Close";
@@ -514,8 +511,12 @@ constant OPTM_SIZE         : natural := 146; -- amount of items including empty 
 -- the SIMULTANEOUSLY visible lines, not the structural ones: the two twin lines of a
 -- drive are mutually exclusive and count once, and the "Off" variant of a drive mode
 -- excludes its "Disk Image"/"Hardware Floppy" pair.
+-- Both figures below are the WORST CASE over every reachable radio state, not the
+-- state the menu boots into: the standard configuration is one drive (see the
+-- OPTM_G_STDSEL flags below), which shows a SHORTER main menu, but the user can
+-- still switch to three drives and that is what OPTM_DY has to cover.
 -- Main menu view = 34 lines (2 header + 3 drive twins + Drive Settings + 28 others),
--- Drive Settings submenu view = 20 lines (22 structural minus one hidden mode
+-- Drive Settings submenu view = 24 lines (26 structural minus one hidden mode
 -- variant for df1 and df2 each), HDMI Settings submenu view = 7 lines,
 -- HDMI Filter submenu view = 12 lines, VGA submenu view = 10 lines,
 -- OSM Scaling submenu view = 13 lines, Volume submenu view = 25 lines,
@@ -530,31 +531,32 @@ constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 34;
 
 -- OSM bit positions (zero-based line numbers) are decoded in mega65.vhd via C_MENU_* constants:
---   lines 12..14: Drives radio (C_MENU_DRIVES_*); how many Amiga units exist,
---                 line 14 (three drives) is the default
---   lines 17/18: df0 mode radio (C_MENU_DF0_IMG / _HW); df0 always exists
---   lines 21..23: df1 mode radio (C_MENU_DF1_IMG / _HW / _OFF)
---   lines 26..28: df2 mode radio (C_MENU_DF2_IMG / _HW / _OFF); line 27 default
---   line 37: 720p 50 Hz 16:9  / 38: 576p 50 4:3  / 39: 576p 50 5:4
---   line 55: HDMI Flicker-free toggle (C_MENU_HDMI_FF)
---   line 59: VGA Standard / 63: VGA 15 kHz with HS/VS / 64: VGA 15 kHz with CSYNC
---   lines 71..79: OSM Scaling radio (C_MENU_OSM_SCALING); 100% (71, default) down to 50% (79)
---   lines 88..108: Volume radio (C_MENU_VOLUME); 100% (88, default) down to 0% (108)
---   lines 114..117: Stereo crossfeed radio (C_MENU_STEREO); Full Stereo (114, default) /
+--   lines 13..15: Drives radio (C_MENU_DRIVES_*); how many Amiga units exist,
+--                 line 13 (one drive) is the default
+--   lines 19/20: df0 mode radio (C_MENU_DF0_IMG / _HW); df0 always exists,
+--                 line 19 (Disk Image) is the default
+--   lines 24..26: df1 mode radio (C_MENU_DF1_IMG / _HW / _OFF); line 26 default
+--   lines 30..32: df2 mode radio (C_MENU_DF2_IMG / _HW / _OFF); line 32 default
+--   line 41: 720p 50 Hz 16:9  / 42: 576p 50 4:3  / 43: 576p 50 5:4
+--   line 59: HDMI Flicker-free toggle (C_MENU_HDMI_FF)
+--   line 63: VGA Standard / 67: VGA 15 kHz with HS/VS / 68: VGA 15 kHz with CSYNC
+--   lines 75..83: OSM Scaling radio (C_MENU_OSM_SCALING); 100% (75, default) down to 50% (83)
+--   lines 92..112: Volume radio (C_MENU_VOLUME); 100% (92, default) down to 0% (112)
+--   lines 118..121: Stereo crossfeed radio (C_MENU_STEREO); Full Stereo (118, default) /
 --                 Wide Stereo / Narrow Stereo / Mono -> MiSTer aud_mix encoding
---   line 120: A500 Filter toggle (C_MENU_A500FILT), default ON; the fixed
+--   line 124: A500 Filter toggle (C_MENU_A500FILT), default ON; the fixed
 --            4400 Hz low-pass behind Paula's DAC (off = A1200-style brightness)
---   line 121: LED Filter toggle (C_MENU_LEDFILT), default ON; arms the CIA-A PA1
+--   line 125: LED Filter toggle (C_MENU_LEDFILT), default ON; arms the CIA-A PA1
 --            power-LED low-pass so it follows the emulated software live
---   line 125: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
---   lines 130..133: OSM-open key radio (C_MENU_OSMKEY_*); Help (130, default) / F11 /
+--   line 129: Keyboard "Amiga" radio (C_MENU_KBD_AMIGA); 0 = MEGA65 mode (default)
+--   lines 134..137: OSM-open key radio (C_MENU_OSMKEY_*); Help (134, default) / F11 /
 --                 F13 / MEGA+Run-Stop -> m2m_keyb's menu-open key (qnice_keys bit 7)
---   line 137: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
+--   line 141: Slow RAM (A501) toggle (C_MENU_SLOWRAM), default ON; disabling it
 --            removes the 512 KB at $C00000 from the Amiga memory map (issue #20).
 --            The HDL cold-boots only the emulated Amiga on a change, so that
 --            amiga_config.vhd replays the userio config while QNICE keeps running.
 -- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
--- Lines 45..52 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
+-- Lines 49..56 (HDMI Filter radio) are NOT decoded in mega65.vhd: the firmware
 -- dispatcher LOAD_HDMI_FILTER in CORE/m2m-rom/m2m-rom.asm reads them via
 -- M2M$GET_SETTING and programs ascal directly (ASCAL_USAGE=1).
 --
@@ -594,9 +596,9 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    --  10: line
    " Drives\n"              &    --  11: headline
    "\n"                     &    --  12: line
-   " 1\n"                   &    --  13: one Amiga unit (df0 only)
+   " 1\n"                   &    --  13: one Amiga unit (df0 only); default
    " 2\n"                   &    --  14: two Amiga units (df0, df1)
-   " 3\n"                   &    --  15: three Amiga units (df0, df1, df2); default
+   " 3\n"                   &    --  15: three Amiga units (df0, df1, df2)
    "\n"                     &    --  16: line
    " Drive df0\n"           &    --  17: headline
    "\n"                     &    --  18: line
@@ -605,15 +607,15 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    --  21: line
    " Drive df1\n"           &    --  22: headline
    "\n"                     &    --  23: line
-   " Disk Image\n"          &    --  24: df1 serves an ADF image; default
+   " Disk Image\n"          &    --  24: df1 serves an ADF image
    " Hardware Floppy\n"     &    --  25: df1 is the real MEGA65 drive
-   " Off\n"                 &    --  26: df1 does not exist (only while Drives = 1)
+   " Off\n"                 &    --  26: df1 does not exist (only while Drives = 1); default
    "\n"                     &    --  27: line
    " Drive df2\n"           &    --  28: headline
    "\n"                     &    --  29: line
    " Disk Image\n"          &    --  30: df2 serves an ADF image
-   " Hardware Floppy\n"     &    --  31: df2 is the real MEGA65 drive; default
-   " Off\n"                 &    --  32: df2 does not exist (while Drives = 1 or 2)
+   " Hardware Floppy\n"     &    --  31: df2 is the real MEGA65 drive
+   " Off\n"                 &    --  32: df2 does not exist (while Drives = 1 or 2); default
    "\n"                     &    --  33: line
    " Back to main menu\n"   &    --  34: close submenu
 
@@ -816,7 +818,7 @@ type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC-
 -- where are separator lines? which items should be selected by default?
 -- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS and defined by OPTM_SIZE
 -- NOTE: the structure is fully STATIC in every drive configuration - three
--- mount/hardware twin pairs at 2..7, Drive Settings submenu at 8..30. Only the
+-- mount/hardware twin pairs at 2..7, Drive Settings submenu at 8..34. Only the
 -- VISIBILITY of the twins follows the drive modes (OPTM_DEP), and only the
 -- status text of the hardware lines is firmware-rewritten in place.
 constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,            --    0: Headline "Amiga 500"
@@ -838,9 +840,9 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              --  10: Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  11: Headline "Drives"
                                              OPTM_G_LINE,                              --  12: Line
-                                             OPTM_G_DRIVES,                            --  13: 1
+                                             OPTM_G_DRIVES + OPTM_G_STDSEL,            --  13: 1 (default)
                                              OPTM_G_DRIVES,                            --  14: 2
-                                             OPTM_G_DRIVES + OPTM_G_STDSEL,            --  15: 3 (default)
+                                             OPTM_G_DRIVES,                            --  15: 3
                                              OPTM_G_LINE,                              --  16: Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  17: Headline "Drive df0"
                                              OPTM_G_LINE,                              --  18: Line
@@ -849,21 +851,21 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              --  21: Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  22: Headline "Drive df1"
                                              OPTM_G_LINE,                              --  23: Line
-                                             OPTM_G_DF1MODE + OPTM_G_STDSEL
-                                                    + OPTM_DEP2(OPTM_G_DRIVES, 1, 2),  --  24: df1 Disk Image (default)
+                                             OPTM_G_DF1MODE
+                                                    + OPTM_DEP2(OPTM_G_DRIVES, 1, 2),  --  24: df1 Disk Image
                                              OPTM_G_DF1MODE
                                                     + OPTM_DEP2(OPTM_G_DRIVES, 1, 2),  --  25: df1 Hardware Floppy
-                                             OPTM_G_DF1MODE
-                                                    + OPTM_DEP(OPTM_G_DRIVES, 0),      --  26: df1 Off (only while Drives = 1)
+                                             OPTM_G_DF1MODE + OPTM_G_STDSEL
+                                                    + OPTM_DEP(OPTM_G_DRIVES, 0),      --  26: df1 Off (only while Drives = 1; default)
                                              OPTM_G_LINE,                              --  27: Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  28: Headline "Drive df2"
                                              OPTM_G_LINE,                              --  29: Line
                                              OPTM_G_DF2MODE
                                                     + OPTM_DEP(OPTM_G_DRIVES, 2),      --  30: df2 Disk Image
-                                             OPTM_G_DF2MODE + OPTM_G_STDSEL
-                                                    + OPTM_DEP(OPTM_G_DRIVES, 2),      --  31: df2 Hardware Floppy (default)
                                              OPTM_G_DF2MODE
-                                                    + OPTM_DEP2(OPTM_G_DRIVES, 0, 1),  --  32: df2 Off (while Drives = 1 or 2)
+                                                    + OPTM_DEP(OPTM_G_DRIVES, 2),      --  31: df2 Hardware Floppy
+                                             OPTM_G_DF2MODE + OPTM_G_STDSEL
+                                                    + OPTM_DEP2(OPTM_G_DRIVES, 0, 1),  --  32: df2 Off (while Drives = 1 or 2; default)
                                              OPTM_G_LINE,                              --  33: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            --  34: Close submenu / back to main menu
 
