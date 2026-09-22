@@ -90,6 +90,16 @@ Operating-system hints for the `bash` tool chain:
    are built one after another. Each run writes `build_R<n>.log` and ends
    with a compact timing and sign-off summary.
 
+   A board that only just misses timing is re-rolled automatically once all
+   boards are built: `build_all.sh` implements it again with other placer
+   and router settings until an attempt meets timing, and the winning
+   bitstream replaces the failed one in the usual place. The re-roll writes
+   `build_R<n>_reroll.log`, and the summary shows the first pass and every
+   attempt. `./build_all.sh --no-reroll` skips this, and
+   `./build_all.sh --help` lists all options. Why a build can need this at
+   all, and why a re-rolled bitstream is as good as any other, is explained
+   in `doc/developers/timing_closure.md`.
+
 4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `coretool`, part of
    the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
 
