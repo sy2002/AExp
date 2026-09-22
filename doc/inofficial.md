@@ -18,6 +18,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A7     | 08/25/26 | 183eb1d | Improved hardware FDD debugging instruments
 | WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
 | WIP-V2-A9     | 08/31/26 | 3edf736 | Physical disk writing implemented
+| WIP-V2-A10    | 09/22/26 | e6546d9 | Added DVI option (issue #25). Only one drive (df0: in ADF mode) per default for maximum compatibility (issue #29).
 
 ## Version 1
 
