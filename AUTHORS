@@ -86,7 +86,7 @@ Other than that and my own work, AExp uses:
 The following resources were invaluable for developing AExp:
 ------------------------------------------------------------
 
-  * Anthropic Fable 5 and Opus 4.8
+  * Anthropic Fable and Opus
 
   * The ARM-side Minimig support code of the MiSTer project (Main_MiSTer):
     the floppy disk protocol of this core follows its implementation
