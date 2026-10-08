@@ -46,6 +46,7 @@ Features
 --------
 
 * Amiga 500, OCS chipset, PAL
+* Kickstart 1.3
 * Cycle accurate 68000 CPU
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
   total; the Slow RAM can be switched off in the menu for the few games
@@ -55,7 +56,6 @@ Features
   read the disks it writes
 * Up to three floppy drives (`df0:`, `df1:`, `df2:`; one by default), each
   a read/write 880 KB `*.adf` disk image or the built-in drive
-* Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
   two-player (two-joystick) setups work too
@@ -138,7 +138,7 @@ flushed. Switching off while it is yellow loses the not-yet-saved changes,
 exactly like ejecting a real floppy while its drive light is still on.
 
 The **Hardware Floppy** makes the MEGA65's built-in drive behave like a real
-Amiga drive: you put a genuine Amiga disk into the MEGA65 and the emulated
+Amiga drive: you put a genuine Amiga disk into the MEGA65 and the simulated
 Amiga reads **and writes** it. Originals boot — including copy-protected
 ones, such as the widespread Copylock scheme by Rob Northen Computing behind
 titles like Cannon Fodder, The Chaos Engine and Terminator 2 — and so do
@@ -459,7 +459,7 @@ Audio is available on HDMI and on the 3.5 mm jack simultaneously — unless
 you switch on **DVI (no sound)**, which drops the HDMI audio and leaves the
 jack. By default
 AExp sounds like a real A500: the machine's fixed output filter and its
-software-switchable "LED filter" are both emulated, and the options menu adds
+software-switchable "LED filter" are both simulated, and the options menu adds
 a loudness-true master volume plus a stereo mix that makes hard-panned Amiga
 music pleasant on headphones. The full story — including why a sound filter
 is coupled to the power LED — is in [doc/audio.md](doc/audio.md).

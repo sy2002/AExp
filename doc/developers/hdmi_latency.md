@@ -313,7 +313,7 @@ total; on an ordinary office LCD it does not — and neither can we.
 M2M's `o_lltune` port is left open — nothing is lost by that, since the
 core-clock servo replaces the PLL-side mechanism entirely.
 
-One asymmetry: with the servo ON the emulated machine runs
+One asymmetry: with the servo ON the simulated machine runs
 0.16 % fast on average (+2.77 cents of pitch, a ~0.9 Hz inaudible
 dither); MiSTer's approach keeps the core cycle-exact and bends the
 display timing instead. Purists can switch Flicker-free OFF and get the

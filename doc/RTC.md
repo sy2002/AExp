@@ -1,6 +1,6 @@
 # Real-Time Clock: date and time on the Amiga
 
-AExp can feed the emulated Amiga 500 the MEGA65's own battery-backed clock. Once
+AExp can feed the simulated Amiga 500 the MEGA65's own battery-backed clock. Once
 it is set up, Workbench shows the real date and time, and the files you create
 carry proper timestamps.
 
@@ -126,7 +126,7 @@ each time daylight saving time changes.
 
 - The clock is read-only from the Amiga's side. Set the time on the MEGA65, not
   with `SetClock SAVE` inside the Amiga.
-- With **HDMI: Flicker-free** switched on, the emulated Amiga runs about 0.16 %
+- With **HDMI: Flicker-free** switched on, the simulated Amiga runs about 0.16 %
   fast, so the time it keeps in software gains roughly six seconds per hour.
   The battery-backed clock itself is not affected; the Amiga reads it afresh at
   every boot through `SetClock LOAD`.

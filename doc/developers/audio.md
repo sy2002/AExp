@@ -10,7 +10,7 @@ It is written for a developer who knows neither MiSTer nor the Amiga audio
 hardware in detail. The short version is:
 
 * The audio chain is: raw Paula -> A500 fixed low-pass (switchable) ->
-  LED filter (follows the emulated power LED) -> stereo crossfeed ->
+  LED filter (follows the simulated power LED) -> stereo crossfeed ->
   OSM master volume -> both HDMI and analog output.
 * The filters and the crossfeed live in `CORE/vhdl/audio_filters.vhd` and are
   bit-faithful to MiSTer `Minimig.sv`; the OSM defaults (A500 Filter on, LED
@@ -155,7 +155,7 @@ stage between Paula and the MiSTer framework:
   behind the model select exactly as in `Minimig.sv` (with the A500 Filter
   off it operates on the raw Paula mix).
 * LED filter engagement is `led_filter_i and pwr_led_i`: the OSM toggle arms
-  the mechanism, the emulated software controls it live (MiSTer "Auto(LED)"
+  the mechanism, the simulated software controls it live (MiSTer "Auto(LED)"
   semantics; there is no "force always on" mode).
 * MiSTer's `old_l0/old_l1` double-latch after the filter mux is their CDC
   into `CLK_AUDIO`; AExp does not need it because the M2M framework's
@@ -221,7 +221,7 @@ Design properties:
   digital mute.
 * The volume is the last stage in `main.vhd`, after the filters and the
   crossfeed: it models the volume knob on the monitor or amplifier, not part
-  of the emulated machine. Everything Amiga-side stays untouched upstream:
+  of the simulated machine. Everything Amiga-side stays untouched upstream:
   Paula's per-channel 6-bit volume registers, the 4-channel mix, and the
   filters.
 * It is applied at the single point ahead of the M2M split into the HDMI and

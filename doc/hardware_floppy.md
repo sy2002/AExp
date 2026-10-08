@@ -1,7 +1,7 @@
 # Hardware Floppy: real Amiga disks in the MEGA65 drive
 
 Your MEGA65 has a proper 3.5" disk drive built in, and AExp can hand that
-drive straight to the emulated Amiga. Put a genuine Amiga floppy — the one
+drive straight to the simulated Amiga. Put a genuine Amiga floppy — the one
 from the shoebox in the attic, with the hand-written label — into the slot,
 and the Amiga 500 inside your MEGA65 reads it, and writes it. No image files,
 no converting on a PC first: the actual disk, spinning, in the machine you
@@ -45,7 +45,7 @@ deserves some care, so please read this section rather than skimming it.
 
 **The disk's own write-protect tab is the only thing standing between a
 program and your floppy.** There is no switch in the menu, no "are you sure",
-nothing in AExp that will stop a write. If the tab is closed, the emulated
+nothing in AExp that will stop a write. If the tab is closed, the simulated
 Amiga can write, and it will.
 
 On a 3.5" disk the tab is the little sliding shutter in the corner:

@@ -39,7 +39,7 @@ map `0x000D`).
 ## 1. What the Hardware Floppy is, and what it is not
 
 A MEGA65 has one 34-pin PC-style floppy mechanism on its internal cable. The
-Hardware Floppy feature hands that mechanism to the emulated Amiga as one of
+Hardware Floppy feature hands that mechanism to the simulated Amiga as one of
 its drive units, `df0:`, `df1:` or `df2:`, chosen in the OSM's **Drive
 Settings** submenu. From the Amiga's point of view the unit is simply a disk
 drive: Kickstart steps it, spins it, reads flux from it and writes flux to it

@@ -16,7 +16,7 @@ story is below.
 The volume control works in 5% steps, and the percentages describe what you
 hear: 50% sounds half as loud as 100%, 25% a quarter as loud. At the default
 of 100% the control is completely transparent, and 0% is a true mute. Think
-of it as the volume knob on your monitor — it sits outside the emulated
+of it as the volume knob on your monitor — it sits outside the simulated
 Amiga, so games and demos cannot tell it is there.
 
 ## Stereo Mix
@@ -80,10 +80,10 @@ their title music starts. After a reset the filter is always on (LED bright)
 until software decides otherwise.
 
 The **LED Filter** switch in the menu controls whether AExp honors this
-mechanism. On (the default), the emulated Amiga behaves exactly like real
+mechanism. On (the default), the simulated Amiga behaves exactly like real
 hardware: the software running inside decides, live, whether the filter is in
 the audio path. Off, the filter never engages, no matter what the software
-does. Note that the MEGA65's own power LED does not mirror the emulated one —
+does. Note that the MEGA65's own power LED does not mirror the simulated one —
 you will hear the filter switching, but the light stays as it is.
 
 ## Which settings should I use?

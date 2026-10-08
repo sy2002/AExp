@@ -181,7 +181,7 @@ some boards.
 ### Developer documentation
 
 * [Architecture overview](developers/architecture.md): what the core
-  emulates, how it is layered from the board top down to Minimig, the
+  simulates, how it is layered from the board top down to Minimig, the
   repository layout, clock domains, QNICE devices and HyperRAM map, the rules
   to respect when you change something, the changes to the M2M framework and
   to the Minimig core, and the MiSTer software the core replaces.

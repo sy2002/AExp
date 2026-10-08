@@ -434,6 +434,10 @@ Full picture: `architecture.md` sections 2, 4 and 5.
 - **Documents read as if they had always been right.** No narration of how a
   text was produced or corrected, no process meta. Keep only caveats about
   the subject itself.
+- **Say "simulated", not "emulated",** for what the core does (the simulated
+  Amiga, what the core simulates): it is FPGA hardware, not a software
+  emulator. "Emulator" stays correct for real software emulators (the QNICE
+  emulator, WinUAE) and third-party devices that imitate hardware.
 - **Markdown must render in Marked 2 with MathJax inline math.** Outside code
   spans and fences: escape bare `$` as `\$` (two on a line become math), never
   write bare `==` (pairs turn the text between them into a yellow highlight,

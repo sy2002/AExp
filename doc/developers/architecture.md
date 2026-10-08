@@ -15,7 +15,7 @@ text explains it or points to the glossary in
 
 ## Contents
 
-1. [What the core emulates](#1-what-the-core-emulates)
+1. [What the core simulates](#1-what-the-core-simulates)
 2. [From the board to the Amiga chips](#2-from-the-board-to-the-amiga-chips)
 3. [Repository layout](#3-repository-layout)
 4. [Clock domains and crossings](#4-clock-domains-and-crossings)
@@ -30,7 +30,7 @@ text explains it or points to the glossary in
 
 ---
 
-## 1. What the core emulates
+## 1. What the core simulates
 
 AExp is an Amiga 500 with the original chipset (OCS), PAL only. The CPU is
 [fx68k](https://github.com/ijor/fx68k), a cycle-exact 68000. The chipset comes
@@ -180,7 +180,7 @@ All files in this folder are AExp's own.
 | `mega65.vhd` | The `MEGA65_Core` entity the framework instantiates. Amiga memories (BRAM), QNICE device decode, the three ADF mount devices with their HyperRAM chain, the Hardware Floppy front end and its pins, all OSM decoding (`C_MENU_*` constants), drive LED, the flicker-free servo. |
 | `main.vhd` | Wraps Minimig and fx68k in the core clock domain. Takes the role of MiSTer's `Minimig.sv`: CPU phase enables, video clock enable and sync polarity, reset mapping, the host bus multiplexer, the floppy engine and its read cache, keyboard, audio. |
 | `amiga_config.vhd` | Replays MiSTer's configuration commands (`0xF1`..`0xF9`) over the `IO_UIO` channel after every reset, then releases the 68000. |
-| `amiga_cold_boot.vhd` | Turns a change of the memory or drive topology into a cold boot of the emulated Amiga only: holds Minimig in reset and clears the ExecBase pointer at `$000004` so that Kickstart re-probes the machine. |
+| `amiga_cold_boot.vhd` | Turns a change of the memory or drive topology into a cold boot of the simulated Amiga only: holds Minimig in reset and clears the ExecBase pointer at `$000004` so that Kickstart re-probes the machine. |
 | `adf_track_engine.vhd` | The floppy host service: polls Paula, MFM-encodes sectors from HyperRAM for reads, decodes and commits written sectors, streams the Hardware Floppy's words, and feeds the physical write path. One instance for all drives. |
 | `adf_mount_wrapper.vhd` | One ADF mount device (three instances): byte window into that drive's HyperRAM pool, the framework's load handshake with an ADF size check, and the write-back registers (dirty-track bitmap, write enable, anti-thrashing timer). |
 | `physical_fdd/` | The Hardware Floppy: input conditioning, flux interval measurement, the data separator, sync alignment, a dual-clock word FIFO, the write front end and the diagnostics register bank. Runs at 50 MHz. |
