@@ -24,7 +24,8 @@ The short version:
   seam crawls through moving content once per beat period (every ~12.5 s
   on the Amiga, ~8 s on the C64). Even this worst case is bounded by
   ≈40 ms.
-* The lag measured in the test videos is 70–100 ms, far more than
+* The lag measured in the test videos, on a Checkmate and another HDMI
+  panel, is 70–100 ms, far more than
   the pipeline can produce in any configuration. The dominant share
   sits inside the HDMI monitors, not in the FPGA design. A
   cross-check with the same core on a Samsung HDMI TV
@@ -253,7 +254,12 @@ frame buffer grows to 6 MB and would overwrite the ADF disk images in
 HyperRAM.
 
 
-## 5. So why does the HDMI picture lag by 70–100 ms?
+## 5. Where the 70–100 ms come from: the Checkmate and other 60 Hz panels
+
+The lag of section 1 is a property of the receiving displays, not of the
+HDMI signal: the Checkmate and similar monitors with a native 60 Hz panel
+show it, while other HDMI displays, such as the Samsung TV of the
+cross-check, show nearly none.
 
 Adding up our side (Flicker-free ON, the default in AExp and in
 C64MEGA65):
