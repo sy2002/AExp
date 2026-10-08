@@ -46,7 +46,7 @@ constant WHS_RECORDS   : natural := 2;
 
 -- define the maximum amount of pages per WHS array element: between 1 and 256
 -- (this is necessary because Vivado does not support unconstrained arrays in a record)
-constant WHS_MAX_PAGES : natural := 7;
+constant WHS_MAX_PAGES : natural := 11;
 
  -- !!! DO NOT TOUCH !!!
 constant SEL_WHS           : std_logic_vector(15 downto 0) := x"1000";
@@ -61,71 +61,85 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
 -- The core's version string. Single source of truth (same convention as
--- C64MEGA65, its GitHub issue #182): this constant is used by SCR_WELCOME,
--- HELP_1 through HELP_7 (the welcome and help screens just below), by CORENAME
--- (the serial-terminal banner further down) and by CFG_FILE (the on-SD-card
--- config filename further down). Update this one line when releasing a new
--- version; make_release.py parses it and uses it as the official version
--- string for that release.
+-- C64MEGA65, its GitHub issue #182): this constant is used by the welcome and
+-- help screens just below, by CORENAME (the serial-terminal banner further
+-- down) and by CFG_FILE (the on-SD-card config filename further down). Update
+-- this one line when releasing a new version; make_release.py parses it and
+-- uses it as the official version string for that release.
 constant CORE_VERSION : string := "WIP-V2-B1";
 
-constant SCR_WELCOME : string :=
+-- Never shown (WELCOME_ACTIVE is false), but WHS array position 0 must exist,
+-- so the welcome screen is a single line to keep the string ROM small.
+constant SCR_WELCOME : string := "Amiga 500 for MEGA65 " & CORE_VERSION;
 
-   "Amiga 500 for MEGA65 - " & CORE_VERSION & "\n" &
-   "MiSTer Minimig port, by sy2002 in 2026\n\n" &
-
-   "Powered by MiSTer2MEGA65 Version 2.0.1,\n" &
-   "done by sy2002 and MJoergen\n\n\n" &
-
-   "This core needs the Kickstart 1.3 ROM on\n" &
-   "your SD card (FAT32):\n\n" &
-   "    /amiga/kick.rom\n\n" &
-   "Raw 256 KB dump of Kickstart 1.3\n" &
-   "(rev 34.5, A500), no byte swapping.\n\n\n" &
-
-   "    Key                Amiga 500\n" &
-   "    " & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_1 & CHR_LINE_1 & "\n" &
-   "    MEGA               Amiga (left)\n" &
-   "    Help               Help / Options menu\n\n\n" &
-
-   "\n\n    Press Space to continue.\n\n\n";
+-- Every help page has exactly 33 rows of at most 42 characters: the framed
+-- screen holds 34 x 43, and the free last row and column mirror the leading
+-- "\n" and the leading space. The footer therefore always sits on rows 32 and
+-- 33. tools/check_osm_menu.py enforces this and the "(n/N)" page counter.
 
 constant HELP_1 : string :=
 
    "\n Amiga 500 for MEGA65 " & CORE_VERSION & "\n" &
    " MiSTer Minimig port, by sy2002 in 2026\n\n" &
-   
+
    " Go to https://a500.mega65.org\n\n" &
 
    " THE MACHINE\n\n" &
 
    " Amiga 500, 68000 CPU, OCS, PAL only\n" &
    " 512 KB Chip RAM + 512 KB Slow RAM\n" &
-   " (the A501 Slow RAM can be disabled)\n" &
    " Kickstart 1.3\n" &
    " Video: HDMI and analog RGB in parallel\n" &
    " Audio: via HDMI and 3.5 mm jack\n" &
-   " (volume and filters in the menu)\n" &
    " Battery-backed real-time clock\n\n" &
-   
+
    " Mouse:    Port 1\n" &
-   " Joystick: Port 2\n\n" &  
+   " Joystick: Port 2\n\n" &
 
-   " Up to three floppy drives, but only\n" &
-   " df0: is on by default - some games\n" &
-   " need that. 880 KB ADF disk images,\n" &
-   " and real Amiga disks in the MEGA65\n" &
-   " drive, all read and write. Pick them\n" &
-   " in the Drive Settings menu.\n\n" &
+   " Up to three floppy drives: 880 KB ADF\n" &
+   " disk images and real Amiga disks in\n" &
+   " the MEGA65 drive, all read and write.\n\n" &
 
-   " Not implemented, yet:\n" &
+   " Some early games need the Slow RAM\n" &
+   " off: menu item Slow RAM (A501).\n\n" &
+
+   " Not included:\n" &
    " Kickstart newer than 1.3\n" &
    " ECS/AGA, NTSC, Fast RAM, hard disks\n\n" &
+   "\n\n" &  -- keep footer at bottom
 
-   " Crsr right: Next                (1/7)\n" &
+   " Crsr right: Next               (1/11)\n" &
    " Space or Run/Stop: Close";
 
 constant HELP_2 : string :=
+
+   "\n SD CARD AND SETTINGS\n\n" &
+
+   " FAT32 SD card, at most 32 GB. The back\n" &
+   " slot takes precedence over the bottom\n" &
+   " slot. All files go into /amiga.\n\n" &
+
+   " kick.rom\n" &
+   " Kickstart 1.3 (rev 34.5, A500), raw\n" &
+   " 256 KB dump. Required.\n\n" &
+
+   " aexp-" & CORE_VERSION & ".cfg\n" &
+   " Saves your menu settings. Each core\n" &
+   " version needs its own file, which\n" &
+   " comes with the release.\n\n" &
+
+   " aexp_screen.cfg (optional)\n" &
+   " Positions the picture, see Screen\n" &
+   " Adjustment.\n\n" &
+
+   " ADF disk images\n" &
+   " The file browser starts in /amiga.\n" &
+   "\n\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
+
+   " Crsr left/right: Prev/Next     (2/11)\n" &
+   " Space or Run/Stop: Close";
+
+constant HELP_3 : string :=
 
    "\n KEYBOARD\n\n" &
 
@@ -150,32 +164,95 @@ constant HELP_2 : string :=
    " RESTORE for the right mouse button.\n\n" &
 
    " Both modes:\n" &
-   " Ctrl+MEGA+RESTORE = warm reset\n\n" &
-   "\n\n\n" &  -- keep footer at bottom
+   " Ctrl+MEGA+RESTORE = warm reset\n" &
+   " Help opens this menu. To give Help to\n" &
+   " the Amiga, choose another menu key at\n" &
+   " OSM: Help in the Keyboard section.\n\n" &
 
-   " Crsr left/right: Prev/Next      (2/7)\n" &
+   " Crsr left/right: Prev/Next     (3/11)\n" &
    " Space or Run/Stop: Close";
 
-constant HELP_3 : string :=
+constant HELP_4 : string :=
 
-   "\n ADF FLOPPY\n\n" &
+   "\n MOUSE AND JOYSTICK\n\n" &
 
-   " Select a df0:/df1:/df2: line in the\n" &
-   " menu. A drive shows this line only\n" &
-   " while Drive Settings has it set to\n" &
-   " Disk Image.\n\n" &
+   " Mouse: Port 1      Joystick: Port 2\n" &
+   " Two mice or two joysticks work, too.\n\n" &
 
+   " Original tank mouse: movement and the\n" &
+   " left button work. The right and middle\n" &
+   " buttons cannot be read.\n\n" &
+
+   " All buttons work with active mice\n" &
+   " (Alfa Data, Amitech, Amigakit), active\n" &
+   " adapters (Micro Tom, USBAMI), mouSTer\n" &
+   " firmware 3.23.5313 or newer with\n" &
+   " activepotlines=true, or a DIY pull-up\n" &
+   " adapter (see the manual).\n\n" &
+
+   " Right button from the keyboard:\n" &
+   " MEGA65 mode: hold Run/Stop\n" &
+   " Amiga mode:  hold the up-arrow symbol\n" &
+   "              left of RESTORE\n\n" &
+
+   " No mouse? In Workbench, not in games:\n" &
+   " MEGA + cursor keys: move pointer\n" &
+   " Add Shift: move faster\n" &
+   " MEGA65 mode: MEGA + Alt: left button\n" &
+   " Amiga mode:  MEGA + F13: left button\n\n" &
+
+   " C64 1350/1351 mice do not work.\n\n" &
+   "\n" &  -- keep footer at bottom
+
+   " Crsr left/right: Prev/Next     (4/11)\n" &
+   " Space or Run/Stop: Close";
+
+constant HELP_5 : string :=
+
+   "\n DRIVES\n\n" &
+
+   " Menu: Drive Settings\n" &
+   " Drives: 1, 2 or 3 (df0: to df2:)\n" &
+   " Each drive is a Disk Image or the\n" &
+   " Hardware Floppy.\n\n" &
+
+   " Default: one drive, df0:, as Disk\n" &
+   " Image. Some games and demos fail when\n" &
+   " the Amiga has more than one drive.\n\n" &
+
+   " Any change here restarts the Amiga:\n" &
+   " it detects its drives only at startup.\n\n" &
+
+   " Only one drive can be the Hardware\n" &
+   " Floppy: there is one mechanism.\n\n" &
+
+   " One ADF file cannot be in two drives:\n" &
+   " each drive keeps its own copy, and the\n" &
+   " last one saved would overwrite the\n" &
+   " other.\n" &
+   "\n\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
+
+   " Crsr left/right: Prev/Next     (5/11)\n" &
+   " Space or Run/Stop: Close";
+
+constant HELP_6 : string :=
+
+   "\n DISK IMAGES (ADF)\n\n" &
+
+   " Each Disk Image drive has a dfN: line\n" &
+   " in the menu.\n" &
    " Empty drive + Space: open file browser\n" &
-   " Mounted disk + Space: eject disk\n\n" &
+   " Mounted disk + Space: eject disk\n" &
+   " Mounted disk + Return: swap disk\n\n" &
 
    " File Browser:\n" &
    " Up/Down: select file\n" &
    " Left/Right: previous/next page\n" &
    " Return: mount selected file\n" &
    " Run/Stop: cancel\n" &
-   " F1/F3: Switch between SD cards\n\n" &
+   " F1/F3: switch between SD cards\n\n" &
 
-   " Mounted disks boot automatically.\n\n" &
+   " A disk in df0: boots after mounting.\n\n" &
 
    " ADF files are read/write: saves and\n" &
    " high scores change the file on SD.\n" &
@@ -186,47 +263,43 @@ constant HELP_3 : string :=
    " yellow = changes are being saved\n\n" &
 
    " Before eject, reset or power off,\n" &
-   " wait for the LED to stay off a few\n" &
-   " seconds - yellow can briefly return.\n\n" &
+   " wait until the LED stays off for a\n" &
+   " few seconds. Yellow can come back.\n\n" &
+   "\n" &  -- keep footer at bottom
 
-   " Crsr left/right: Prev/Next      (3/7)\n" &
+   " Crsr left/right: Prev/Next     (6/11)\n" &
    " Space or Run/Stop: Close";
 
-constant HELP_4 : string :=
+constant HELP_7 : string :=
 
-   "\n MOUSE AND JOYSTICK\n\n" &
+   "\n REAL DISKS (HARDWARE FLOPPY)\n\n" &
 
-   " Amiga mouse: Port 1  Joystick: Port 2\n" &
-   " Dual mouse and dual joystick setups work\n\n" &
+   " Drive Settings: set one drive to\n" &
+   " Hardware Floppy, then insert a disk.\n\n" &
 
-   " Original tank mouse:\n" &
-   " Movement and left button work.\n" &
-   " Right/middle buttons cannot be read.\n\n" &
+   " Double density (DD) disks only. The\n" &
+   " MEGA65 drive cannot read HD disks.\n\n" &
 
-   " Active mice (e.g. Alfa Data, Amitech, and\n" &
-   " Amigakit) as well as active adapters (e.g.\n" &
-   " Micro Tom, mouSTer, USBAMI) support\n" &
-   " all buttons.\n\n" &
+   " Writes go to the real disk.\n" &
+   " The write-protect tab is the only\n" &
+   " guard. Hole open = protected: keep\n" &
+   " it open on originals.\n\n" &
 
-   " Keyboard right-button fallback:\n" &
-   " MEGA65 mode: hold Run/Stop\n" &
-   " Amiga mode:  hold the up-arrow symbol\n" &
-   "              left of RESTORE\n\n" &
+   " Copy-protected originals boot.\n" &
+   " X-Copy works; leave its verify on.\n\n" &
 
-   " No mouse? In Workbench:\n" &
-   " MEGA + cursor keys: move pointer\n" &
-   " Add Shift: move faster\n" &
-   " MEGA65 mode: MEGA + Alt: left button\n" &
-   " Amiga mode:  MEGA + F13: left button\n" &
-   " Works in Workbench, not games/demos.\n\n" &
+   " The menu line shows the drive state:\n" &
+   " Motor   = spinning, no data yet\n" &
+   " Reading = data reaches the Amiga\n\n" &
 
-   " C64 1350/1351 mice do not work.\n\n" &
-   "\n\n" &  -- keep footer at bottom
+   " Knocking and no data right after\n" &
+   " power-on? Switch the MEGA65 off and on.\n" &
+   "\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
 
-   " Crsr left/right: Prev/Next      (4/7)\n" &
+   " Crsr left/right: Prev/Next     (7/11)\n" &
    " Space or Run/Stop: Close";
 
-constant HELP_5 : string :=
+constant HELP_8 : string :=
 
    "\n VIDEO: HDMI AND ANALOG\n\n" &
 
@@ -250,25 +323,27 @@ constant HELP_5 : string :=
    " https://a500.mega65.org/doc/retrotubes\n\n" &
 
    " VGA Standard does not fix interlace.\n" &
-   " A 15 kHz CRT weaves it naturally.\n" &
-   " HDMI stays active in every VGA mode.\n\n" &
+   " A 15 kHz CRT weaves it naturally.\n\n" &
 
    " Normal VGA displays cannot show 15 kHz\n" &
-   " or its menu. Recover using HDMI.\n\n" &
-   "\n\n" &  -- keep footer at bottom
+   " or its menu. Recover using HDMI.\n" &
+   " At 15 kHz the menu is large: shrink\n" &
+   " it at the menu line OSM: 100%.\n\n" &
+   "\n" &  -- keep footer at bottom
 
-   " Crsr left/right: Prev/Next      (5/7)\n" &
+   " Crsr left/right: Prev/Next     (8/11)\n" &
    " Space or Run/Stop: Close";
 
-constant HELP_6 : string :=
+constant HELP_9 : string :=
 
    "\n SCREEN ADJUSTMENT\n\n" &
 
    " Supplied presets:\n" &
-   " aexp_screen.cfg_4_3 & aexp_screen.cfg_16_9\n" &
-   " Rename one & save: /amiga/aexp_screen.cfg\n\n" &
+   " aexp_screen.cfg_4_3\n" &
+   " aexp_screen.cfg_16_9\n" &
+   " Copy one to /amiga as aexp_screen.cfg.\n\n" &
 
-   " Use python tool to configure screen:\n" &
+   " Python tool to fine-tune the picture:\n" &
    " aexp_screen_cfg.py\n" &
    " https://a500.mega65.org/doc/screen_adjust\n\n" &
 
@@ -290,12 +365,43 @@ constant HELP_6 : string :=
 
    " Analog picture size cannot be changed;\n" &
    " use the monitor H/V size controls.\n\n" &
-   "\n" &  -- keep footer at bottom
 
-   " Crsr left/right: Prev/Next      (6/7)\n" &
+   " Crsr left/right: Prev/Next     (9/11)\n" &
    " Space or Run/Stop: Close";
 
-constant HELP_7 : string :=
+constant HELP_10 : string :=
+
+   "\n AUDIO\n\n" &
+
+   " Sound plays on HDMI and on the 3.5 mm\n" &
+   " jack at the same time.\n\n" &
+
+   " Volume: 0% to 100% in 5% steps.\n" &
+   " 50% sounds half as loud as 100%.\n\n" &
+
+   " Stereo: the Amiga plays two channels\n" &
+   " fully left and two fully right. On\n" &
+   " headphones, try Wide or Narrow Stereo.\n" &
+   " Mono suits a single speaker.\n\n" &
+
+   " A500 Filter: the fixed low-pass filter\n" &
+   " of the A500 audio output, about\n" &
+   " 4.4 kHz. Off sounds brighter.\n\n" &
+
+   " LED Filter: a stronger filter, about\n" &
+   " 3 kHz, that software switches on and\n" &
+   " off, together with the power LED.\n" &
+   " On: the software decides.\n" &
+   " Off: the filter never engages.\n\n" &
+
+   " Defaults: both filters on, Full\n" &
+   " Stereo, 100%: an authentic A500.\n" &
+   "\n\n\n\n\n" &  -- keep footer at bottom
+
+   " Crsr left/right: Prev/Next    (10/11)\n" &
+   " Space or Run/Stop: Close";
+
+constant HELP_11 : string :=
 
    "\n REAL-TIME CLOCK\n\n" &
 
@@ -316,39 +422,46 @@ constant HELP_7 : string :=
    " Amiga clock gain about 6 seconds/hour.\n\n" &
 
    " The Amiga side can only read the clock;\n" &
-   " do not use SetClock SAVE.\n\n" &
-   "\n\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
+   " do not use SetClock SAVE.\n" &
+   "\n\n\n\n\n\n\n\n\n\n" &  -- keep footer at bottom
 
-   " Crsr left: Previous             (7/7)\n" &
+   " Crsr left: Previous           (11/11)\n" &
    " Space or Run/Stop: Close";
 
 -- Concatenate all your Welcome and Help screens into one large string, so that during synthesis one large string ROM can be build.
-constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2 & HELP_3 & HELP_4 & HELP_5 & HELP_6 & HELP_7;
+constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2 & HELP_3 & HELP_4 & HELP_5 & HELP_6 &
+                              HELP_7 & HELP_8 & HELP_9 & HELP_10 & HELP_11;
 
 -- The WHS array needs the start address of each page.
 constant SCR_WELCOME_START : natural := 0;
 constant HELP_1_START      : natural := SCR_WELCOME'length;
-constant HELP_2_START      : natural := HELP_1_START + HELP_1'length;
-constant HELP_3_START      : natural := HELP_2_START + HELP_2'length;
-constant HELP_4_START      : natural := HELP_3_START + HELP_3'length;
-constant HELP_5_START      : natural := HELP_4_START + HELP_4'length;
-constant HELP_6_START      : natural := HELP_5_START + HELP_5'length;
-constant HELP_7_START      : natural := HELP_6_START + HELP_6'length;
+constant HELP_2_START      : natural := HELP_1_START  + HELP_1'length;
+constant HELP_3_START      : natural := HELP_2_START  + HELP_2'length;
+constant HELP_4_START      : natural := HELP_3_START  + HELP_3'length;
+constant HELP_5_START      : natural := HELP_4_START  + HELP_4'length;
+constant HELP_6_START      : natural := HELP_5_START  + HELP_5'length;
+constant HELP_7_START      : natural := HELP_6_START  + HELP_6'length;
+constant HELP_8_START      : natural := HELP_7_START  + HELP_7'length;
+constant HELP_9_START      : natural := HELP_8_START  + HELP_8'length;
+constant HELP_10_START     : natural := HELP_9_START  + HELP_9'length;
+constant HELP_11_START     : natural := HELP_10_START + HELP_10'length;
 
 -- Fill the WHS array with page start addresses and the length of each page.
 -- Make sure that array element 0 is always your Welcome page.
 constant WHS : WHS_RECORD_ARRAY_TYPE := (
    --- Welcome Screen
    (page_count    => 1,
-    page_start    => (SCR_WELCOME_START,  0, 0, 0, 0, 0, 0),
-    page_length   => (SCR_WELCOME'length, 0, 0, 0, 0, 0, 0)),
+    page_start    => (SCR_WELCOME_START,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    page_length   => (SCR_WELCOME'length, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
 
    --- Help pages
-   (page_count    => 7,
-    page_start    => (HELP_1_START,  HELP_2_START,  HELP_3_START,  HELP_4_START,
-                      HELP_5_START,  HELP_6_START,  HELP_7_START),
-    page_length   => (HELP_1'length, HELP_2'length, HELP_3'length, HELP_4'length,
-                      HELP_5'length, HELP_6'length, HELP_7'length))
+   (page_count    => 11,
+    page_start    => (HELP_1_START,   HELP_2_START,  HELP_3_START,  HELP_4_START,
+                      HELP_5_START,   HELP_6_START,  HELP_7_START,  HELP_8_START,
+                      HELP_9_START,   HELP_10_START, HELP_11_START),
+    page_length   => (HELP_1'length,  HELP_2'length, HELP_3'length, HELP_4'length,
+                      HELP_5'length,  HELP_6'length, HELP_7'length, HELP_8'length,
+                      HELP_9'length,  HELP_10'length, HELP_11'length))
 );
 
 --------------------------------------------------------------------------------------------------------------------
