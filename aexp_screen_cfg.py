@@ -4,7 +4,7 @@ aexp_screen_cfg.py -- create / edit the AExp screen-adjustment file.
 
 AExp (the Amiga 500 core for the MEGA65) can adjust its picture on BOTH
 outputs WITHOUT re-flashing the core. At start-up, and whenever you pick
-"Reload screen cfg" in the on-screen menu, it reads a small table from
+"Reload Screen Config" in the on-screen menu, it reads a small table from
 
     /amiga/aexp_screen.cfg
 
@@ -83,11 +83,11 @@ HOW TO RUN IT
 
 If you do not pass a file name, the default aexp_screen.cfg is assumed.
 Then copy aexp_screen.cfg into the /amiga folder of your SD card and pick
-"Reload screen cfg" in the core menu (or reboot). Needs only Python 3.
+"Reload Screen Config" in the core menu (or reboot). Needs only Python 3.
 
 The tool reads both the current v4 format and the older v3 format (no
-pan fields); saving always writes v4. v4 needs core release WIP-V1-A9 or
-newer -- older cores ignore a v4 file completely (no adjustments).
+pan fields); saving always writes v4. v4 needs AExp Version 1 or newer --
+older cores ignore a v4 file completely (no adjustments).
 """
 
 import argparse
@@ -117,7 +117,7 @@ GROUPS = [
     ("Analog overscan", OS_FIELDS),
 ]
 
-# fixed row order -- MUST match DETECT_SCREEN_MODE in m2m-rom.asm
+# fixed row order -- must match DETECT_SCREEN_MODE in m2m-rom.asm
 # (index = hires_bit + (interlaced ? 2 : 0)):
 MODES = [
     ("lores",   "Lores"),             # row 0: lores, progressive
@@ -265,7 +265,7 @@ def load_table(path):
         if version == VERSION_V3:
             return table, (f"(migrating v3 file {path}: HDMI and overscan values kept, "
                            f"analog position starts at 0; saving writes v4, which needs "
-                           f"core WIP-V1-A9 or newer -- older cores ignore v4 files)")
+                           f"AExp Version 1 or newer -- older cores ignore v4 files)")
         return table, f"(editing existing {path})"
     except (OSError, ValueError) as e:
         return new_table(), f"(note: {path} is not a valid screen file [{e}]; starting from 0)"
@@ -453,10 +453,10 @@ def main():
     print(f"\nwrote {args.output} ({len(data)} bytes, v{VERSION}):")
     show_table(table, data)
     print(f'\nNext: copy {os.path.basename(args.output)} to the /amiga folder on your SD card,')
-    print('then choose "Reload screen cfg" in the core menu (or reboot the core).')
+    print('then choose "Reload Screen Config" in the core menu (or reboot the core).')
     print('Recovery: if the analog picture is ever gone, lower the overscan/pan values')
     print('(or delete the file) and reload -- HDMI is independent, so the menu stays')
-    print('visible. Note: v4 files need core WIP-V1-A9 or newer.')
+    print('visible. Note: v4 files need AExp Version 1 or newer.')
     return 0
 
 
