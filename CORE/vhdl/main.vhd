@@ -6,8 +6,8 @@
 -- (Minimig.sv): clocking enables, CPU phase generation, host configuration,
 -- ADF floppy service, keyboard, video and audio glue.
 --
--- Wiring follows .research/INTEGRATION-SPEC-video-audio.md and the port
--- contract in .research/phase-a/sweep-minimig.md / cpu_wrapper.md.
+-- doc/developers/architecture.md, section 2 (From the board to the Amiga
+-- chips), describes how this file connects Minimig, fx68k and the framework.
 --
 -- Based on the MiSTer2MEGA65 framework template, done by sy2002 and MJoergen
 -- in 2022 and licensed under GPL v3.
@@ -74,8 +74,8 @@ entity main is
       audio_right_o           : out signed(15 downto 0);
 
       -- Amiga chip/slow/kick memory: SRAM-style bus served by BRAM in mega65.vhd.
-      -- ram_addr_o is the BANKED word address from minimig_sram_bridge.v:
-      --   chip 512KB at [22:19]="0000", slow 512KB at [22:18]="10000",
+      -- ram_addr_o is the banked word address from minimig_sram_bridge.v:
+      --   chip 512KB at [22:19]="0000", slow 512KB at [22:19]="1000",
       --   kick 256KB at [22:19]="1111" (mirrored across bit 18)
       ram_addr_o              : out std_logic_vector(22 downto 1);
       ram_data_o              : out std_logic_vector(15 downto 0);  -- write data
@@ -85,7 +85,7 @@ entity main is
       ram_we_n_o              : out std_logic;                      -- write enable, active low
       ram_oe_n_o              : out std_logic;                      -- read enable, active low
 
-      -- LEDs of the emulated Amiga
+      -- LEDs of the simulated Amiga
       pwr_led_o               : out std_logic;
       fdd_led_o               : out std_logic;
 
@@ -118,13 +118,13 @@ entity main is
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
       kb_key_pressed_n_i      : in  std_logic;                -- low active: debounced feedback: is kb_key_num_i pressed right now?
 
-      -- Keyboard mapping mode (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
-      -- (semantic "cap is law"; default). Static OSM bit, see keyboard.vhd.
+      -- Keyboard mapping mode: '1' = Amiga (pure positional), '0' = MEGA65
+      -- (semantic "cap is law"; default). Static OSM bit, see keyboard.vhd (GitHub #6).
       keyboard_mode_i         : in  std_logic;
 
-      -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present
-      -- (default), '0' = chip-RAM-only A500. Static OSM bit, sampled by amiga_config
-      -- while the Amiga is in reset and encoded in the replayed userio memory config.
+      -- Slow RAM (A501) toggle: '1' = 512 KB Slow RAM at $C00000 present (default),
+      -- '0' = chip-RAM-only A500. Static OSM bit, sampled by amiga_config while the
+      -- Amiga is in reset and encoded in the replayed userio memory config (GitHub #20).
       slow_ram_i              : in  std_logic;
 
       -- Hardware Floppy (the MEGA65's real internal drive as an Amiga unit).
@@ -164,7 +164,8 @@ entity main is
       -- margin instrumentation in physical_fdd_top):
       hwf_serving_o           : out std_logic;
       -- '1' while that session streams words past its serve-start sync
-      -- (gates the WORDSYNC-conditional framing hold - the sync-seam fix):
+      -- (gates the WORDSYNC-conditional framing hold, see
+      -- doc/developers/hardware-floppy.md, section 4.4):
       hwf_serving_data_o      : out std_logic;
       hwf_pau_sig_o           : out std_logic_vector(15 downto 0);
       hwf_pau_att_o           : out std_logic_vector(7 downto 0);
@@ -176,10 +177,10 @@ entity main is
       -- to clk_main in mega65.vhd; 1 = disable the surface (see paula_floppy.v):
       hwf_obs_legacy_i        : in  std_logic := '0';
 
-      -- WIP-V2-A9: the physical WRITE datapath (spec section 2). The tap and
-      -- the FIFO level are pure core-domain wires to physical_fdd_top; the
-      -- writer's status levels and the precomp mode arrive already
-      -- cdc_stable'd from the 50 MHz domain in mega65.vhd.
+      -- Hardware Floppy write datapath (doc/developers/hardware-floppy.md,
+      -- section 6). The tap and the FIFO level are pure core-domain wires to
+      -- physical_fdd_top; the writer's status levels and the precomp mode
+      -- arrive already cdc_stable'd from the 50 MHz domain in mega65.vhd.
       hwf_wr_valid_o          : out std_logic;
       hwf_wr_data_o           : out std_logic_vector(15 downto 0);
       hwf_wr_session_o        : out std_logic;
@@ -210,10 +211,11 @@ entity main is
       pot2_x_i                : in  std_logic_vector(7 downto 0);
       pot2_y_i                : in  std_logic_vector(7 downto 0);
 
-      -- Current date/time from the MEGA65 battery-backed RTC (issue #13).
+      -- Current date/time from the MEGA65 battery-backed RTC.
       -- MiSTer 65-bit format (see minimig.v / rtc_controller.vhd): bits 63-0 =
       -- MSM6242B BCD nibbles, bit 64 = "new value" toggle. Already CDC'd to
-      -- clk_main_i by the framework, so it needs no further synchronisation.
+      -- clk_main_i by the framework, so it needs no further synchronisation
+      -- (GitHub #13).
       rtc_i                   : in  std_logic_vector(64 downto 0)
    );
 end entity main;
@@ -284,7 +286,7 @@ architecture synthesis of main is
          fdd_led        : out std_logic;
          hdd_led        : out std_logic;
 
-         -- physical-drive support (see minimig_m65.v / paula_floppy.v)
+         -- Hardware Floppy support (see minimig_m65.v / paula_floppy.v)
          fdd_ctrl          : out std_logic_vector(7 downto 0);
          fdd_motor_on      : out std_logic_vector(3 downto 0);
          fdd_dsig          : out std_logic_vector(15 downto 0);
@@ -332,7 +334,7 @@ architecture synthesis of main is
 
    component cpu_wrapper is
       port (
-         reset          : in  std_logic;                       -- ACTIVE LOW
+         reset          : in  std_logic;                       -- active low
          reset_out      : out std_logic;                       -- active low (fx68k RESET instruction)
 
          clk            : in  std_logic;
@@ -385,12 +387,12 @@ architecture synthesis of main is
    -- Signals
    ---------------------------------------------------------------------------
 
-   -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026: reset mapping.
-   -- Modeled on C64 main.vhd "RESET SEMANTICS", simplified: no prevent_reset
-   -- yet (no vdrives in milestone 1), hard and soft reset both perform a full
-   -- Amiga reset. Replaces MiSTer's Minimig.sv reset_d synchronizer.
-   -- July 2026: the keyboard's CTRL+MEGA+RESTORE warm-boot pulse is a third
-   -- reset source (the real Amiga keyboard MCU's reset line).
+   -- Reset mapping, replacing the reset_d synchronizer of MiSTer's Minimig.sv.
+   -- Modelled on the "RESET SEMANTICS" of C64MEGA65 main.vhd, but simpler:
+   -- there is no prevent_reset, because the core uses no vdrives, and the hard
+   -- and the soft reset both reset the whole Amiga. The CTRL+MEGA+RESTORE
+   -- warm-boot pulse of keyboard.vhd is a third source, like the reset line of
+   -- the keyboard controller in a real Amiga.
    signal amiga_rst        : std_logic := '1';
    signal kbd_core_reset   : std_logic;
 
@@ -416,7 +418,7 @@ architecture synthesis of main is
    signal cpu_reset_out_n  : std_logic;                       -- fx68k RESET instruction feedback
    signal cpu_nmi_addr     : std_logic_vector(31 downto 0);
 
-   -- fx68k phase enables, see .research/phase-a/cpu_wrapper.md:
+   -- fx68k phase enables:
    -- one clk28 wide each, 7.09 MHz rate, 180 degrees apart, aligned to c1/c3
    signal cpu_ph1          : std_logic := '0';
    signal cpu_ph2          : std_logic := '0';
@@ -451,13 +453,14 @@ architecture synthesis of main is
    signal flp_avm_readdatavalid : std_logic;
    signal flp_avm_waitrequest   : std_logic;
 
-   -- cache held in reset while nothing is mounted or the Amiga resets:
-   -- in-flight HyperRAM responses from an aborted fetch are discarded (the C64
-   -- REU precedent). Note amiga_rst can be as short as ~64 cycles (keyboard
-   -- warm boot) - shorter than a worst-case in-flight burst - so the guarantee
-   -- is NOT the reset duration: it is that (a) avm_cache ignores readdatavalid
-   -- outside its refill state, and (b) the engine cannot issue new reads until
-   -- bus grant + poll delay (>> 1 ms), long after any residue has drained.
+   -- The cache is reset with the Amiga and flushed after every change of the
+   -- mount vector (p_adf_cache_flush below); in-flight HyperRAM responses of
+   -- an aborted fetch are discarded (the C64MEGA65 REU pattern). amiga_rst can
+   -- be as short as 64 cycles (keyboard warm boot), shorter than a worst-case
+   -- in-flight burst, so the reset duration is not what protects the engine:
+   -- (a) avm_cache ignores readdatavalid outside its refill state, and (b)
+   -- after a reset the engine issues no read before its bus grant plus one
+   -- poll delay (more than 1 ms), long after any residue has drained.
    signal adf_cache_rst    : std_logic;
    signal adf_avm_busy     : std_logic;
    signal adf_avm_write_int : std_logic;
@@ -484,12 +487,10 @@ architecture synthesis of main is
    signal vid_res          : std_logic_vector(1 downto 0);
    signal vid_vs           : std_logic;                       -- active high vsync
 
-   -- MiSTer2MEGA65 (AExp Amiga 500 port), June 2026:
-   -- frame-locked pixel-CE, transplanted from MiSTer Minimig.sv:653-675
-   -- (ce_out generator) onto the single 28.375 MHz clock. 28 MHz sampling is
-   -- deliberately NOT implemented: OCS cannot do SHRES and the M2M pipeline
-   -- cannot take it (video_mixer LINE_LENGTH=768, ascal IHRES=1024). See
-   -- .research/INTEGRATION-SPEC-video-audio.md section 3.
+   -- Frame-locked pixel clock enable, taken from the ce_out generator of
+   -- MiSTer's Minimig.sv and moved onto the single core clock. There is no
+   -- 28 MHz (SHRES) rate: OCS has no SHRES mode, and the M2M pipeline could
+   -- not take it (video_mixer LINE_LENGTH=768, ascal IHRES=1024).
    signal fs_res           : std_logic_vector(1 downto 0) := "00";
    signal frame_hires      : std_logic := '0';
    signal vid_vs_d         : std_logic := '0';
@@ -529,22 +530,25 @@ architecture synthesis of main is
 
    -- Amiga mouse buttons in minimig format: active high {middle, right, left}
    signal mouse_btn        : std_logic_vector(2 downto 0);
-   signal kbd_mouse_rmb    : std_logic;   -- RUN/STOP held (right mouse button substitute)
+   signal kbd_mouse_rmb    : std_logic;   -- right mouse button substitute key held
+                                          -- (RUN/STOP, or ARROW-UP in Amiga mode)
 
    -- Hardware Floppy: one-hot mask of the physical unit for paula_floppy's
    -- status muxes (0000 whenever the feature is off = bit-identical core)
    signal hwf_phys_mask    : std_logic_vector(3 downto 0);
 
-   -- DSKBYTR observation surface (Copylock): the engine's front-end FIFO pop
-   -- IS the reconstructed real-disk word stream at true flux pace. s_hwf_rd_en
-   -- is the engine pop strobe (also driving the hwf_rd_en_o port); on it the
-   -- current FWFT word is captured and pulsed to Paula as obs_word/obs_stb.
+   -- DSKBYTR observation surface (Copylock): the pops of the engine from the
+   -- front-end FIFO are the reconstructed real-disk word stream at true flux
+   -- pace. s_hwf_rd_en is the engine pop strobe (also driving the hwf_rd_en_o
+   -- port); on it the current FWFT word is captured and pulsed to Paula as
+   -- obs_word/obs_stb.
    signal s_hwf_rd_en      : std_logic;
    signal hwf_obs_word     : std_logic_vector(15 downto 0) := (others => '0');
    signal hwf_obs_stb      : std_logic := '0';
 
-   -- POT-line mouse buttons for active adapters (mouSTer and friends), see
-   -- the comment block at the mouse_btn assignment and doc/mouse.md.
+   -- POT-line mouse buttons for active adapters that drive the lines, see the
+   -- comment block at the mouse_btn assignment and doc/developers/architecture.md,
+   -- section Mouse and joystick.
    -- Watchdog: 30 s at 28.375 MHz; releases a phantom "pressed" after the
    -- adapter has been unplugged (floating line reads like a held button)
    constant C_POT_BTN_TIMEOUT : natural := 30 * 28_375_000;
@@ -591,11 +595,10 @@ begin
    ---------------------------------------------------------------------------
    -- fx68k phase enables
    --
-   -- Replicates the semantics of MiSTer's Minimig.sv:229-256 div[3:0]
-   -- generator with 4 clk28 ticks per 7.09 MHz cycle: cpu_ph2 is '1' during
+   -- Replicates the semantics of the div[3:0] generator of MiSTer's
+   -- Minimig.sv with 4 clk28 ticks per 7.09 MHz cycle: cpu_ph2 is '1' during
    -- the (c1,c3)=(1,0) quarter, cpu_ph1 during the (0,1) quarter; the
    -- condition is evaluated one cycle ahead. Both held '0' in CPU reset.
-   -- See .research/phase-a/cpu_wrapper.md section 7.
    ---------------------------------------------------------------------------
 
    cpu_phase_proc : process (clk_main_i)
@@ -624,8 +627,8 @@ begin
          ph1             => cpu_ph1,
          ph2             => cpu_ph2,
 
-         cpucfg          => "00",                -- 68000; MUST be constant so the
-                                                 -- removed-TG68K muxes constant-fold
+         cpucfg          => "00",                -- 68000; a constant, so that the
+                                                 -- muxes of the removed TG68K fold away
          fastramcfg      => "000",               -- no Zorro fast RAM
          cachecfg        => "000",               -- no caches
          bootrom         => '0',                 -- normal A500 memory map
@@ -668,8 +671,9 @@ begin
 
    ---------------------------------------------------------------------------
    -- Host configuration FSM: replays MiSTer's HPS startup configuration
-   -- (OCS-A500 PAL, 68000, 512KB chip + OSM-selectable 512KB slow, 1 floppy,
-   -- no IDE) via minimig's userio protocol after every reset
+   -- (OCS-A500 PAL, 68000, 512KB chip + OSM-selectable 512KB slow, the drive
+   -- count of the Drive Settings menu, no IDE) via minimig's userio protocol
+   -- after every reset
    ---------------------------------------------------------------------------
 
    i_amiga_config : entity work.amiga_config
@@ -679,7 +683,7 @@ begin
          slow_ram_i       => slow_ram_i,
          -- how many Amiga units the Drive Settings "Drives" radio selects,
          -- minus one (C_MENU_DRIVES_* in mega65.vhd); independent of what
-         -- each unit IS. The standard configuration is one unit.
+         -- each unit is. The standard configuration is one unit.
          floppy_drives_i  => drv_count_i,
          io_uio_o         => io_uio,
          io_strobe_o      => cfg_strobe,
@@ -740,7 +744,8 @@ begin
          phys_serving_o      => hwf_serving_o,
          phys_data_o         => hwf_serving_data_o,
 
-         -- WIP-V2-A9: the write episode contract
+         -- Hardware Floppy write episode (doc/developers/hardware-floppy.md,
+         -- section 6.3)
          phys_wr_level_i     => hwf_wr_level_i,
          phys_wr_busy_i      => hwf_wr_busy_i,
          phys_wr_ok_i        => hwf_wr_ok_i,
@@ -773,22 +778,23 @@ begin
 
    -- DSKBYTR observation surface (Copylock): drive the engine's pop strobe
    -- out to the front end, and tap it for Paula. Every word the engine pops
-   -- from the physical front-end FIFO (idle drain between reads AND served
-   -- reads) is the real disk's reconstructed data, arriving at the true,
-   -- density-modulated flux pace. Paula's gated observation receiver turns
-   -- this stream into a faithful DSKBYTR (physical unit only; see
-   -- paula_floppy.v). Zero effect when no physical drive is configured -
-   -- the FIFO stays empty, the engine never pops, obs_stb never pulses.
+   -- from the physical front-end FIFO (idle drain between reads and served
+   -- reads alike) is the real disk's reconstructed data, arriving at the
+   -- true, density-modulated flux pace. Paula's gated observation receiver
+   -- turns this stream into a faithful DSKBYTR (physical unit only; see
+   -- paula_floppy.v and doc/developers/hardware-floppy.md, section 5). No
+   -- effect when no physical drive is configured: the FIFO stays empty, the
+   -- engine never pops, obs_stb never pulses.
    hwf_rd_en_o <= s_hwf_rd_en;
 
-   -- The pop must be QUALIFIED with rd_empty: the engine's ST_IDLE drain
+   -- The pop is qualified with rd_empty: the engine's ST_IDLE drain
    -- re-asserts phys_rd_en_o for one extra cycle when it drains the last word
    -- (the FIFO's empty flag asserts a cycle late), and the FIFO correctly
    -- ignores that pop (r_do_read = rd_en and not empty). Without the guard the
    -- tap would fire a phantom obs_stb on that cycle carrying the stale FWFT
    -- head (a lap-old word), which Paula's newest-wins receiver would then
-   -- publish over the real word - masking WORDEQUAL and the byte stream. With
-   -- it, obs_stb mirrors the FIFO's ACTUAL pops exactly, one per real word.
+   -- publish over the real word, masking WORDEQUAL and the byte stream. With
+   -- it, obs_stb mirrors the actual pops of the FIFO, one per real word.
    p_hwf_obs : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then
@@ -805,20 +811,20 @@ begin
    -- commits pass through as single-word writes (write-through; a write hit
    -- updates the cache line, so read-back after write stays coherent)
    --
-   -- The cache is SHARED by all three simulated drives, so it must be
+   -- The cache is shared by all three simulated drives, so it must be
    -- invalidated whenever the Shell has streamed a new image into any drive's
    -- pool - the stale line would otherwise serve up to eight words of the
    -- previous image. A mount transition is exactly the observable event
    -- (disk_mounted drops while the wrapper loads and returns when it is
    -- validated), so any change of the mount vector arms a flush.
    --
-   -- The flush must NOT happen while anything is in flight. Two things can be:
+   -- The flush must not happen while anything is in flight. Two things can be:
    --   * the engine, which avm_cache would leave waiting forever for a burst
    --     response that the reset threw away - avm_busy_o covers that, and it
    --     rises one state before the first read/write is issued, which also
    --     closes the race against an engine that starts fetching in the same
    --     cycle the flush is decided;
-   --   * the cache itself, whose master-side write of the LAST word of a
+   --   * the cache itself, whose master-side write of the last word of a
    --     committed sector may still be waiting for waitrequest to drop. The
    --     reset clears m_avm_write_o, so that word would be silently dropped
    --     and the .adf would end up with a torn sector. adf_quiet therefore
@@ -901,56 +907,45 @@ begin
    ---------------------------------------------------------------------------
    -- Joysticks and mouse: M2M active-low lines -> minimig active-low format
    -- {...., fire2, fire, up, down, left, right}. Like a real A500: mouse in
-   -- port 1, joystick in port 2. Note that userio.v CROSS-maps its inputs by
-   -- default (_sjoy1 <= _joy2, userio.v:267-274), which is why amiga_config
-   -- sets joy_swap=1 (cmd 0xF9) - together, MEGA65 port N = Amiga port N.
+   -- port 1, joystick in port 2. userio.v cross-maps its inputs by default
+   -- (_sjoy1 takes joy2 unless joy_swap is set), which is why amiga_config
+   -- sets joy_swap=1 (cmd 0xF9): together, MEGA65 port N = Amiga port N.
    --
-   -- A real Amiga quadrature mouse needs no dedicated mouse path: userio.v's
-   -- "docking" counters (userio.v:284-338) count the transitions on the
-   -- direction pins into JOYxDAT exactly like Denise. This only works because
-   -- the M2M debouncer delivers raw, un-debounced lines (M2M debouncer.vhd is
-   -- a plain 2-FF synchronizer, changed for AExp) - a real Amiga has no
-   -- debouncing on the DB9 lines either.
+   -- A real Amiga quadrature mouse needs no dedicated mouse path: the
+   -- "docking" counters of userio.v (dmouse0dat, dmouse1dat) count the
+   -- transitions on the direction pins into JOYxDAT exactly like Denise.
+   -- That needs every transition to reach them: the framework's debouncer.vhd
+   -- is reduced to plain two-flop synchronizers (a real Amiga does not
+   -- debounce its DB9 lines either), and the input synchronizer in userio.v
+   -- shifts on clk7_en, the rate at which the counters sample. See
+   -- doc/developers/architecture.md, section Mouse and joystick.
    ---------------------------------------------------------------------------
 
    joy1_n <= "1111111111" & '1' & joy_1_fire_n_i & joy_1_up_n_i & joy_1_down_n_i & joy_1_left_n_i & joy_1_right_n_i;
    joy2_n <= "1111111111" & '1' & joy_2_fire_n_i & joy_2_up_n_i & joy_2_down_n_i & joy_2_left_n_i & joy_2_right_n_i;
 
-   -- Mouse buttons, active high {middle, right, left} (userio.v:419-421).
-   -- The LEFT button is not wired here: it sits on the fire pin of the mouse
-   -- port and flows through joy1_n(4) into CIA-A, exactly like real hardware.
+   -- Mouse buttons, active high {middle, right, left} (mouse_btn of userio.v).
+   -- The left button sits on the fire pin of the mouse port and reaches CIA-A
+   -- through joy1_n(4), like on real hardware, so it is not wired here.
    --
-   -- RIGHT (DB9 pin 9) and MIDDLE (pin 5) buttons: on a real Amiga these are
-   -- passive switches to GND, and PAULA itself drives the pot lines high
-   -- (input.device writes POTGO $FF00, then POTINP reads 0 = pressed). The
-   -- MEGA65's paddle circuit on ALL board revisions R3..R6 can only sense
-   -- these lines, never drive or pull them high (schematic-proven, see
-   -- doc/mouse.md) - a passive Amiga mouse's right/middle buttons are
-   -- therefore electrically invisible, and the PRIMARY right button is the
-   -- RUN/STOP key (no Amiga keycode, exported by keyboard.vhd).
-   --
-   -- Active mouse adapters (mouSTer and friends) DO drive the pot lines, and
-   -- for them the framework's paddle sampler is a good receiver: it delivers
-   -- 255-x inverted readings (CDC'd to clk_main), so a line driven high
-   -- reads >= 0x80 and a grounded or floating line reads < 0x80. Amiga-true
-   -- polarity is pressed = line LOW - but on its own that would misread a
-   -- passive mouse or an empty port (both idle low) as a permanently held
-   -- button. The presence latch below is therefore load-bearing, not an
-   -- optimization: only after a line has been seen driven HIGH (something
-   -- only an active adapter can cause) is "low" trusted to mean "pressed".
-   -- The watchdog completes the unplug story: an unplugged adapter leaves
-   -- the line floating, which reads "pressed" forever; after
-   -- C_POT_BTN_TIMEOUT of continuous "pressed" the latch disarms and the
-   -- port behaves as empty again. Re-arming is automatic within one sampler
-   -- cycle (~0.5 ms) as soon as a line is driven high again (replug, or
-   -- button release). Inversion symptom and adapter behavior are
-   -- field-confirmed on R6 (2026-07-04, doc/mouse.md section 6).
+   -- Right (DB9 pin 9) and middle (pin 5) button: a passive Amiga mouse only
+   -- grounds these POT lines, which Paula would drive high; the MEGA65 can
+   -- only sense them, so these buttons of a passive mouse are invisible. The
+   -- keyboard right-button substitute (keyboard.vhd) is therefore always ORed
+   -- in. Adapters that drive the lines are read with Amiga polarity (low =
+   -- pressed), but only once the line has been seen high (presence latch),
+   -- because an empty port or a passive mouse reads low too. The watchdog
+   -- disarms the latch after C_POT_BTN_TIMEOUT of continuous "pressed", which
+   -- is what the floating line of an unplugged adapter looks like; the latch
+   -- re-arms within one sampler cycle (about 0.5 ms) once the line is driven
+   -- high again. Details: doc/developers/architecture.md, section Mouse and
+   -- joystick.
    pot_buttons : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then
-         -- right button, DB9 pin 9 (MEGA65 naming: POTX = pot1_x; the Amiga
-         -- reads this pin through its "Y" register channel DATLY - see the
-         -- naming trap in doc/mouse.md section 1)
+         -- right button, DB9 pin 9: pot1_x in the framework (its POTX), while
+         -- the Amiga reads this pin through its "Y" channel DATLY. Bit 7 set
+         -- = line driven high (the framework sampler delivers 255-x).
          if pot1_x_i(7) = '1' then
             rmb_capable  <= '1';
             rmb_watchdog <= 0;
@@ -1085,7 +1080,7 @@ begin
          ce_pix         => open,                 -- we use the frame-locked CE instead
          res            => vid_res,
          lace           => open,                 -- would only gate the analog scandoubler
-                                                 -- (MiSTer: "& ~lace"); VGA keeps bob for now
+                                                 -- (MiSTer: "& ~lace"); VGA keeps bob
          field1         => video_fl_o,           -- field identity for ascal's weave deinterlacer
                                                  -- (as MiSTer: assign VGA_F1 = field1)
 
@@ -1096,10 +1091,10 @@ begin
    ---------------------------------------------------------------------------
    -- Video output towards the M2M framework
    --
-   -- M2M expects ACTIVE-HIGH sync pulses (video_mixer.sv "Positive pulses.",
+   -- M2M expects active-high sync pulses (video_mixer.sv "Positive pulses.",
    -- ascal start-of-frame on rising i_vs); minimig outputs active-low =>
    -- invert. Blanking is active high from Agnus and fully covers the syncs =>
-   -- pass through. See .research/INTEGRATION-SPEC-video-audio.md sections 1+2.
+   -- pass through.
    ---------------------------------------------------------------------------
 
    vid_vs         <= not vid_vsync_n;
@@ -1174,7 +1169,7 @@ begin
    -- ahead of the framework's split into the HDMI and analog audio paths, so
    -- the volume affects both outputs equally. Paula's own per-channel volume
    -- registers and the 4-channel mix stay untouched upstream: this stage is
-   -- the volume knob on the monitor, not part of the emulated machine.
+   -- the volume knob on the monitor, not part of the simulated machine.
    audio_volume_proc : process (clk_main_i)
       variable gain   : signed(16 downto 0);
       variable prod_l : signed(32 downto 0);

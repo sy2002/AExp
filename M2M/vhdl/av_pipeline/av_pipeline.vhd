@@ -78,10 +78,10 @@ entity av_pipeline is
       qnice_vimin_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
       qnice_vimax_off_i       : in  std_logic_vector(11 downto 0) := (others => '0');
 
-      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed analog OVERSCAN
+      -- M2M-UPSTREAM screen-center (AExp 2026-07-08): signed analog overscan
       -- (soft-blank) edge offsets (MiSTer-style, core-agnostic) from the CFD
       -- gp_reg words 0-3; qnice_clk domain, CDC'd to the video domain below.
-      -- They crop/reveal the edges of ONLY the analog picture (they cannot
+      -- They crop/reveal the edges of the analog picture only (they cannot
       -- move it -- that is what the pan inputs below are for); 0 = inert.
       -- Units: horizontal in video clocks (a quarter AExp lores pixel),
       -- vertical in core lines.
@@ -91,7 +91,7 @@ entity av_pipeline is
       qnice_vga_vbl_b_i       : in  std_logic_vector(11 downto 0) := (others => '0');
 
       -- M2M-UPSTREAM screen-center (AExp 2026-07-13): signed analog picture
-      -- POSITION (pan) from the CFD gp_reg words 8-9; qnice_clk domain, CDC'd
+      -- position (pan) from the CFD gp_reg words 8-9; qnice_clk domain, CDC'd
       -- to the video domain below and applied by analog_positioner after the
       -- OSM (core content and OSM move together); 0 = inert. Units are
       -- source-raster based: pan_x in two-source-clock steps (one AExp hires
@@ -238,24 +238,25 @@ signal hdmi_osm_vram_data     : std_logic_vector(15 downto 0);
 signal hdmi_video_mode        : std_logic_vector(3 downto 0);
 signal hdmi_zoom_crop         : std_logic;
 
--- M2M-UPSTREAM screen-center: video-domain per-edge ascal INPUT-crop offsets
+-- M2M-UPSTREAM screen-center: video-domain per-edge ascal input-crop offsets
 signal vid_himin_off          : std_logic_vector(11 downto 0);
 signal vid_himax_off          : std_logic_vector(11 downto 0);
 signal vid_vimin_off          : std_logic_vector(11 downto 0);
 signal vid_vimax_off          : std_logic_vector(11 downto 0);
 
 -- M2M-UPSTREAM screen-center (analog overscan soft-blank, core-agnostic): a
--- MiSTer-style (Minimig.sv:755-840) soft-blank that crops/reveals the edges of
--- ONLY the analog picture by reconstructing the active window from the raw
--- hblank/hsync/vblank/vsync edges and trimming it by four signed edge offsets.
--- It is an overscan/visible-area control, NOT a position control: on the
--- analog wire it can only hide or reveal pixels, never translate them (the
--- analog_positioner pan inside i_analog_pipeline moves the picture). Runs in
--- the video (= core) clock domain. Feeds only i_analog_pipeline; ascal (via
--- i_crop) and i_video_counters keep the raw blanking, so HDMI and the
--- SYS_CORE geometry stay decoupled. Deliberate side effect: the analog OSM
--- recovers its coordinates from the trimmed window, so cropping keeps the OSM
--- inside the remaining visible area (pan then moves OSM and core together).
+-- soft-blank modelled on the fhbl/shbl/fvbl/svbl logic of MiSTer's Minimig.sv
+-- that crops/reveals the edges of the analog picture only, by reconstructing
+-- the active window from the raw hblank/hsync/vblank/vsync edges and trimming
+-- it by four signed edge offsets. It is an overscan (visible-area) control,
+-- not a position control: on the analog wire it can only hide or reveal
+-- pixels, never translate them (the analog_positioner pan inside
+-- i_analog_pipeline moves the picture). Runs in the video (= core) clock
+-- domain. Feeds only i_analog_pipeline; ascal (via i_crop) and
+-- i_video_counters keep the raw blanking, so HDMI and the SYS_CORE geometry
+-- stay decoupled. The analog OSM recovers its coordinates from the trimmed
+-- window, so cropping keeps the OSM inside the remaining visible area (pan
+-- then moves OSM and core together).
 signal vid_vga_hbl_l          : std_logic_vector(11 downto 0);   -- video-domain offsets
 signal vid_vga_hbl_r          : std_logic_vector(11 downto 0);
 signal vid_vga_vbl_t          : std_logic_vector(11 downto 0);
@@ -357,9 +358,9 @@ begin
 end function first_nonzero_bit;
 
 -- M2M-UPSTREAM screen-center: clamp a signed edge target into [0, hi], so the
--- soft-blank equality compares below stay reachable for ANY offset value (an
--- out-of-raster target would otherwise never match and could leave a blank
--- flag stuck = permanently dark picture; clamped requests degrade to the
+-- soft-blank equality compares below stay reachable for any offset value (an
+-- out-of-raster target would never match and could leave a blank flag stuck,
+-- which means a permanently dark picture; a clamped request degrades to the
 -- nearest achievable edge instead)
 pure function sb_clamp(v : signed(13 downto 0); hi : unsigned(11 downto 0)) return unsigned is
 begin
@@ -381,7 +382,8 @@ begin
    -- Clock domain crossing: QNICE to VIDEO
    i_qnice2video: xpm_cdc_array_single
       generic map (
-         WIDTH => 166   -- M2M-UPSTREAM screen-center: +48 for the four analog
+         WIDTH => 166   -- M2M-UPSTREAM screen-center: +48 for the four HDMI
+                        -- input-crop offsets, +48 for the four analog
                         -- overscan offsets, +24 for the analog pan pair
       )
       port map (
@@ -522,19 +524,20 @@ begin
    ---------------------------------------------------------------------------------------------
    -- M2M-UPSTREAM screen-center: analog overscan soft-blank (core-agnostic)
    --
-   -- Port of MiSTer's Minimig.sv soft-blank (:755-840): reconstruct the active
-   -- window from the raw edges and trim it by four signed offsets, then feed
-   -- ONLY the analog pipeline. This crops/reveals border material (overscan
-   -- control); it cannot pan the picture. hcnt runs every video clock (like
-   -- MiSTer's clk_sys), so the horizontal unit is one video clock; the
-   -- vertical unit is one core line. Framework syncs are ACTIVE-HIGH so
-   -- MiSTer's ~hs == video_hs_i. Interlace uses video_fl_i only: on a
-   -- progressive core it is constant '0', and ~lace|~field1 reduces to
-   -- ~field1, so every frame is captured. Outward offsets may reveal core
-   -- pixels beyond the raw active window, bounded by the 8-clock/2-line
-   -- force-blank sync guards. Hardened vs. the original port: explicit reset
-   -- and geometry acquisition (substitution starts only after a full frame
-   -- has been measured) and clamped edge targets (see sb_clamp).
+   -- Port of the soft-blank of MiSTer's Minimig.sv (fhbl/shbl/fvbl/svbl):
+   -- reconstruct the active window from the raw edges and trim it by four
+   -- signed offsets, then feed the analog pipeline only. This crops/reveals
+   -- border material (overscan control); it cannot pan the picture. hcnt runs
+   -- every video clock (like MiSTer's clk_sys), so the horizontal unit is one
+   -- video clock; the vertical unit is one core line. Framework syncs are
+   -- active-high, so MiSTer's ~hs equals video_hs_i. Interlace uses
+   -- video_fl_i only: on a progressive core it is constant '0', and
+   -- ~lace|~field1 reduces to ~field1, so every frame is captured. Outward
+   -- offsets may reveal core pixels beyond the raw active window, bounded by
+   -- the 8-clock/2-line force-blank sync guards. Two additions to the MiSTer
+   -- logic: an explicit reset and geometry acquisition (substitution starts
+   -- only after a full frame has been measured), and clamped edge targets
+   -- (see sb_clamp).
    ---------------------------------------------------------------------------------------------
 
    sb_hblank    <= sb_fhbl or sb_shbl or video_hs_i;      -- MiSTer hbl = fhbl|shbl|~hs
@@ -543,7 +546,7 @@ begin
    vga_h_active <= '1' when sb_geo_ok = '1' and (sb_off_hl /= 0 or sb_off_hr /= 0) else '0';
    vga_v_active <= '1' when sb_geo_ok = '1' and (sb_off_vt /= 0 or sb_off_vb /= 0) else '0';
 
-   -- Per axis, all-zero offsets pass the RAW core blanking straight through, so
+   -- Per axis, all-zero offsets pass the raw core blanking straight through, so
    -- a core that never pushes VGA offsets is bit-identical to no soft-blank and
    -- other cores are unaffected (the mirror of the HDMI "0 = full window").
    analog_hblank <= sb_hblank when vga_h_active = '1' else video_hblank_i;
@@ -815,9 +818,9 @@ begin
          video_vs_i               => video_crop_vs,
          video_hblank_i           => video_crop_hblank,
          video_vblank_i           => video_crop_vblank,
-         -- M2M-UPSTREAM interlace (AExp 2026-07-04): frame-level metadata, bypasses
-         -- i_crop on purpose (ascal evaluates i_fl only at frame granularity, so the
-         -- one-clock pixel-path delay of crop is irrelevant)
+         -- M2M-UPSTREAM interlace (AExp 2026-07-04): frame-level metadata; it can
+         -- bypass i_crop because ascal evaluates i_fl only at frame granularity,
+         -- so the one-clock pixel-path delay of the crop does not matter
          video_fl_i               => video_fl_i,
          video_hdmax_o            => video_hdmax,
          video_vdmax_o            => video_vdmax,
@@ -850,7 +853,7 @@ begin
          -- QNICE connection to ascal's mode register
          qnice_ascal_mode_i       => unsigned(qnice_ascal_mode_i),
 
-         -- M2M-UPSTREAM screen-center: per-edge ascal INPUT-crop offsets (video domain)
+         -- M2M-UPSTREAM screen-center: per-edge ascal input-crop offsets (video domain)
          himin_off_i              => signed(vid_himin_off),
          himax_off_i              => signed(vid_himax_off),
          vimin_off_i              => signed(vid_vimin_off),

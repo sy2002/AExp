@@ -6,73 +6,92 @@
 -- This FSM replaces MiSTer's ARM-side floppy handler (Main_MiSTer/support/minimig/minimig_fdd.cpp,
 -- HandleFDD/ReadTrack/SendSector/WriteTrack): it polls Paula's floppy host channel (minimig
 -- IO_FPGA frames), announces the disk-present state, fetches the requested track's sectors from
--- the ADF image in HyperRAM, MFM-encodes them bit-exactly like the MiSTer reference, and pushes
--- the words into Paula's 2048x16 FIFO. Amiga-initiated writes are drained through the MFM write
--- decoder (bit-exact FindSync/GetHeader/GetData): verified sectors are committed back into the
--- HyperRAM image and the track is queued as dirty towards the QNICE firmware, which flushes it
--- to the SD card in the background (see adf_mount_wrapper.vhd and
--- doc/developers/floppy-adf.md). When write-back is not armed (write_en_i='0'),
--- the disk is announced write-protected and writes are drained and DISCARDED, so that
+-- the ADF image in HyperRAM, MFM-encodes them in the sector layout of the MiSTer reference, and
+-- pushes the words into Paula's 2048x16 FIFO. The data cells are bit-identical to the reference;
+-- the clock cells are real MFM clocks, which the reference does not emit (see f_mfm_clocks and
+-- doc/developers/floppy-adf.md, section 3). One seam is not covered: after a throttle (status
+-- bit 8 low at a sector re-check) the next session re-seeds the clock chain with 0, so the first
+-- preamble clock cell after it is 1 even when the previous sector ended on a data 1, two adjacent
+-- 1 cells that violate MFM. Paula and trackdisk never look at clock cells; it matters only when
+-- the stream is raw-copied to real media. Amiga-initiated writes are drained through the MFM
+-- write decoder (bit-exact FindSync/GetHeader/GetData): verified sectors are committed back into
+-- the HyperRAM image and the track is queued as dirty towards the QNICE firmware, which flushes
+-- it to the SD card in the background (see adf_mount_wrapper.vhd and
+-- doc/developers/floppy-adf.md, section 8). When write-back is not armed (write_en_i='0'),
+-- the disk is announced write-protected and writes are drained and discarded, so that
 -- wprot-ignoring software cannot hang the machine.
 --
 -- Reference: https://github.com/MiSTer-devel/Main_MiSTer/blob/c73802332ff9c73659410084b6319ccd29f0b3aa/support/minimig/minimig_fdd.cpp
 -- (local copy: doc/developers/minimig_fdd.cpp; the ":nnn" line numbers in this file refer to it).
 --
 -- The full protocol contract (verified against rtl/paula_floppy.v) and the design rationale live
--- in doc/developers/floppy-adf.md. The essentials this implementation relies on:
+-- in doc/developers/floppy-adf.md, section 7.2 (Serve: adf_track_engine). The essentials this
+-- implementation relies on:
 --
 --   * A frame = io_fpga high; words = 1-clk io_strobe pulses; Paula's word counter saturates at 3
 --     and async-clears when io_fpga drops. Word/response pairs: w0 -> status
 --     {sel[1:0],drives[1:0],"00",trackwr,trackrd&~fifo_cnt[10],track[7:0]}, w1 -> dsksync,
 --     w2 -> {dmaen,dsklen[14:0]} (read) / wr_fifo_status (write), w3+ -> FIFO data words.
 --   * Per-word handshake: strobe only while io_wait=0, hold io_din until io_wait falls (Paula
---     samples io_din 1-2 clk7 phases AFTER the strobe), io_dout for word N is valid when io_wait
+--     samples io_din 1-2 clk7 phases after the strobe), io_dout for word N is valid when io_wait
 --     falls. io_wait rises only 1 clk after the strobe - wait for the rise before the fall.
 --   * Paula's disk-DMA FSM only leaves IDLE at word 1 of a frame - polling is what starts DMA,
 --     and the arming poll itself still reports the stale trackrd=0.
 --   * Flow control is status bit 8 alone (masked while the FIFO holds >= 1024 words): push at
---     most one sector (+ track gap) per re-poll; io_wait does NOT protect against FIFO overflow.
---   * The drive-status command (w0 = 0x1000|flags) must be a strict ONE-word frame (its bit
+--     most one sector (+ track gap) per re-poll; io_wait does not protect against FIFO overflow.
+--   * The drive-status command (w0 = 0x1000|flags) must be a strict one-word frame (its bit
 --     pattern also sets Paula's cmd_fdd), and disk_present is wiped by every Amiga reset
 --     including Kickstart's RESET instruction - so it is re-sent every poll cycle (MiSTer does
 --     the same on every poll loop).
 --
--- MULTIPLE DRIVE UNITS. The engine serves up to three Amiga units df0/df1/df2 over the same host
--- channel, dispatching per poll on the status word's sel bits [15:14]. The drive index IS the
+-- Multiple drive units. The engine serves up to three Amiga units df0/df1/df2 over the same host
+-- channel, dispatching per poll on the status word's sel bits [15:14]. The drive index is the
 -- Amiga unit number; the OSM Drive Settings submenu decides what each unit is:
 --   * adf_en_i(u) = '1'   -> a simulated ADF drive: HyperRAM fetch from that unit's own pool,
 --     MFM encode, write decode and commit back into that same pool;
---   * phys_en_i = '1' and sel = phys_unit_i -> the MEGA65's real internal mechanism (at most
---     ONE unit): reconstructed MFM words from physical_fdd_top's word FIFO are streamed to
---     Paula AT REAL DISK PACE (~1 word/32 us - the words originate from live flux, so pacing is
---     inherent; flow-control bit 8 can never engage). The requested track in the status word is
---     IGNORED: data comes from wherever the real head is, in rotation order, exactly like a real
---     Amiga. The live DSKSYNC (response word 1) is exported RAW to the front-end bit-aligner
---     (dsksync_o) - no Copy Lock substitution: the real disk contains whatever sync the loader
---     programmed, which is precisely what the aligner hunts.
+--   * phys_en_i = '1' and sel = phys_unit_i -> the MEGA65's real internal mechanism, the
+--     Hardware Floppy (at most one unit). Reads stream the reconstructed MFM words of
+--     physical_fdd_top's word FIFO to Paula at real disk pace (~1 word/32 us; the words come
+--     from live flux, so the pacing is inherent and flow-control bit 8 never engages). The
+--     requested track in the status word is ignored: data comes from wherever the real head is,
+--     in rotation order, like on a real Amiga. The live DSKSYNC (response word 1) is exported
+--     raw to the front-end bit-aligner (dsksync_o), without the Copy Lock substitution of the
+--     ADF path: the real disk carries whatever sync the loader programmed, and that is what the
+--     aligner hunts. Writes leave through the write tap towards physical_fdd_writer. See
+--     doc/developers/hardware-floppy.md, sections 4.6 (The engine side of the read path) and 6
+--     (The write datapath);
 --   * neither -> the unit does not exist and its polls are ignored.
 --
--- UNIT OWNERSHIP is the load-bearing invariant of the multi-drive engine, because all the
--- expensive state - the sector buffers, the write decoder, the Avalon master - exists only once
--- and is time-shared between the units:
+-- Unit ownership. All the expensive state - the sector buffers, the write decoder, the Avalon
+-- master - exists once and is time-shared between the units, so in-flight state is latched to
+-- the unit it belongs to instead of being re-derived from the sel bits of a later poll:
 --   * serve_unit is latched from the status word at the poll that accepted the request and is
 --     what the read service (fetch address, track clamp, mid-stream abort check) uses. Paula
 --     binds trackrd to one unit for a whole DMA, so re-deriving it later would be wrong.
 --   * drain_unit is latched when a write drain starts and is what the commit address, the
---     commit gates and the dirty-track event use. The moment a poll reports a DIFFERENT unit,
---     the drain is aborted in EVERY decoder phase, not just while hunting: a frame belonging to
---     unit B fed into a decoder opened for unit A would checksum-verify and commit into unit A's
---     image. That is the one defect class that silently corrupts a disk image.
---   * Writes towards the physical unit are drained and DISCARDED (read-only milestone; the unit
---     is announced write-protected): drain_commit is only set for a drain owned by a simulated
---     drive, and it gates the sync hunt, so a physical-unit drain can never decode at all.
---   * Rotation continuation (track_prev / track_valid / sector_next) is PER UNIT: two drives
+--     commit gates and the dirty-track event use. The moment a poll reports a different unit,
+--     the drain is aborted in every decoder phase, not just while hunting: a frame belonging to
+--     unit B fed into a decoder opened for unit A would checksum-verify and be committed into
+--     unit A's image, which corrupts that image without any error.
+--   * A drain owned by the physical unit never decodes: drain_commit is only set for a drain
+--     owned by a simulated drive, and it gates the sync hunt. Inside a physical write episode
+--     every popped word goes to the writer through the tap (phys_wr_valid_o/phys_wr_data_o);
+--     outside one, a physical-unit drain is a pure discard.
+--   * Rotation continuation (track_prev / track_valid / sector_next) is per unit: two drives
 --     stepping and reading in alternation must not inherit each other's sector position.
 --   * The 0x1nnn drive-status announce carries per-unit nibbles: each simulated drive's
 --     present/writable from its own mount status, the physical unit's presence from the real
---     disk-change latch.
+--     disk-change latch and its writable bit from the writer's tab qualifier (phys_wr_ok_i).
 --   * While idle, the engine drains and discards the physical word FIFO (words decoded while
---     the drive spins without a pending DMA), keeping the stream fresh.
+--     the drive spins without a pending DMA), keeping the stream fresh. It does not do this
+--     while a write episode is open.
+--
+-- Physical write episodes. Write-session state for the Hardware Floppy is scoped to the trackwr
+-- episode, from the first drain that sees trackwr to the poll that observes the DMA complete,
+-- because Paula's write DMA outlives every engine-side drain abort. Ownership is bound once, at
+-- the first drain, every later drain of the episode inherits it, and while an episode is open
+-- the engine never parks in ST_IDLE. See doc/developers/hardware-floppy.md, section 6.3 (The
+-- write episode, and who owns it).
 --
 -- Runs entirely in the clk_main (28.375 MHz) domain - the same clock as minimig. No clk7_en
 -- needed: Paula's io_wait handshake encapsulates the clk7 pacing.
@@ -92,8 +111,10 @@ entity adf_track_engine is
       G_BASE_DF1     : std_logic_vector(21 downto 0);
       G_BASE_DF2     : std_logic_vector(21 downto 0);
 
-      -- clk_main cycles between poll cycles (~1 ms; FIFO drain pacing makes polling
-      -- faster than ~0.1 ms pointless, see the spec's bandwidth math)
+      -- clk_main cycles between idle poll cycles (~1 ms). A throttled read (status
+      -- bit 8 masked while Paula's FIFO holds >= 1024 words) waits here: Paula
+      -- drains the up to 894-word overshoot at DMA-slot speed (~21.3 us per word)
+      -- in ~19 ms, so a 1 ms re-poll granularity costs less than 10 % of that
       G_POLL_DELAY   : natural := 28374
    );
    port (
@@ -115,7 +136,7 @@ entity adf_track_engine is
 
       -- Dirty-track event channel towards the adf_mount_wrapper instances
       -- (two-phase toggle handshake; the cdc_stable instances live in
-      -- mega65.vhd). One request toggle per drive with a SHARED track
+      -- mega65.vhd). One request toggle per drive with a shared track
       -- payload: the scanner serves one event at a time, so the payload is
       -- stable for the whole round trip and the idle drives see no edge.
       wr_track_o          : out std_logic_vector(7 downto 0);
@@ -145,7 +166,7 @@ entity adf_track_engine is
       dsksync_o           : out std_logic_vector(15 downto 0);
 
       -- Diagnostic: running count of physical-service data words actually
-      -- pushed into Paula (ST_PHYS_DATA completions), GRAY-coded so the
+      -- pushed into Paula (ST_PHYS_DATA completions), Gray-coded so the
       -- QNICE-domain diag can 2-FF-sample it safely (increments are >= one
       -- io-word handshake apart, far slower than the sampling clock). This
       -- is the observable that separates "trackdisk read and rejected the
@@ -153,20 +174,22 @@ entity adf_track_engine is
       -- sit before the word FIFO and tick either way.
       phys_served_gray_o  : out std_logic_vector(15 downto 0);
 
-      -- Diagnostic: served-side store signature - XOR of the first 1024
-      -- data words served after the first DSKSYNC word of each physical
-      -- stream session (= the window Paula stores from, since its WORDSYNC
-      -- gate drops the matching word and stores from the next). Compared by
-      -- the diag against the identical signature computed inside
-      -- paula_floppy.v over the words it actually wrote into its read FIFO:
-      -- equal values prove the io channel and the store gating word-exact
-      -- on real hardware. Quasi-static after each session (cdc_stable'd in
-      -- mega65.vhd); the session counter pairs the two sides.
+      -- Diagnostic: served-side store signature - XOR of 1024 served words
+      -- of each physical stream session, starting with the first DSKSYNC
+      -- word. With the serve-from-sync gate and WORDSYNC off (Kickstart 1.3
+      -- trackdisk), Paula stores every served word, so this is exactly the
+      -- window it stores from. The diag exposes it next to the signature
+      -- paula_floppy.v computes over the first 1024 words it writes into its
+      -- read FIFO: equal values show that the io channel and the store
+      -- gating delivered every word unaltered. Under WORDSYNC on, Paula
+      -- drops the sync word and the two windows are one word apart.
+      -- Quasi-static after each session (cdc_stable'd in mega65.vhd); the
+      -- session counter pairs the two sides.
       phys_sig_o          : out std_logic_vector(15 downto 0);
       phys_sig_ses_o      : out std_logic_vector(7 downto 0);
       phys_sig_done_o     : out std_logic;
       -- checkpoint prefixes of the same signature (after 64 and 256 words):
-      -- compared against Paula's checkpoints they bracket the FIRST
+      -- compared against Paula's checkpoints they bracket the first
       -- diverging word of a corrupted attempt in one observation
       phys_sig_c64_o      : out std_logic_vector(15 downto 0);
       phys_sig_c256_o     : out std_logic_vector(15 downto 0);
@@ -178,33 +201,36 @@ entity adf_track_engine is
       -- histograms on this level by default, so seek-phase and idle
       -- streaming noise stay out of the measured distributions.
       phys_serving_o      : out std_logic := '0';
-      -- '1' while a physical read session streams words PAST its
+      -- '1' while a physical read session streams words past its
       -- serve-start sync (phys_stream and the serve-from-sync hunt done).
-      -- Gates the front-end's WORDSYNC-conditional framing hold: during
-      -- the hunt the aligner must keep realigning (serve-from-sync), from
-      -- the first served word on the framing may free-run (real-Paula
-      -- WORDSYNC=0 behavior - the sync-seam fix, physical_fdd_bits.vhd).
-      -- Registered (one clk_main cycle behind the FSM state - glitch
-      -- hygiene for the asynchronous 2-FF consumer)
+      -- Gates the front end's WORDSYNC-conditional framing hold in
+      -- physical_fdd_bits.vhd: during the hunt the aligner must keep
+      -- realigning so that the serve-from-sync gate can find a word-aligned
+      -- sync; from the first served word on, the framing may free-run like
+      -- a real Paula shifter under WORDSYNC off. See
+      -- doc/developers/hardware-floppy.md, section 4.4 (The aligner and the
+      -- framing hold). Registered (one clk_main cycle behind the FSM state,
+      -- so the asynchronous 2-FF consumer never samples a decode glitch).
       phys_data_o         : out std_logic := '0';
 
-      -- WIP-V2-A9: THE PHYSICAL WRITE DATAPATH (spec sections 2.1-2.4).
-      -- The unit of write-session state is the trackwr EPISODE, not the
-      -- engine drain: Paula's write DMA survives every engine-side abort
-      -- (trackwr stays high until the host has drained the FIFO), so the
-      -- next poll would otherwise re-open a fresh drain for the SAME DMA
-      -- and a session-scoped abort would clear - writing the remainder as
-      -- a flux splat at a random position, or on the new cylinder after a
-      -- step. Ownership is bound ONCE, at the first drain of an episode.
-      phys_wr_level_i     : in  unsigned(2 downto 0) := (others => '0');
+      -- Physical write datapath. Write-session state is scoped to the
+      -- trackwr episode, not to one engine drain: Paula's write DMA survives
+      -- every engine-side abort (trackwr stays high until the host has
+      -- drained the FIFO), so with a drain-scoped session the next poll
+      -- would open a fresh drain for the same DMA and clear the abort, and
+      -- the remainder would be written as a flux splat at a random position,
+      -- or on the new cylinder after a step. Ownership is bound once, at the
+      -- first drain of an episode. See doc/developers/hardware-floppy.md,
+      -- section 6.3 (The write episode, and who owns it).
+      phys_wr_level_i     : in  unsigned(2 downto 0) := (others => '0');  -- write-FIFO occupancy
       phys_wr_busy_i      : in  std_logic := '0';   -- writer not IDLE (synced)
       phys_wr_ok_i        : in  std_logic := '0';   -- tab qualified (synced)
-      -- The physical unit's RAW per-drive select line (core domain, no CDC:
+      -- The physical unit's raw per-drive select line (core domain, no CDC:
       -- mega65.vhd derives it from the same CIA _sel bit that drives the
-      -- mechanism). Paula's status sel field cannot serve here: its priority
-      -- encoder returns 2'd0 both for "df0 selected" AND for "nothing
-      -- selected" (paula_floppy.v:382), so with the Hardware Floppy at df0
-      -- every deselect gap reads as the physical unit.
+      -- mechanism). Paula's status sel field cannot serve here: the sel
+      -- priority encoder in paula_floppy.v returns 2'd0 both for "df0
+      -- selected" and for "nothing selected", so with the Hardware Floppy at
+      -- df0 every deselect gap reads as the physical unit.
       phys_sel_i          : in  std_logic := '0';
       phys_wr_precmode_i  : in  std_logic_vector(1 downto 0) := "00";
       phys_wr_valid_o     : out std_logic := '0';   -- 1-clk tap pulse
@@ -214,8 +240,10 @@ entity adf_track_engine is
       phys_wr_precomp_o   : out std_logic := '0';   -- precomp for this episode
       phys_wr_track_o     : out std_logic_vector(7 downto 0) := (others => '0');
 
-      -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga)
-      io_fpga_o           : out std_logic;                     -- registered - async-clear pin inside Paula!
+      -- Minimig floppy host channel (paula_floppy.v IO_ENA = io_fpga).
+      -- io_fpga_o is registered: Paula uses it as an asynchronous clear, so
+      -- it must be glitch-free.
+      io_fpga_o           : out std_logic;
       io_strobe_o         : out std_logic;                     -- 1 clk pulse per word
       io_din_o            : out std_logic_vector(15 downto 0);
       io_dout_i           : in  std_logic_vector(15 downto 0);
@@ -225,14 +253,14 @@ entity adf_track_engine is
       -- main.vhd uses this to invalidate the shared read cache only at a safe
       -- moment: the cache is common to all drives, so a newly streamed image
       -- must flush it, but flushing mid-fetch would swallow a burst response
-      -- and hang the fetch. Asserted at least one clock BEFORE avm_read_o /
+      -- and hang the fetch. Asserted at least one clock before avm_read_o /
       -- avm_write_o rise (ST_SERVE and ST_WCOMMIT_ADDR precede the issue
       -- states), which closes the race against the flush decision.
       avm_busy_o          : out std_logic;
 
       -- ADF image port: Avalon-MM master into avm_cache (clk_main domain).
       -- Single-word reads and writes with byteenable "11" (single-word is
-      -- required for the cache's prefetch AND for its write-hit line update).
+      -- required for the cache's prefetch and for its write-hit line update).
       avm_write_o         : out std_logic;
       avm_read_o          : out std_logic;
       avm_address_o       : out std_logic_vector(31 downto 0);
@@ -268,7 +296,7 @@ architecture synthesis of adf_track_engine is
    -- header = 2nd sync + 4 info + 16 label + 4 stored-checksum words (GetHeader
    -- needs >= 25 buffered, :337); data = 4 stored-checksum + 256 odd + 256 even
    -- words (GetData needs >= 0x204, :469). A section is only consumed once
-   -- Paula's FIFO holds ALL of it - no mid-section starvation handling needed.
+   -- Paula's FIFO holds all of it - no mid-section starvation handling needed.
    constant C_HDR_WORDS         : natural := 25;
    constant C_DATA_WORDS        : natural := 516;
 
@@ -312,10 +340,11 @@ architecture synthesis of adf_track_engine is
       return e(to_integer(u)) and m(to_integer(u));
    end function f_is_mounted;
 
-   -- The KS1.3 precomp policy (trackdisk.asm FEA2DA..FEA306): PRECOMP0 =
-   -- 140 ns for every track >= 81 - the inner half of the disk MINUS track
-   -- 80 (cylinder 40 lower head). Keyed on Paula's own track register, the
-   -- same number the ROM compares. Mode 01 = ON, 10 = OFF, else AUTO.
+   -- The Kickstart 1.3 trackdisk.device precomp policy (ROM $FEA2DA..$FEA306):
+   -- PRECOMP0 = 140 ns for every track >= 81 - the inner half of the disk
+   -- minus track 80 (cylinder 40 lower head). Keyed on Paula's own track
+   -- register, the same number the ROM compares. Mode 01 = on, 10 = off,
+   -- else AUTO.
    function f_precomp(mode : std_logic_vector(1 downto 0);
                       trk  : unsigned(7 downto 0)) return std_logic is
    begin
@@ -374,14 +403,14 @@ architecture synthesis of adf_track_engine is
                                                         -- front-end aligner (Paula reset value)
 
    -- physical-service served-word diagnostic counter (binary + Gray shadow;
-   -- free-running, wraps - the diag procedure diffs two reads). Deliberately
-   -- not cleared by reset_i so an Amiga reboot does not erase the evidence.
+   -- free-running, wraps - the diag procedure diffs two reads). Not cleared
+   -- by reset_i, so an Amiga reboot does not erase the count.
    signal served_bin   : unsigned(15 downto 0) := (others => '0');
    signal served_gray  : std_logic_vector(15 downto 0) := (others => '0');
 
    -- physical stream session ownership: set when the service is dispatched,
    -- held while Paula's trackrd stays up. While set, transient foreign sel
-   -- samples in poll frames (the OTHER unit's change-poll click; Paula's
+   -- samples in poll frames (the other unit's change-poll click; Paula's
    -- sel field is a priority encoder) neither abort the stream nor divert
    -- the dispatch into the ADF service (which would poison the read DMA).
    signal phys_stream  : std_logic := '0';
@@ -394,35 +423,38 @@ architecture synthesis of adf_track_engine is
    -- the next sync word can arrive.
    signal phys_data_r  : std_logic := '0';
 
-   -- ADF read session ownership, the exact counterpart of phys_stream and for
-   -- the same reason: Paula binds trackrd to ONE unit for a whole DMA, but its
+   -- ADF read session ownership, the counterpart of phys_stream and for the
+   -- same reason: Paula binds trackrd to one unit for a whole DMA, but its
    -- sel field is a priority encoder, so a change-poll click on another drive
    -- makes one poll report a foreign unit mid-read. Without this latch the next
-   -- poll would re-dispatch the running DMA to that other drive and stream ITS
+   -- poll would re-dispatch the running DMA to that other drive and stream its
    -- image into the buffer the first drive is filling - silently wrong data,
    -- with nothing on the disk to show for it. While the latch is set the
-   -- serving unit is frozen; it is released when trackrd drops.
+   -- serving unit is frozen. It is released by every abort and whenever a
+   -- poll or a sector re-check reads status bit 8 low: trackrd dropped, or
+   -- the read is throttled because Paula's FIFO holds >= 1024 words.
    --
-   -- Sharp edge of the protocol, worth knowing before touching this: Paula's
-   -- encoder (paula_floppy.v:363) returns sel = 0 BOTH when df0 is selected and
-   -- when NO drive is selected, so those two states are indistinguishable in the
-   -- status word. The latch freezes whatever the first accepted poll of a
-   -- session reported, which is right for the case it exists for (a foreign
-   -- change-poll click mid-read) and would be wrong only if a read DMA were
-   -- armed with every drive deselected - which trackdisk does not do: it selects
-   -- the drive before writing DSKLEN and keeps it selected for the transfer.
+   -- A sharp edge of the protocol: the sel priority encoder in paula_floppy.v
+   -- returns sel = 0 both when df0 is selected and when no drive is selected,
+   -- so those two states are indistinguishable in the status word. The latch
+   -- freezes whatever the first accepted poll of a session reported, which is
+   -- right for the case it exists for (a foreign change-poll click mid-read)
+   -- and would be wrong only if a read DMA were armed with every drive
+   -- deselected - which trackdisk does not do: it selects the drive before
+   -- writing DSKLEN and keeps it selected for the transfer.
    signal adf_stream   : std_logic := '0';
 
-   -- serve-from-sync gate (the round-6 root cause): ADKCON WORDSYNC is 0 in
-   -- this system (hardware-measured; the ADF path works because its stream
-   -- starts at a sector boundary), so Paula stores from the very FIRST word
-   -- the engine serves. After a chain reset (deselect between attempts) the
-   -- front end emits free-running pre-lock words - serving those puts
-   -- hundreds of junk words at the buffer start and trackdisk rejects the
-   -- read. The gate discards FIFO words until the head equals the live
-   -- DSKSYNC, then serves from the sync word itself: the buffer starts
-   -- sync-aligned exactly like a real drive behind Paula WORDSYNC, under
-   -- EITHER wordsync setting.
+   -- serve-from-sync gate. Kickstart 1.3 trackdisk runs with ADKCON WORDSYNC
+   -- off, so Paula stores from the very first word the engine serves (the ADF
+   -- path is unaffected because its stream starts at a sector boundary).
+   -- After a chain reset (trackdisk deselects between attempts) the front end
+   -- emits free-running pre-lock words; serving those would put hundreds of
+   -- junk words at the buffer start, and trackdisk would reject the read. The
+   -- gate discards FIFO words until the head equals the live DSKSYNC, then
+   -- serves from the sync word itself: the buffer starts sync-aligned like a
+   -- real drive behind Paula's WORDSYNC gate, under either WORDSYNC setting.
+   -- See doc/developers/hardware-floppy.md, section 4.6 (The engine side of
+   -- the read path).
    signal phys_hunt    : std_logic := '0';
 
    -- served-side store signature (see the port comment)
@@ -438,7 +470,7 @@ architecture synthesis of adf_track_engine is
    signal sig_ses      : unsigned(7 downto 0) := (others => '0');
    signal phys_din_q   : std_logic_vector(15 downto 0) := (others => '0');
 
-   -- disk service state. track_eff / sector / fetch_idx belong to the ONE
+   -- disk service state. track_eff / sector / fetch_idx belong to the one
    -- serve that is in flight; the rotation continuation is per unit, so two
    -- drives reading in alternation keep their own head and sector position
    -- (a shared sector_next would make each drive resume where the other one
@@ -457,9 +489,10 @@ architecture synthesis of adf_track_engine is
    signal dc0, dc1, dc2, dc3 : std_logic_vector(7 downto 0);
 
    -- MFM write decoder (bit-exact minimig_fdd.cpp FindSync/GetHeader/GetData).
-   -- MiSTer parity: the write path syncs on the LITERAL 0x4489 - the read
-   -- path's dsksync substitution does NOT apply here (FindSync :307).
-   -- Three deliberate, reviewed deviations, all no-ops for valid sectors:
+   -- MiSTer parity: the write path syncs on the literal 0x4489 - the read
+   -- path's dsksync substitution does not apply here (FindSync :307).
+   -- Three deviations from the reference, all no-ops for valid sectors
+   -- (doc/developers/floppy-adf.md, section 8.2):
    -- (1) header track <= 159 (cpp :381) is replaced by the commit-time checks
    --     header==physical AND physical < tracks_total (writable overdumps);
    -- (2) a bad header is rejected after all 25 header words (the cpp aborts
@@ -472,36 +505,36 @@ architecture synthesis of adf_track_engine is
    -- MiSTer-parity hang note: a write whose dsklen ends mid-section freezes
    -- both implementations in the section-admission re-poll (Paula holds
    -- dmaen, DSKBLK needs an empty FIFO) - unreachable via trackdisk, and an
-   -- Amiga warm boot recovers it (reset aborts the drain) exactly like on
+   -- Amiga warm boot recovers it (reset aborts the drain) as on
    -- MiSTer.
    type t_wd_mode is (WD_HUNT, WD_HDR, WD_DATA);
    signal wd_mode      : t_wd_mode := WD_HUNT;
    signal in_drain     : std_logic := '0';             -- decoder state is live
    signal drain_unit   : unsigned(1 downto 0) := (others => '0');  -- unit that owns the drain
    signal drain_commit : std_logic := '0';             -- '1' = drain belongs to a simulated
-                                                       -- drive (physical-unit drains stay pure
-                                                       -- discard: sync hunt disabled, so the
-                                                       -- decoder can never commit them)
+                                                       -- drive; a physical-unit drain never
+                                                       -- hunts for a sync, so the decoder
+                                                       -- can never commit it
    signal wr_track_lat : unsigned(7 downto 0) := (others => '0');  -- physical track at drain entry
 
-   -- WIP-V2-A9: the write EPISODE (spec 2.1). epi_bound/epi_phys are latched
-   -- at the FIRST drain of a trackwr episode and decide, once, who owns it;
-   -- every later drain of the same episode INHERITS that ownership. wr_epi
-   -- is the level everything keys on - never drain_commit or drain_unit,
-   -- because a physical-owned drain OUTSIDE an episode (a stray sel click
-   -- during an ADF-first episode) must keep behaving exactly like today.
+   -- The write episode. epi_bound/epi_phys are latched at the first drain of
+   -- a trackwr episode and decide, once, who owns it; every later drain of
+   -- the same episode inherits that ownership. wr_epi is the level the write
+   -- datapath keys on - never drain_commit or drain_unit, because a
+   -- physical-owned drain outside a physical episode (a stray sel click
+   -- during an ADF-owned episode) must stay a pure discard.
    signal epi_bound    : std_logic := '0';
    signal epi_phys     : std_logic := '0';
    signal wr_epi       : std_logic;
-   signal wr_epi_r     : std_logic := '0';   -- registered export (A7 hygiene)
-   signal epi_abort    : std_logic := '0';   -- abort LEVEL, held per episode
+   signal wr_epi_r     : std_logic := '0';   -- registered export (see p_wr_epi)
+   signal epi_abort    : std_logic := '0';   -- abort level, held per episode
    signal epi_precomp  : std_logic := '0';   -- precomp decision at the bind
-   -- 0x79's track byte must describe the WRITE EPISODE. wr_track_lat cannot
-   -- serve: it is re-latched by every ADF write drain, so a later ADF write
-   -- would silently relabel the last physical episode in a field dump.
+   -- The track byte of diag register 0x79 must describe the write episode.
+   -- wr_track_lat cannot serve: it is re-latched by every ADF write drain, so
+   -- a later ADF write would relabel the last physical episode in a dump.
    signal epi_track    : unsigned(7 downto 0) := (others => '0');
-   -- a FOREIGN sel must persist to abort: a one-poll click is Paula's
-   -- priority encoder, not a real change of owner (spec 2.1)
+   -- a foreign sel must persist to abort: a one-poll click is Paula's
+   -- priority encoder, not a real change of owner
    constant C_WR_FOREIGN : natural := 2838;  -- 100 us at 28.375 MHz
    signal foreign_lat  : std_logic := '0';
    signal foreign_cnt  : natural range 0 to C_WR_FOREIGN := 0;
@@ -529,12 +562,12 @@ architecture synthesis of adf_track_engine is
    signal wr_req       : std_logic_vector(2 downto 0) := (others => '0');
 
    -- sector buffer: 256x16, byte-swapped to 68k order (even file byte in bits 15:8).
-   -- MUST stay LUTRAM (BRAM is full, see CLAUDE.md rule 3). Accessed ONLY via the
+   -- Must stay LUTRAM, because block RAM is fully used. Accessed only via the
    -- textbook simple-dual-port template (one sync write in ST_FETCH_WAIT, one
    -- unconditional registered read through secbuf_raddr/secbuf_q at the top of
    -- fsm_proc) - anything fancier makes Vivado fall back to 4096 flip-flops
-   -- (Synth 8-7186 "not inferred as ram due to incorrect usage", seen in R3
-   -- synthesis run 3 with a read expression at the io_din_o assignment sites).
+   -- (Synth 8-7186 "not inferred as ram due to incorrect usage"; a read
+   -- expression at the io_din_o assignment sites is enough to trigger it).
    type t_secbuf is array (0 to 255) of std_logic_vector(15 downto 0);
    signal secbuf       : t_secbuf;
    signal secbuf_raddr : unsigned(7 downto 0) := (others => '0');  -- primed one word ahead
@@ -544,7 +577,7 @@ architecture synthesis of adf_track_engine is
 
    -- decoded write-sector buffer: 256x16 in 68k byte order (even file byte in
    -- bits 15:8), byte-swapped back to HyperRAM packing at commit time. Same
-   -- strict LUTRAM template and rules as secbuf (BRAM is full, rule 3): one
+   -- strict LUTRAM template and rules as secbuf (block RAM is fully used): one
    -- muxed sync write, one unconditional registered read via wrbuf_raddr/
    -- wrbuf_q primed one word ahead (the even-bits pass is a read-modify-write
    -- combine, the commit pass streams the buffer to HyperRAM).
@@ -554,14 +587,14 @@ architecture synthesis of adf_track_engine is
    signal wrbuf_q      : std_logic_vector(15 downto 0);
    attribute ram_style of wrbuf : signal is "distributed";
 
-   -- MFM DATA CELLS of a byte (minimig_fdd.cpp SendSector, data half only).
+   -- MFM data cells of a byte (minimig_fdd.cpp SendSector, data half only).
    -- The reference ORs in 0xAA - it forces every clock cell to 1 and says so:
    -- "we do not insert clock bits because they will be stripped by the Amiga
-   -- software anyway". True while the words only ever reach Paula, but the
-   -- stream can be raw-copied onto real magnetic media, where all-ones clock
-   -- cells demand flux reversals 2 us apart (the medium needs 4) and the
-   -- clock-less info words leave 15-cell silences (the limit is 3). These
-   -- helpers therefore emit the DATA cells alone and f_mfm_clocks computes
+   -- software anyway". That holds while the words only ever reach Paula, but
+   -- the stream can be raw-copied onto real magnetic media, where all-ones
+   -- clock cells demand flux reversals 2 us apart (the medium needs 4) and
+   -- the clock-less info words leave 15-cell silences (the limit is 3). These
+   -- helpers therefore emit the data cells alone, and f_mfm_clocks computes
    -- the real clock cells over the whole stream.
    function f_mfm_odd(b : std_logic_vector(7 downto 0)) return std_logic_vector is
    begin
@@ -573,17 +606,17 @@ architecture synthesis of adf_track_engine is
       return b and x"55";                                -- b & 0x55
    end function f_mfm_even;
 
-   -- REAL MFM clock cells - the Kickstart 1.3 encoder ($FEA9E2) in hardware.
-   -- Channel order is MSB first, so in a served word the ODD bit numbers are
-   -- clock cells, the EVEN bit numbers data cells, and bit 0 of one word is
+   -- Real MFM clock cells - the Kickstart 1.3 encoder ($FEA9E2) in hardware.
+   -- Channel order is MSB first, so in a served word the odd bit numbers are
+   -- clock cells, the even bit numbers data cells, and bit 0 of one word is
    -- immediately adjacent to bit 15 of the next. A clock cell is 1 exactly
    -- when the data cells on both sides of it are 0.
    --   prev = the data cell that preceded this word (the previous word's
-   --   bit 0). The chain runs UNBROKEN across sector boundaries, exactly as
-   --   the ROM does: it reads -1(a0), the previous sector's last byte, and
-   --   encodes all eleven sectors into one contiguous buffer. Restarting the
-   --   chain per sector would emit two adjacent 1 cells at roughly half of
-   --   the ten intra-track seams - the very defect this removes.
+   --   bit 0, carried in mfm_prev). Within a read session the chain runs
+   --   across sector boundaries, as the ROM does: it reads -1(a0), the
+   --   previous sector's last byte, and encodes all eleven sectors into one
+   --   contiguous buffer. Restarting the chain per sector would emit two
+   --   adjacent 1 cells at roughly half of the ten intra-track seams.
    function f_mfm_clocks(w : std_logic_vector(15 downto 0); prev : std_logic)
                          return std_logic_vector is
       variable d : std_logic_vector(15 downto 0);
@@ -606,9 +639,12 @@ architecture synthesis of adf_track_engine is
 
    -- The MFM carry: the data cell of the last word served to Paula, i.e. the
    -- cell that immediately precedes the next word's bit 15. Cleared only when
-   -- a NEW read session begins; it must survive the per-sector io frames,
-   -- because Paula's FIFO sees word 543 of one sector and word 0 of the next
-   -- as adjacent channel cells (the frame handshake words never enter it).
+   -- adf_stream opens a new read session (ST_POLL_ARM); it must survive the
+   -- per-sector io frames, because Paula's FIFO sees word 543 of one sector
+   -- and word 0 of the next as adjacent channel cells (the frame handshake
+   -- words never enter it). A throttle (status bit 8 low at a sector
+   -- re-check) also ends the session, so the chain restarts at the first
+   -- sector served after it.
    signal mfm_prev              : std_logic := '0';
 
 begin
@@ -689,10 +725,10 @@ begin
       end function f_stream_word;
 
       -- The word actually served to Paula: f_stream_word supplies the data
-      -- cells, f_mfm_clocks the clock cells. The two DSKSYNC words are the ONE
-      -- exception and go out verbatim - a sync word carries a MISSING clock,
-      -- which is precisely the pattern an encoder can never produce and is
-      -- therefore unambiguously findable in the stream.
+      -- cells, f_mfm_clocks the clock cells. The two DSKSYNC words are the
+      -- only exception and go out verbatim: a sync word carries a missing
+      -- clock, a pattern an encoder can never produce, which is what makes
+      -- it unambiguously findable in the stream.
       impure function f_serve_word(k    : unsigned(9 downto 0);
                                    bw   : std_logic_vector(15 downto 0);
                                    prev : std_logic)
@@ -758,7 +794,7 @@ begin
          phys_wr_valid_o <= '0';
 
          -- the persisting-foreign-sel timer of the write episode (measured
-         -- in TIME, not polls: the re-poll cadence is ~2 us per frame while
+         -- in time, not polls: the re-poll cadence is ~2 us per frame while
          -- a software change-poll click spans >= 5 us)
          if wr_epi = '1' and foreign_lat = '1' then
             if foreign_cnt = C_WR_FOREIGN then
@@ -803,15 +839,15 @@ begin
          case state is
 
             -- bus released; wait for the poll timer, then run one poll cycle.
-            -- While waiting, drain and DISCARD the physical word FIFO: words
+            -- While waiting, drain and discard the physical word FIFO: words
             -- decoded while the real drive spins without a pending DMA must
             -- not linger (the stream stays at most one poll period stale).
             when ST_IDLE =>
                io_fpga_o <= '0';
-               -- WIP-V2-A9: while a write episode is open the physical read
-               -- FIFO must NOT be popped. The pop would fire the A8 obs tap
-               -- into Paula's DSKBYTR surface in the middle of a write DMA,
-               -- where a real Paula delivers no bytes at all (spec 0., 2.3).
+               -- No idle pops while a write episode is open: every pop also
+               -- feeds the DSKBYTR observation receiver in paula_floppy.v
+               -- (via main.vhd), and a real Paula delivers no read bytes
+               -- during a write DMA.
                if phys_rd_empty_i = '0' and wr_epi = '0' then
                   phys_rd_en_o <= '1';
                end if;
@@ -826,12 +862,9 @@ begin
                   -- drive-status word 0x1000|{writable[3:0],present[3:0]},
                   -- per-unit nibbles from the drive configuration: a
                   -- simulated drive's present = mounted, writable only while
-                  -- the firmware has write-back armed for THAT drive (WBC
-                  -- WR_EN); the physical unit's present from the real
-                  -- disk-change latch, writable NEVER (read-only milestone -
-                  -- the real /WPROT level reaches CIA-A through the
-                  -- paula_floppy mux regardless). Re-sent every poll cycle -
-                  -- Paula wipes it on every Amiga reset.
+                  -- the firmware has write-back armed for that drive (WBC
+                  -- WR_EN). Re-sent every poll cycle - Paula wipes it on
+                  -- every Amiga reset.
                   v_present  := (others => '0');
                   v_writable := (others => '0');
                   for u in 0 to 2 loop
@@ -842,13 +875,11 @@ begin
                   end loop;
                   if phys_en_i = '1' then
                      v_present(to_integer(unsigned(phys_unit_i))) := phys_present_i;
-                     -- WIP-V2-A9: truth in reporting - the physical unit is
-                     -- announced writable exactly while the writer's tab
-                     -- qualifier holds. MEASURED inert at the CIA level
-                     -- (paula_floppy.v substitutes the real /WPROT into the
-                     -- _wprot term when phys_mask is set), so this changes
-                     -- no Amiga-visible behavior; it is the ONE deliberate
-                     -- io-channel difference against the pre-A9 engine.
+                     -- The physical unit is present while the real disk-change
+                     -- latch is clear, and announced writable while the
+                     -- writer's tab qualifier phys_wr_ok_i holds. The Amiga
+                     -- does not see this writable bit: with phys_mask set,
+                     -- paula_floppy.v routes the real /WPROT line to CIA-A.
                      v_writable(to_integer(unsigned(phys_unit_i))) :=
                         phys_present_i and phys_wr_ok_i;
                   end if;
@@ -857,7 +888,7 @@ begin
                   state     <= ST_ANN_OPEN;
                end if;
 
-            -- strict ONE-word frame (the 0x1xxx pattern also sets Paula's cmd_fdd)
+            -- strict one-word frame (the 0x1xxx pattern also sets Paula's cmd_fdd)
             when ST_ANN_OPEN =>
                if delay_cnt /= 0 then
                   delay_cnt <= delay_cnt - 1;      -- frame-open setup
@@ -887,8 +918,12 @@ begin
                   end if;
                end if;
 
-            -- status captured. Decide BEFORE strobing word 1 (ordering matters for
-            -- the write-drain: see the spec's WDRAIN race analysis)
+            -- status captured. The frame type is decided here, before word 1
+            -- is strobed, because word 1 is what arms Paula's DMA FSM: a drain
+            -- frame (whose data words carry dummy 0x0000) continues only when
+            -- w0 showed trackwr = 1, so its word 1 cannot arm a freshly
+            -- requested read and the dummy words cannot land in that read's
+            -- FIFO.
             when ST_POLL_EVAL0 =>
                if xfer_done = '1' then
                   status    <= xfer_resp;
@@ -896,30 +931,25 @@ begin
                   v_unit    := unsigned(v_sel);
                   v_drain   := in_drain;
 
-                  -- UNIT OWNERSHIP GUARD. An open write drain belongs to
-                  -- exactly one unit; the decoder holds that unit's header,
-                  -- checksum lanes, half-decoded sector and commit track. As
-                  -- soon as Paula selects a different unit, all of that is
-                  -- meaningless - and worse, feeding the other unit's frame
-                  -- into it would produce a checksum-valid sector that the
-                  -- commit path writes into the FIRST unit's image. Abort in
-                  -- EVERY wd_mode, not just while hunting, and not keyed on
-                  -- the track number. v_drain carries the decision into the
-                  -- rest of this cycle, because in_drain only clears at the
-                  -- next edge. The price of being unconditional is that a
-                  -- transient foreign sel sample (Paula's sel field is a
-                  -- priority encoder) costs the sector that was mid-decode;
-                  -- trackdisk verifies a track after writing it and retries.
-                  -- Losing a sector is recoverable, committing it into the
-                  -- wrong drive's image is not.
-                  -- WIP-V2-A9: inside a physical write EPISODE this guard
-                  -- is suspended. The episode owns the drain, a transient
-                  -- foreign sample is Paula's priority encoder rather than a
-                  -- new owner, and dropping in_drain here would let the next
-                  -- poll re-latch the physical DMA's remainder as an
-                  -- ADF-owned, COMMITTING drain (the cross-contamination
-                  -- path the episode model exists to close). Persisting
-                  -- foreign selection aborts through the timer instead.
+                  -- Unit ownership guard. An open write drain belongs to one
+                  -- unit: the decoder holds that unit's header, checksum
+                  -- lanes, half-decoded sector and commit track, and feeding
+                  -- another unit's frame into it would produce a
+                  -- checksum-valid sector that the commit path writes into
+                  -- the first unit's image. So a different unit aborts the
+                  -- drain in every wd_mode, not keyed on the track number;
+                  -- v_drain carries the decision into the rest of this cycle,
+                  -- because in_drain only clears at the next edge. A
+                  -- transient foreign sel sample therefore costs the sector
+                  -- that was mid-decode (the image keeps its previous
+                  -- contents), a loss confined to the drive being written,
+                  -- where a wrong commit would corrupt another drive's image
+                  -- (doc/developers/floppy-adf.md, section 6.3).
+                  -- Inside a physical write episode the guard is suspended:
+                  -- dropping in_drain would let the next poll re-latch the
+                  -- remainder of the physical DMA as an ADF-owned, committing
+                  -- drain. A persisting foreign selection aborts the episode
+                  -- through the foreign_cnt timer instead.
                   if in_drain = '1' and v_unit /= drain_unit
                      and wr_epi = '0' then
                      in_drain <= '0';
@@ -943,19 +973,22 @@ begin
                               and xfer_resp(9) = '0')
                      and not (wr_epi = '1' and xfer_resp(9) = '1') then
                      -- none of our units selected: not ours - leave the
-                     -- request pending (MiSTer-identical). Exception: while
-                     -- a physical stream session is in flight (trackrd
-                     -- still up), a transient foreign sel sample must not
-                     -- park the engine in ST_IDLE (which discards the live
-                     -- word stream).
+                     -- request pending (MiSTer-identical). Exceptions keep
+                     -- an open session on its unit: a read session
+                     -- (phys_stream or adf_stream) while status bit 8 is up,
+                     -- and a physical write episode while trackwr is up. A
+                     -- transient foreign sel sample then does not park the
+                     -- engine in ST_IDLE, which would stall the session for
+                     -- a full poll period and, for the physical unit, pop
+                     -- and discard its live word stream in the idle drain.
                      -- This is the one poll exit that can be taken with a
                      -- write episode still latched (a foreign sel sampled
-                     -- in the very cycle trackwr drops), so it must apply
-                     -- the EPISODE-END rule too - otherwise wr_epi stays
-                     -- set with nothing left to clear it: chain_rst would
-                     -- hold the read front end in reset forever and the
-                     -- writer would sit in ARM waiting for a session that
-                     -- never falls.
+                     -- in the very cycle trackwr drops), so it applies the
+                     -- episode-end rule too. Otherwise wr_epi would stay set
+                     -- with nothing left to clear it: chain_rst would hold
+                     -- the read front end in reset forever and the writer
+                     -- would sit in ARM waiting for a session that never
+                     -- falls.
                      if xfer_resp(9) = '0' then
                         epi_bound   <= '0';
                         epi_phys    <= '0';
@@ -970,16 +1003,17 @@ begin
                   elsif xfer_resp(9) = '1' then
                      -- write requested: drain it (trackwr was 1 at w0, so w1 cannot arm a read).
                      -- Only drains owned by a simulated drive may decode and commit; a
-                     -- physical-unit drain is a pure discard (drain_commit gates the sync
-                     -- hunt below)
+                     -- physical-unit drain never decodes (drain_commit gates the sync hunt
+                     -- below), and inside a physical episode its words go to the writer
+                     -- through the tap in ST_WDRAIN_POP
                      track_valid(to_integer(v_unit)) <= '0';   -- a write invalidates the
-                                                               -- rotation state of ITS unit
-                     -- The head-step check consumes only polls whose sel IS
+                                                               -- rotation state of its unit
+                     -- The head-step check consumes only polls whose sel is
                      -- the drain's own unit: the status word's track field is
                      -- {dsktrack[sel], ~side} of whichever unit the priority
-                     -- encoder reports, so a foreign sample carries the OTHER
+                     -- encoder reports, so a foreign sample carries the other
                      -- unit's track and would fake a step. Inside a physical
-                     -- episode a genuine step raises the abort LEVEL instead
+                     -- episode a genuine step raises the abort level instead
                      -- of ending the pass - the DMA must still complete.
                      if wr_epi = '1' and phys_en_i = '1'
                         and v_sel = phys_unit_i
@@ -1000,11 +1034,11 @@ begin
                      elsif v_drain = '0' and epi_bound = '0'
                            and phys_en_i = '1' and v_sel = phys_unit_i
                            and phys_wr_busy_i = '1' then
-                        -- THE BUSY INTERLOCK: the writer is still draining a
-                        -- previous episode's tail. Do not BIND a new episode
+                        -- Busy interlock: the writer is still draining a
+                        -- previous episode's tail. Do not bind a new episode
                         -- on top of it - Paula's FIFO simply fills for the
                         -- <= ~104 us the writer needs to finish. Re-latches
-                        -- INSIDE an open episode are never gated on this, so
+                        -- inside an open episode are never gated on this, so
                         -- there is no deadlock between "the engine waits for
                         -- the writer" and "the writer waits for the episode".
                         state_after <= ST_POLL_OPEN;
@@ -1019,42 +1053,41 @@ begin
                            in_drain <= '1';
                            wd_mode  <= WD_HUNT;
                            if epi_bound = '0' then
-                              -- BIND the episode owner, once (spec 2.1)
+                              -- bind the episode owner, once per episode
                               epi_bound    <= '1';
-                              -- The abort level is PER-EPISODE state and
-                              -- must be initialised where the rest of it
-                              -- is. It cannot be cleared reliably at the
-                              -- episode END: the global abort block runs
+                              -- The abort level is per-episode state and
+                              -- is initialised here, with the rest of it.
+                              -- It cannot be cleared reliably at the
+                              -- episode end: the global abort block runs
                               -- after this case statement and re-asserts it
                               -- in the very cycle an end branch clears it
                               -- (wr_epi is combinational, so epi_bound and
                               -- epi_phys still read '1' there and the later
                               -- assignment wins). A level left latched
-                              -- would make the NEXT episode abort at once -
+                              -- would make the next episode abort at once:
                               -- WGATE never opens, the whole track is
-                              -- silently dropped, and trackdisk has no
-                              -- write verify to notice.
+                              -- dropped, and trackdisk, which never
+                              -- verifies a write, does not notice.
                               epi_abort    <= '0';
                               wr_track_lat <= unsigned(xfer_resp(7 downto 0));
                               drain_unit   <= v_unit;
                               drain_commit <= f_is_adf(adf_en_i, v_unit);
-                              -- BINDING AN EPISODE AS PHYSICAL IS
-                              -- IRREVERSIBLE: it suspends the ownership
-                              -- guard for the whole episode, so a wrong
-                              -- bind cannot be recovered and the drain
-                              -- never commits. One sample of Paula's
-                              -- priority-encoded sel field is not enough
-                              -- evidence to spend that: it reads 2'd0 for
-                              -- "nothing selected" as well as for "df0",
-                              -- so with the mechanism at df0 an ordinary
-                              -- deselect gap during an ADF write would bind
-                              -- the episode physical and silently discard
-                              -- the whole track. Qualify with the REAL
-                              -- per-drive select line - the same wall S10
-                              -- gives the writer, for the same reason.
+                              -- Binding an episode as physical cannot be
+                              -- undone: it suspends the ownership guard for
+                              -- the whole episode and the drain never
+                              -- commits. The sel field alone is not enough
+                              -- evidence, because its priority encoder reads
+                              -- 2'd0 for "nothing selected" as well as for
+                              -- "df0": with the mechanism at df0, a deselect
+                              -- gap during an ADF write would send the whole
+                              -- track to the writer and commit nothing. So
+                              -- the bind also requires the real per-drive
+                              -- select line, phys_sel_i, the same line whose
+                              -- synchronized copy gates WGATE in the writer.
                               -- Failing the other way is safe: the episode
-                              -- stays ADF-owned, the writer's own sel term
-                              -- keeps WGATE shut, and nothing reaches a disk.
+                              -- stays ADF-owned and WGATE stays shut. See
+                              -- doc/developers/hardware-floppy.md, section
+                              -- 6.3 (The write episode, and who owns it).
                               if phys_en_i = '1' and v_sel = phys_unit_i
                                  and phys_sel_i = '1' then
                                  epi_phys    <= '1';
@@ -1067,9 +1100,9 @@ begin
                                  epi_precomp <= '0';
                               end if;
                            elsif wr_epi = '1' then
-                              -- INHERIT: every re-latched drain of a physical
+                              -- Inherit: every re-latched drain of a physical
                               -- episode stays physical-owned and non-
-                              -- committing, and KEEPS the binding poll's
+                              -- committing, and keeps the binding poll's
                               -- track. A foreign-sel sample can therefore
                               -- never re-latch the physical DMA's remainder
                               -- as an ADF-owned drain that would hunt,
@@ -1088,9 +1121,9 @@ begin
                         state    <= ST_WDRAIN_HDR;
                      end if;
                   else
-                     -- benign continuation w1+w2: word 1 is what arms Paula's DMA FSM
-                     -- EPISODE END (spec 2.1): trackwr has dropped, so the
-                     -- write DMA is over - release the episode and its abort.
+                     -- benign continuation w1+w2: word 1 is what arms Paula's DMA FSM.
+                     -- Episode end: trackwr has dropped, so the write DMA is
+                     -- over - release the episode and its abort.
                      epi_bound   <= '0';
                      epi_phys    <= '0';
                      epi_abort   <= '0';
@@ -1117,7 +1150,7 @@ begin
                         if phys_en_i = '1' and phys_wr_busy_i = '0'
                            and (phys_stream = '1'
                            or status(15 downto 14) = phys_unit_i) then
-                           -- enter or CONTINUE the physical stream: trackrd
+                           -- enter or continue the physical stream: trackrd
                            -- is bound to one unit for the whole DMA, so a
                            -- transient foreign sel sample mid-read must not
                            -- divert the dispatch (least of all into the ADF
@@ -1139,33 +1172,32 @@ begin
                         elsif phys_en_i = '1' and phys_wr_busy_i = '1'
                               and (phys_stream = '1'
                                    or status(15 downto 14) = phys_unit_i) then
-                           -- THE BUSY INTERLOCK, read side: the writer is
-                           -- still draining a previous episode's tail.
-                           -- Defer on the FAST cadence - falling through to
-                           -- the ADF branch below would find the physical
-                           -- unit unmounted, park in ST_IDLE and cost a
-                           -- full 1 ms poll period, ten times the ~104 us
-                           -- the tail actually needs (spec 2.1). X-Copy's
-                           -- index-synced post-write verify read is the
-                           -- field case that would start a sector and a
-                           -- half late.
+                           -- Busy interlock, read side: the writer is still
+                           -- draining a previous episode's tail. Defer on
+                           -- the fast cadence - falling through to the ADF
+                           -- branch below would find the physical unit
+                           -- unmounted, park in ST_IDLE and cost a full 1 ms
+                           -- poll period, ten times the ~104 us the tail
+                           -- needs. X-Copy's index-synced post-write verify
+                           -- read would then start a sector and a half late.
                            state_after <= ST_POLL_OPEN;
                         else
-                           -- ADF service. On a NEW session the unit Paula
+                           -- ADF service. On a new session the unit Paula
                            -- selected at w0 is latched into serve_unit and
                            -- everything downstream (fetch address, track clamp,
                            -- mid-stream abort) uses that latch instead of
                            -- re-reading the sel bits. While a session is
-                           -- already running the latch is FROZEN, so a
+                           -- already running the latch is frozen, so a
                            -- transient foreign sel cannot re-point the running
                            -- DMA at another drive's image.
                            if adf_stream = '1' then
                               v_serve := serve_unit;
                            else
                               v_serve := unsigned(status(15 downto 14));
-                              -- a NEW session starts the MFM carry chain. Every
-                              -- abort clears adf_stream, so this is the single
-                              -- point at which the chain can be re-seeded.
+                              -- a new session starts the MFM carry chain. Every
+                              -- abort and every throttle clears adf_stream, so
+                              -- this is the single point at which the chain is
+                              -- re-seeded.
                               mfm_prev <= '0';
                            end if;
                            if f_is_mounted(adf_en_i, disk_mounted_i, v_serve) = '1'
@@ -1182,7 +1214,7 @@ begin
                         end if;
                      else
                         phys_stream <= '0';
-                        adf_stream  <= '0';           -- trackrd dropped: session over
+                        adf_stream  <= '0';           -- trackrd dropped or throttled: session over
                         state_after <= ST_IDLE;
                      end if;
                      io_fpga_o <= '0';
@@ -1192,7 +1224,7 @@ begin
                end if;
 
             -- write-drain frame: w1 = dsksync (discard - the write decoder syncs
-            -- on the LITERAL 0x4489, MiSTer parity), w2 = wr_fifo_status
+            -- on the literal 0x4489, MiSTer parity), w2 = wr_fifo_status
             when ST_WDRAIN_HDR =>
                if xfer_done = '1' then
                   if hdr_cnt = 0 then
@@ -1202,8 +1234,8 @@ begin
                      -- wr_fifo_status = {dmaen&dsklen[14], "000", fifo_cnt[11:0]}
                      if xfer_resp(15) = '0' and xfer_resp(11 downto 0) = x"000" then
                         in_drain    <= '0';        -- write DMA inactive and FIFO empty: done
-                        -- EPISODE END (spec 2.1): this is the completion
-                        -- observation - the writer sees wr_session fall
+                        -- Episode end: this is the completion observation -
+                        -- the writer sees the session level fall
                         -- microseconds after the last pop, long before its
                         -- <= 3-word residue could run dry.
                         epi_bound   <= '0';
@@ -1215,12 +1247,13 @@ begin
                         delay_cnt   <= C_GAP_DELAY;
                         state       <= ST_CLOSE;
                      elsif wr_epi = '1' then
-                        -- A PHYSICAL EPISODE: exactly ONE data word per
-                        -- frame, admitted only when the writer is nearly dry
-                        -- (ready = level <= 1, computed HERE - no
-                        -- cross-domain path for ready exists). The WD_HUNT
-                        -- chunk of min(fifo_cnt, 1000) back-to-back pops
-                        -- would overflow the 4-deep CDC FIFO instantly.
+                        -- A physical episode: one data word per frame,
+                        -- admitted only when the writer is nearly dry
+                        -- (write-FIFO occupancy <= 1, computed here from the
+                        -- write side of that FIFO, so no ready signal has to
+                        -- cross clocks). The WD_HUNT chunk of
+                        -- min(fifo_cnt, 1000) back-to-back pops would
+                        -- overflow the 4-deep CDC FIFO at once.
                         if unsigned(xfer_resp(11 downto 0)) = 0
                            or phys_wr_level_i > 1 then
                            state_after <= ST_POLL_OPEN;
@@ -1236,7 +1269,7 @@ begin
                         end if;
                      elsif wd_mode = WD_HUNT then
                         -- pop up to fifo_cnt words hunting for the sync word
-                        -- (NEVER the raw value: bit 15 is a flag)
+                        -- (never the raw value: bit 15 is a flag)
                         word_cnt   <= (others => '0');
                         word_total <= resize(unsigned(xfer_resp(9 downto 0)), 10);
                         if unsigned(xfer_resp(11 downto 0)) > 1000 then
@@ -1255,7 +1288,7 @@ begin
                         end if;
                      else
                         -- header/data section: consume it only when Paula's
-                        -- FIFO already buffers the WHOLE section (the MiSTer
+                        -- FIFO already buffers the whole section (the MiSTer
                         -- discipline - GetHeader :337, GetData :469)
                         if wd_mode = WD_HDR then
                            v_need := C_HDR_WORDS;
@@ -1293,10 +1326,10 @@ begin
                   v_lo    := xfer_resp( 7 downto 0);
                   v_close := '0';
 
-                  -- WIP-V2-A9 THE TAP: one pulse per popped word while a
+                  -- The write tap: one pulse per popped word while a
                   -- physical write episode is open. Keyed on wr_epi, never
-                  -- on drain_commit: a physical-owned drain outside an
-                  -- episode must stay the pure discard it is today.
+                  -- on drain_commit: a physical-owned drain outside a
+                  -- physical episode stays a pure discard.
                   if wr_epi = '1' then
                      phys_wr_valid_o <= '1';
                      phys_wr_data_o  <= xfer_resp;
@@ -1307,8 +1340,9 @@ begin
                      when WD_HUNT =>
                         if drain_commit = '1' and xfer_resp = x"4489" then
                            -- sync hunt only for ADF-unit drains: a physical-
-                           -- unit drain stays in HUNT forever = pure discard,
-                           -- so it can never reach the HyperRAM commit path
+                           -- unit drain stays in HUNT forever and never
+                           -- decodes, so it can never reach the HyperRAM
+                           -- commit path
                            wd_mode <= WD_HDR;       -- sync found: close the
                            v_close := '1';          -- frame (FindSync :307-310)
                            state_after <= ST_POLL_OPEN;
@@ -1330,7 +1364,7 @@ begin
                               end if;
                            when 1 =>                -- info odd 1: format, track
                               winf_odd(31 downto 16) <= xfer_resp;
-                              wck0 <= v_hi;         -- lanes START here (assign)
+                              wck0 <= v_hi;         -- lanes start here (assign)
                               wck1 <= v_lo;
                            when 2 =>                -- info odd 2: sector, gap
                               winf_odd(15 downto 0) <= xfer_resp;
@@ -1369,10 +1403,10 @@ begin
                               -- header validation (GetHeader :379-386, :426):
                               -- format 0xFF, sector 0..10, gap 1..11, checksum.
                               -- The track itself is validated at commit time
-                              -- against the PHYSICAL track and the image size
-                              -- (deliberate deviation from MiSTer's <=159
-                              -- limit, which would break writes on our
-                              -- accepted 160..166-track overdumps).
+                              -- against the physical track and the image size
+                              -- (a deviation from MiSTer's <= 159 limit, which
+                              -- would break writes on the accepted
+                              -- 160..166-track overdumps).
                               if whd_fmt = x"FF"
                                  and whd_sector <= 10
                                  and whd_gap >= 1 and whd_gap <= 11
@@ -1450,7 +1484,7 @@ begin
                                  v_ck2 := (wck2 xor v_hi) and x"55";
                                  v_ck3 := (wck3 xor v_lo) and x"55";
                                  -- every image-side gate is evaluated for the
-                                 -- unit that OWNS this drain, never for a
+                                 -- unit that owns this drain, never for a
                                  -- "current" unit: by the time the last data
                                  -- word arrives, Paula may already be polling
                                  -- someone else
@@ -1501,8 +1535,8 @@ begin
                avm_write_o     <= '1';
                -- byte-swap back to HyperRAM packing (even file byte in 7:0)
                avm_writedata_o <= wrbuf_q(7 downto 0) & wrbuf_q(15 downto 8);
-               -- the pool of the unit that owns this drain - the whole point
-               -- of latching drain_unit
+               -- the pool of the unit that owns this drain (drain_unit), not
+               -- of whichever unit Paula polls by now
                avm_address_o   <= std_logic_vector(
                                     resize(C_BASE(to_integer(drain_unit)), 32)
                                     + resize(wr_track_lat * to_unsigned(C_TRACK_WORDS, 12), 32)
@@ -1537,7 +1571,7 @@ begin
                   track_valid(to_integer(serve_unit)) <= '1';
                else
                   sector <= sector_next(to_integer(serve_unit));   -- same track:
-                                                    -- rotation continuation of THIS unit
+                                                    -- rotation continuation of this unit
                end if;
                fetch_idx <= (others => '0');
                dc0 <= (others => '0');
@@ -1607,15 +1641,17 @@ begin
                            v_track_new := f_tracks(disk_tracks_i, serve_unit) - 1;
                         end if;
                         -- the sel bits must still name the unit this stream was
-                        -- started for - compared against the LATCHED serving unit,
-                        -- so a second simulated drive polling in between aborts the
-                        -- stream instead of silently inheriting it
+                        -- started for - compared against the latched serving unit,
+                        -- so a second simulated drive sampled in between closes this
+                        -- frame instead of silently inheriting the stream
                         if xfer_resp(8) = '0'
                            or xfer_resp(9) = '1'
                            or f_is_mounted(adf_en_i, disk_mounted_i, serve_unit) = '0'
                            or f_tracks(disk_tracks_i, serve_unit) = 0 then
-                           -- the DMA really ended (or the disk vanished): drop
-                           -- the session and go back to the poll cadence
+                           -- status bit 8 low (the DMA ended, or the read is
+                           -- throttled because Paula's FIFO holds >= 1024
+                           -- words), a write started, or the disk vanished:
+                           -- drop the session and go back to the poll cadence
                            adf_stream  <= '0';
                            state_after <= ST_IDLE;
                            io_fpga_o   <= '0';
@@ -1623,7 +1659,7 @@ begin
                            state       <= ST_CLOSE;
                         elsif unsigned(xfer_resp(15 downto 14)) /= serve_unit then
                            -- a foreign unit was sampled mid-stream. Close this
-                           -- frame, but KEEP the session: the next poll finds
+                           -- frame, but keep the session: the next poll finds
                            -- adf_stream set and resumes serving the same unit
                            -- instead of handing the DMA to the other drive.
                            state_after <= ST_IDLE;
@@ -1700,16 +1736,16 @@ begin
                end if;
 
             -- w0 = status re-check, w1 = dsksync (raw, exported live to the
-            -- front-end aligner - NO Copy Lock substitution: the real disk
+            -- front-end aligner - no Copy Lock substitution: the real disk
             -- contains whatever sync the loader programmed), w2 = discarded
             when ST_PHYS_HDR =>
                if xfer_done = '1' then
                   case hdr_cnt is
                      when "10" =>                  -- w0: status re-check.
-                        -- Deliberately NO sel-bits check: trackrd is bound
-                        -- to one unit for the whole DMA, and a transient
-                        -- foreign /SEL pulse (priority-encoded sel field)
-                        -- must not abort the stream into ST_IDLE's discard.
+                        -- No sel-bits check here: trackrd is bound to one
+                        -- unit for the whole DMA, and a transient foreign
+                        -- /SEL pulse (priority-encoded sel field) must not
+                        -- abort the stream into ST_IDLE's discard.
                         if xfer_resp(8) = '0' or xfer_resp(9) = '1'
                            or phys_en_i = '0' then
                            -- DMA done / aborted / throttled / write started:
@@ -1772,12 +1808,12 @@ begin
                   served_gray <= std_logic_vector(
                                     shift_right(served_bin + 1, 1) xor (served_bin + 1));
                   -- store signature: XOR of C_SIG_WORDS served words starting
-                  -- WITH the first DSKSYNC word of the session - with the
-                  -- serve-from-sync gate and WORDSYNC=0 (the measured
-                  -- reality) that is exactly Paula's store window, so the
-                  -- signature pair must be EQUAL on an intact channel.
-                  -- phys_din_q is the word just completed (io_din_o may
-                  -- re-latch on this same edge).
+                  -- with the first DSKSYNC word of the session. With the
+                  -- serve-from-sync gate and WORDSYNC off (Kickstart 1.3
+                  -- trackdisk) that is Paula's store window, so the two
+                  -- signatures are equal on an intact channel (see the port
+                  -- comment for WORDSYNC on). phys_din_q is the word just
+                  -- completed (io_din_o may re-latch on this same edge).
                   if sig_state = SG_HUNT then
                      if phys_din_q = sync_phys or sync_phys = x"0000" then
                         sig_state <= SG_RUN;
@@ -1819,12 +1855,12 @@ begin
                if delay_cnt /= 0 then
                   delay_cnt <= delay_cnt - 1;
                else
-                  -- WIP-V2-A9: while a write episode is open the engine
-                  -- never parks. A one-poll sample of a non-existent unit
-                  -- (df1/df2 with Drives=1, the field default) would
-                  -- otherwise starve the <= 104 us pipe into an underrun,
-                  -- and ST_IDLE would fire the announce and the read-FIFO
-                  -- discard-pop that must stay silent during a write.
+                  -- While a write episode is open the engine never parks.
+                  -- A one-poll sample of a non-existent unit (df1/df2 with
+                  -- Drives = 1, the default configuration) would otherwise
+                  -- starve the <= 104 us pipe into an underrun, and ST_IDLE
+                  -- would fire the announce and the read-FIFO discard-pop
+                  -- that must stay silent during a write.
                   if state_after = ST_IDLE and wr_epi = '1' then
                      delay_cnt <= C_GAP_DELAY;
                      state     <= ST_POLL_OPEN;
@@ -1841,18 +1877,18 @@ begin
 
          ---------------------------------------------------------------------
          -- abort dominates everything: core reset, config replay running, or
-         -- (outside the mount-status frames) a vanished disk. Dropping io_fpga
-         -- mid-word is safe - Paula async-clears its receiver state. A commit
-         -- must abort on unmount too: the next mount's SD streaming owns
-         -- HyperRAM then. dirty_pend and the event scanner are deliberately
-         -- NOT touched - dirty state survives an Amiga reboot (a sector cut
-         -- short here stays un-flagged: HyperRAM keeps the torn sector, the
-         -- SD keeps the old consistent one - same as real hardware losing
-         -- power mid-write).
+         -- a disk that vanished while its HyperRAM pool is being fetched from
+         -- or committed to. Dropping io_fpga mid-word is safe - Paula
+         -- async-clears its receiver state. A commit must abort on unmount
+         -- too: the next mount's SD streaming owns HyperRAM then. dirty_pend
+         -- and the event scanner are not touched - dirty state survives an
+         -- Amiga reboot (a sector cut short here stays un-flagged: HyperRAM
+         -- keeps the torn sector, the SD keeps the old consistent one - same
+         -- as real hardware losing power mid-write).
          ---------------------------------------------------------------------
-         -- note: the ST_PHYS_* states are deliberately NOT in the unmount
-         -- abort list - the physical drive works without any ADF mounted
-         -- the unmount test looks at the unit that owns the state in question:
+         -- The ST_PHYS_* states are not in the unmount abort list: the
+         -- physical drive works without any ADF mounted.
+         -- The unmount test looks at the unit that owns the state in question:
          -- the serving unit while reading, the draining unit while committing.
          -- Ejecting a disk from an idle drive must not disturb another one.
          if reset_i = '1' or bus_grant_i = '0'
@@ -1877,13 +1913,13 @@ begin
             sig_state    <= SG_IDLE;              -- freeze a torn signature
             state        <= ST_IDLE;
             delay_cnt    <= G_POLL_DELAY;
-            -- WIP-V2-A9: a global abort of an OPEN write episode raises the
-            -- abort LEVEL (the writer cuts WGATE in the same cycle and the
-            -- episode is dead), but does NOT clear the episode itself: Paula
-            -- still holds trackwr until its FIFO drains, so the engine must
-            -- keep re-opening inherited drains and popping until DSKBLK
-            -- fires. The episode-end rule releases it. Re-poll fast, not
-            -- after the 1 ms park, so the pipe cannot starve.
+            -- A global abort of an open write episode raises the abort level
+            -- (the writer cuts WGATE in the same cycle and the episode is
+            -- dead), but does not clear the episode itself: Paula still holds
+            -- trackwr until its FIFO drains, so the engine keeps re-opening
+            -- inherited drains and popping until DSKBLK fires. The episode-end
+            -- rule releases it. Re-poll fast, not after the 1 ms park, so the
+            -- pipe cannot starve.
             if wr_epi = '1' then
                epi_abort <= '1';
                delay_cnt <= C_GAP_DELAY;
@@ -1894,7 +1930,7 @@ begin
             end if;
          end if;
 
-         -- a fresh mount always restarts the rotation state of THAT drive
+         -- a fresh mount always restarts the rotation state of that drive
          for u in 0 to 2 loop
             if disk_mounted_i(u) = '0' then
                track_valid(u) <= '0';
@@ -1911,16 +1947,16 @@ begin
    -- in adf_mount_wrapper via a two-phase toggle handshake - payload first,
    -- then (after a settle delay far longer than the cdc_stable latency) the
    -- req toggle; the ack toggle returns the same way. The cdc_stable
-   -- instances live in mega65.vhd. The pending bit is cleared BEFORE the
+   -- instances live in mega65.vhd. The pending bit is cleared before the
    -- handshake starts, so a re-dirty during the handshake raises a fresh
-   -- event - no coalescing loss. Deliberately free of reset_i: dirty state
-   -- must survive an Amiga reboot (the SD flush continues right through it).
+   -- event - no coalescing loss. Free of reset_i: dirty state must survive
+   -- an Amiga reboot (the SD flush continues right through it).
    ---------------------------------------------------------------------------
    wr_req_o <= wr_req;
 
    -- "an Avalon transaction is in flight or one state away" - see the port
-   -- comment. ST_SERVE and ST_WCOMMIT_ADDR/READ are included precisely so
-   -- that this rises BEFORE avm_read_o / avm_write_o do.
+   -- comment. ST_SERVE and ST_WCOMMIT_ADDR/READ are included so that this
+   -- rises before avm_read_o / avm_write_o do.
    avm_busy_o <= '1' when state = ST_SERVE or state = ST_FETCH_ISSUE
                        or state = ST_FETCH_WAIT or state = ST_WCOMMIT_ADDR
                        or state = ST_WCOMMIT_READ or state = ST_WCOMMIT_ISSUE
@@ -1946,7 +1982,8 @@ begin
    -- (registered in fsm_proc; 2-FF-synced into the 50 MHz domain there)
    phys_serving_o  <= phys_stream;
 
-   -- registered (glitch hygiene - see the phys_data_r declaration)
+   -- registered, so the 2-FF consumer never sees a decode glitch (see the
+   -- phys_data_r declaration)
    p_phys_data : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then
@@ -1955,11 +1992,12 @@ begin
    end process p_phys_data;
    phys_data_o <= phys_data_r;
 
-   -- WIP-V2-A9 exports. wr_epi is used COMBINATIONALLY inside the FSM (the
-   -- decisions above must see it in the cycle the latches change), but the
-   -- exported level is REGISTERED: it crosses into the 50 MHz domain through
-   -- an asynchronous 2-FF, and epi_bound/epi_phys can toggle in the same
-   -- cycle - the A7 phys_data_o lesson.
+   -- Write episode exports. wr_epi is used combinationally inside the FSM
+   -- (the decisions above must see it in the cycle the latches change), but
+   -- the exported level is registered: it crosses into the 50 MHz domain
+   -- through an asynchronous 2-FF synchronizer, and epi_bound/epi_phys can
+   -- toggle in the same cycle, so the combinational AND could present a
+   -- decode glitch (the same reason phys_data_o is registered).
    wr_epi <= epi_bound and epi_phys;
 
    p_wr_epi : process (clk_main_i)

@@ -3,9 +3,9 @@
 --
 -- A normal 68000 reset is a warm boot: Kickstart reuses the ExecBase pointer stored at
 -- Chip RAM $000004 and therefore keeps the old Exec memory list. That is wrong after the
--- OSM changes the physical memory topology (currently the Slow RAM / A501 toggle).
+-- OSM changes the physical memory topology (the Slow RAM / A501 toggle).
 --
--- This controller turns such a topology change into a cold boot of the emulated Amiga only.
+-- This controller turns such a topology change into a cold boot of the simulated Amiga only.
 -- It holds Minimig in reset and asks the Chip RAM wrapper to clear the two 16-bit words at
 -- $000004-$000007. Kickstart then rejects the warm-boot state, probes the new memory map and
 -- rebuilds Exec. QNICE, the framework, HyperRAM and mounted media remain untouched.

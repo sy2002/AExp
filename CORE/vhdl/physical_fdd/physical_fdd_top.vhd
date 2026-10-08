@@ -1,73 +1,58 @@
 -------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- physical_fdd_top: the complete read front-end for the MEGA65 internal
--- floppy drive used as a real Amiga drive. Runs on the 50 MHz QNICE clock
--- (all magnetic constants are proven at exactly this frequency on this
--- mechanism by the C64MEGA65 physical-1581 bring-up); the reconstructed
--- 16-bit MFM words leave through a dual-clock FIFO into the core clock
--- domain, where adf_track_engine serves them to Paula.
+-- physical_fdd_top: the Hardware Floppy front-end, which turns the MEGA65
+-- internal floppy drive into a real Amiga drive. It holds the read decode
+-- chain, the writer and the instruments behind the diagnostics bank, and runs
+-- on the 50 MHz QNICE clock: the C64MEGA65 physical-1581 work established the
+-- magnetic constants on this mechanism at this same frequency. The
+-- reconstructed 16-bit MFM words leave through a dual-clock FIFO into the
+-- core clock domain, where adf_track_engine serves them to Paula; the words
+-- to be written arrive from the engine through a second dual-clock FIFO.
 --
---   pins -> inputs conditioner -> mfm_gaps -> adaptive quantiser ->
---   bits/aligner -> word FIFO -> (core domain) engine
+--   read:  pins -> inputs conditioner -> mfm_gaps -> adaptive quantiser ->
+--          bits/aligner (DPLL or quantiser bit source) -> word FIFO ->
+--          (core domain) engine
+--   write: (core domain) engine tap -> write FIFO -> writer -> WDATA/WGATE
 --
--- Beyond the decode chain this block:
---   * synchronizes the drive-control context (enable / selected / motor)
+-- Beyond the decode chain and the writer this block:
+--   * synchronizes the drive-control context (enable, selected, motor, side)
 --     from the core clock domain (2-FF, async_reg),
 --   * settle-filters the quasi-static DSKSYNC value from the engine (two
 --     consecutive identical samples adopt; a torn sample can at worst cause
---     one transient misalignment that self-heals at the next true sync),
+--     one transient misalignment that heals at the next true sync),
 --   * holds the decode chain in reset unless the drive is enabled, selected
---     and its motor is on (RDATA is only driven then anyway; this gives each
---     selection a clean sync hunt),
---   * synthesizes the /RDY line (the 34-pin bus has no READY): motor off =
---     ready (the motor-off drive-ID protocol then reads 0xFFFFFFFF = 3.5"
---     DD drive for df1:), motor on = ready after the spin-up gate (505 ms +
---     2 qualified index edges + fresh index), then HELD while the motor
---     stays on - the mechanism gates INDEX on /SEL, so freshness starves
---     across deselect gaps (hardware round 4 evidence: /RDY flickered at
---     every operation start); a real drive holds RDY while spinning. Eject
---     detection is /DSKCHG's job (hardware-proven), not staleness',
---   * passes the conditioned active-low status levels (track0 / wprot /
---     dskchg) and the qualified INDEX level towards the CIA-A/CIA-B muxes
---     in paula_floppy.v (re-synced into the core domain in mega65.vhd),
---   * exposes diagnostic taps for the QNICE diag device (same 50 MHz
---     domain: no CDC, no tearing),
---   * carries the diag-map-v7 margin instrumentation (margin_proc): a
---     millisecond uptime counter (dump freshness), step/cylinder tracking,
---     per-class signed-error histograms of the quantiser's classification
---     margins with an optional armed-sector window, minimum-margin capture,
---     estimate-excursion tracking and a per-sector miss profile - the
---     measured interval-domain evidence the data-separator redesign needs
---     (2026-08-07 field falsification: media verdicts retracted, decode
---     margin under suspicion),
---   * gates the aligner's WORDSYNC-conditional framing hold (the sync-seam
---     fix, diag map v10) and carries the seam instruments (seam_proc):
---     mid-serve realign events with remainder context, the pre-sync word
---     tap, the per-session serve-start sector, the streaming-split
---     loss-of-lock twins and the chain-gated miss-profile qualifier,
---   * captures the C_CAP_WORDS words that follow each DSKSYNC hit together
---     with the SIDE line and /TRK0 at the hit (the sector-header capture:
---     the double 0x4489 restarts the capture, so the buffer always holds
---     the words after the LAST sync of the pair = the encoded info long +
---     label start). The capture consumes the aligner's sync-anchored
---     DIAGNOSTIC word stream, whose framing realigns at every sync match
---     even while the served framing is held across the write splice - so
---     the capture-based instruments (header words, rev mask, fmt_bad, miss
---     profile, armed-sector window) stay trustworthy during hold-mode
---     serves; while the hold has not been engaged since the framing
---     counters last coincided (any sync match, LOL or chain reset) the
---     diagnostic stream is identical to the served one - in particular
---     in the realign-always A/B arm, where the hold never engages.
---     Only COMPLETE captures are published to the diag
---     registers; a capture torn by deselect stays unpublished. The buffer
---     re-captures on every sector, so an idle dump shows the last sector
---     header of the last read - decode the info long by hand to compare
---     the header's track number against the recorded SIDE intent.
+--     and its motor is on (RDATA is only driven then anyway, and each
+--     selection gets a clean sync hunt), and for the whole of a write
+--     episode including the writer's tail,
+--   * gates the aligner's WORDSYNC-conditional framing hold,
+--   * synthesizes the /RDY line, which the 34-pin bus does not have: motor
+--     off = ready (AmigaOS's motor-off drive identification then reads
+--     0xFFFFFFFF, a 3.5" DD drive, for df1: and df2:), motor on = ready
+--     after the spin-up gate (505 ms, 2 qualified index edges and a fresh
+--     index), then held while the motor stays on. The mechanism gates INDEX
+--     on /SEL, so index freshness starves across deselect gaps, and a /RDY
+--     that followed it would flicker at every operation start; a real drive
+--     holds RDY while spinning. Eject detection is the job of /DSKCHG, not
+--     of index staleness,
+--   * passes the conditioned active-low status levels (/TRK0, /WPROT,
+--     /CHNG) and the qualified INDEX level towards the CIA-A/CIA-B muxes in
+--     paula_floppy.v (re-synchronized into the core domain in mega65.vhd),
+--   * captures the words that follow each DSKSYNC hit, with SIDE and /TRK0
+--     at the hit (the sector-header capture, cap_proc), and keeps a
+--     per-revolution scoreboard of the decoded sector headers,
+--   * carries the margin instruments (margin_proc), the sync-seam
+--     instruments (seam_proc) and the write-FIFO overflow counter.
 --
--- The FIFO reset discipline is load-bearing: both sides derive from the
--- QNICE reset (wr side directly, rd side synchronized in mega65.vhd) - a
--- one-sided reset would permanently desync the Gray pointers.
+-- All instruments are read through physical_fdd_diag in this same clock
+-- domain (no CDC, no tearing); the register map is in physical_fdd_diag.vhd
+-- and in doc/developers/hardware-floppy.md, section 12.2 (Diagnostics
+-- register map). The same document describes the read chain in section 4
+-- and the write datapath in section 6.
+--
+-- Both sides of both FIFOs reset from the QNICE reset: the 50 MHz sides
+-- directly, the core-clock sides through the synchronized copy from
+-- mega65.vhd. A one-sided reset permanently desynchronizes the Gray pointers.
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -82,8 +67,8 @@ entity physical_fdd_top is
     clk_i               : in  std_logic;
     rst_i               : in  std_logic;
 
-    -- raw connector outputs of the WRITE path (WIP-V2-A9; registered
-    -- inside physical_fdd_writer, both idle high = inactive)
+    -- raw connector outputs of the write path (registered inside
+    -- physical_fdd_writer, both idle high = inactive)
     f_wdata_o           : out std_logic := '1';
     f_wgate_o           : out std_logic := '1';
 
@@ -103,28 +88,27 @@ entity physical_fdd_top is
     step_n_i            : in  std_logic := '1';  -- registered mirror of the f_step pin (async; synced here)
     stepdir_i           : in  std_logic := '1';  -- registered mirror of f_stepdir ('1' = toward track 0)
     serving_i           : in  std_logic := '0';  -- engine phys_stream: a physical read session is open
-    -- engine phys_stream AND past the serve-start sync (phys_hunt done):
+    -- engine phys_stream and past the serve-start sync (phys_hunt done):
     -- words are streaming into Paula. Gates the WORDSYNC-conditional
-    -- framing hold - during the pre-serve hunt alignment must stay active
-    -- (serve-from-sync depends on it), afterwards the framing free-runs
-    -- while live WORDSYNC is 0 (real-Paula behavior; the sync-seam fix -
-    -- see FRAMING HOLD in physical_fdd_bits.vhd)
+    -- framing hold: during the pre-serve hunt alignment must stay active
+    -- (serve-from-sync depends on it); afterwards the framing free-runs
+    -- while live WORDSYNC is 0, like the shifter of a real Paula (see
+    -- frame_hold in the architecture)
     serving_data_i      : in  std_logic := '0';
     wordsync_i          : in  std_logic := '0';  -- live ADKCON WORDSYNC (core domain)
 
     -- margin-instrumentation control (QNICE domain = this clock, no sync):
-    -- {5: histogram ALL gaps (ignore the serve gate), 4: window mode (only
+    -- {5: histogram all gaps (ignore the serve gate), 4: window mode (only
     -- inside the armed-sector window), 3..0: armed sector K}; clear_i is a
     -- one-cycle pulse zeroing every "since clear" statistic
     ctrl_i              : in  std_logic_vector(5 downto 0) := (others => '0');
     clear_i             : in  std_logic := '0';
-    -- '1' = run the LEGACY quantiser bit source instead of the DPLL data
-    -- separator (diag control 0x35 bit 6; reset default '0' = DPLL - the
-    -- field A/B switch, see physical_fdd_pkg.vhd)
+    -- '1' = legacy quantiser bit source instead of the DPLL data separator
+    -- (diag register 0x35 bit 6, reset default '0' = DPLL; see
+    -- doc/developers/hardware-floppy.md, section 4.3, Two data separators)
     dpll_dis_i          : in  std_logic := '0';
-    -- '1' = realign-always framing (the pre-v10 behavior; diag control
-    -- 0x35 bit 7, reset default '0' = WORDSYNC-conditional framing hold -
-    -- the sync-seam fix's field A/B switch)
+    -- '1' = realign-always word framing instead of the WORDSYNC-conditional
+    -- framing hold (diag register 0x35 bit 7, reset default '0' = hold)
     framehold_dis_i     : in  std_logic := '0';
 
     -- conditioned drive status (50 MHz registers; re-sync in the consumer):
@@ -132,14 +116,14 @@ entity physical_fdd_top is
     wprot_n_o           : out std_logic;   -- active low = write protected
     change_n_o          : out std_logic;   -- active low = disk change latched
     ready_n_o           : out std_logic;   -- active low = ready (synthesized, see header)
-    index_o             : out std_logic;   -- qualified index LEVEL (1.5..5 ms per rev)
+    index_o             : out std_logic;   -- qualified index level (1.5..5 ms per rev)
     present_o           : out std_logic;   -- '1' = disk present (= change latch clear)
 
-    -- THE WRITE PATH (WIP-V2-A9, spec sections 2 and 3). The write CDC
-    -- FIFO's WRITE side lives in the core clock domain (rd_clk_i, the same
-    -- clock the engine runs on) and its READ side in this 50 MHz domain -
-    -- the exact mirror of the read FIFO above. Both resets derive from the
-    -- QNICE reset (the Gray-pointer discipline).
+    -- Write path (doc/developers/hardware-floppy.md, section 6, The write
+    -- datapath). The write side of the write CDC FIFO is in the core clock
+    -- domain (rd_clk_i, the clock the engine runs on) and its read side in
+    -- this 50 MHz domain, the mirror of the read FIFO. Both resets derive
+    -- from the QNICE reset (see the header).
     wr_push_i           : in  std_logic := '0';                    -- engine tap
     wr_data_i           : in  std_logic_vector(15 downto 0) := (others => '0');
     -- write-side occupancy back to the engine, which computes its own
@@ -157,7 +141,7 @@ entity physical_fdd_top is
 
     -- reconstructed MFM word stream, read side in the core clock domain
     rd_clk_i            : in  std_logic;
-    rd_rst_i            : in  std_logic;   -- MUST derive from the same QNICE reset (synced)
+    rd_rst_i            : in  std_logic;   -- the QNICE reset, synchronized to rd_clk_i
     rd_en_i             : in  std_logic;
     rd_data_o           : out std_logic_vector(15 downto 0);
     rd_empty_o          : out std_logic;
@@ -190,7 +174,7 @@ entity physical_fdd_top is
     diag_rev_lol_o      : out unsigned(7 downto 0);
     diag_fmt_bad_o      : out unsigned(15 downto 0);
 
-    -- diag map v7: uptime, workload visibility, interval-domain margins
+    -- freshness, head position and margin instruments (registers 0x30..0x5F)
     diag_uptime_o       : out unsigned(31 downto 0) := (others => '0');  -- ms since reset
     diag_cnt_step_o     : out unsigned(15 downto 0) := (others => '0');  -- step pulses (wrapping)
     diag_cyl_o          : out unsigned(6 downto 0)  := (others => '0');  -- stepdir-integrated, /TRK0-referenced
@@ -200,8 +184,8 @@ entity physical_fdd_top is
     diag_margin_stat_o  : out std_logic_vector(15 downto 0) := (others => '0');
     diag_win_opens_o    : out unsigned(15 downto 0) := (others => '0');
     diag_gap_count_o    : out unsigned(15 downto 0) := (others => '0');  -- gaps histogrammed (saturating)
-    diag_lol_gate_o     : out unsigned(15 downto 0) := (others => '0');  -- rejected gaps while gated
-    diag_sync_gate_o    : out unsigned(15 downto 0) := (others => '0');  -- sync hits while gated
+    diag_lol_gate_o     : out unsigned(15 downto 0) := (others => '0');  -- rejected gaps while gated (saturating)
+    diag_sync_gate_o    : out unsigned(15 downto 0) := (others => '0');  -- sync hits while gated (saturating)
     diag_est_min_o      : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
     diag_est_max_o      : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
     diag_hist_o         : out t_fdd_hist := (others => (others => '0'));
@@ -209,8 +193,7 @@ entity physical_fdd_top is
     diag_qual_revs_o    : out unsigned(15 downto 0) := (others => '0');
     diag_dpll_cell_o    : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
 
-    -- diag map v10: the sync-seam instruments (design rationale at
-    -- seam_proc below and in physical_fdd_bits.vhd FRAMING HOLD)
+    -- sync-seam instruments (registers 0x60..0x6E, see seam_proc)
     diag_realign_o      : out unsigned(15 downto 0) := (others => '0');
     diag_realign_ctx_o  : out std_logic_vector(15 downto 0) := (others => '0');
     diag_presync_o      : out t_fdd_cap_words := (others => (others => '0'));
@@ -220,7 +203,7 @@ entity physical_fdd_top is
     diag_chain_win_o    : out unsigned(15 downto 0) := (others => '0');
     diag_frame_stat_o   : out std_logic_vector(3 downto 0) := (others => '0');
 
-    -- diag map 0x000D: the write instruments (0x70..0x7D)
+    -- write instruments (registers 0x70..0x7D)
     dwr_epi_cnt_o       : out unsigned(15 downto 0) := (others => '0');
     dwr_words_last_o    : out unsigned(15 downto 0) := (others => '0');
     dwr_words_tot_o     : out unsigned(15 downto 0) := (others => '0');
@@ -282,18 +265,18 @@ architecture rtl of physical_fdd_top is
   signal q_est        : unsigned(11 downto 0);    -- est the gap was classified with
   signal word_valid   : std_logic;
   signal word_data    : std_logic_vector(15 downto 0);
-  -- diagnostic word stream: always sync-realigned framing over the same
-  -- bits (physical_fdd_bits DIAGNOSTIC WORD STREAM). The capture path
-  -- consumes THIS stream, so the capture instruments stay correctly framed
-  -- while the served framing is held across the write splice (the A6 dump
-  -- caveat); the streams coincide whenever the hold has not been engaged
-  -- since the framing counters last coincided (see the bits header).
+  -- diagnostic word stream: the same bits with a framing that always
+  -- realigns on a sync match (physical_fdd_bits, diagnostic word stream).
+  -- The capture path consumes this stream, so the capture instruments stay
+  -- correctly framed while the served framing is held across the write
+  -- splice; the two streams coincide whenever the hold has not engaged since
+  -- the framing counters last coincided.
   signal dword_valid  : std_logic;
   signal dword_data   : std_logic_vector(15 downto 0);
   signal sync_hit     : std_logic;
   signal lol          : std_logic;
 
-  -- WORDSYNC-conditional framing hold + seam instruments (diag map v10)
+  -- WORDSYNC-conditional framing hold + sync-seam instruments
   signal srvd_meta    : std_logic := '0';
   signal srvd_s       : std_logic := '0';
   signal srvd_p       : std_logic := '0';
@@ -315,7 +298,7 @@ architecture rtl of physical_fdd_top is
   signal rev_chain_ok : std_logic := '0';
   signal chain_win    : unsigned(15 downto 0) := (others => '0');
 
-  -- margin instrumentation (diag map v7)
+  -- margin instruments
   signal step_meta    : std_logic := '1';
   signal step_s       : std_logic := '1';
   signal step_p       : std_logic := '1';
@@ -366,18 +349,18 @@ architecture rtl of physical_fdd_top is
   signal fifo_full    : std_logic;
   signal fifo_level   : unsigned(5 downto 0);
 
-  -- the WRITE path (WIP-V2-A9)
+  -- write path
   signal wfifo_full   : std_logic;
   signal wfifo_empty  : std_logic;
   signal wfifo_data   : std_logic_vector(15 downto 0);
   signal wfifo_rdlvl  : unsigned(2 downto 0);
   signal wfifo_rd     : std_logic;
   signal wr_sess_s    : std_logic;                    -- synced episode level
-  signal wr_busy_s    : std_logic;                    -- writer not IDLE (50 MHz)
-  -- 0x7D: pushes refused by a full write FIFO. The event is visible ONLY on
-  -- the FIFO's core-clock write side (a refused write moves no Gray
+  signal wr_busy_s    : std_logic;                    -- writer not in ST_IDLE (50 MHz)
+  -- 0x7D: pushes refused by a full write FIFO. The event is visible only on
+  -- the core-clock write side of the FIFO (a refused write moves no Gray
   -- pointer), so it is counted there and crossed to this domain as a Gray
-  -- code, exactly like the engine's served-word counter (spec 5./7.).
+  -- code, like the served-word counter of the engine.
   signal ovf_bin      : unsigned(15 downto 0) := (others => '0');
   signal ovf_gray     : std_logic_vector(15 downto 0) := (others => '0');
   signal ovf_m, ovf_s : std_logic_vector(15 downto 0) := (others => '0');
@@ -391,8 +374,8 @@ architecture rtl of physical_fdd_top is
   signal cnt_lol      : unsigned(15 downto 0) := (others => '0');
   signal cnt_drop     : unsigned(15 downto 0) := (others => '0');
 
-  -- sector-header capture: live buffer fills after each sync hit; only a
-  -- COMPLETE buffer is published to the shadow (what the diag exposes)
+  -- sector-header capture: the live buffer fills after each sync hit; only
+  -- a complete buffer is published to the shadow (what the diag exposes)
   signal cap_live     : t_fdd_cap_words := (others => (others => '0'));
   signal cap_shad     : t_fdd_cap_words := (others => (others => '0'));
   signal cap_wp       : unsigned(3 downto 0) := to_unsigned(C_CAP_WORDS, 4);
@@ -434,35 +417,33 @@ begin
       change_n_o       => change_n
     ); -- i_inputs
 
-  -- The decode chain only runs while the drive can actually deliver flux;
-  -- each selection starts with a clean sync hunt. WIP-V2-A9 adds the write
-  -- EPISODE term: while a physical write episode is open the front end must
-  -- decode NOTHING - not merely while WGATE is asserted, because a
-  -- tab-blocked (DISCARD) or aborted episode keeps the gate shut while the
-  -- disk keeps spinning, and a decoding chain would refill the read FIFO
-  -- behind the write. That would pollute the A4-A7 read instruments and,
-  -- worse, feed the A8 DSKBYTR observation surface with bytes during a
-  -- write DMA (a real Paula shows none). Spec 3.3.
-  -- ... and through the writer's post-DSKBLK TAIL: the episode LEVEL falls
-  -- when Paula completes its DMA, but the writer keeps WGATE open and keeps
-  -- magnetizing for up to ~104 us after that while it drains its residue.
-  -- Releasing the chain at the episode fall would decode the drive's read
-  -- channel during the last three word-times of every write, polluting the
-  -- A4-A7 instruments and feeding the A8 DSKBYTR surface. wr_busy_s is in
-  -- this same 50 MHz domain, so the extra term costs no CDC.
+  -- The decode chain runs only while the drive can deliver flux, and each
+  -- selection starts with a clean sync hunt. It also stays in reset for the
+  -- whole write episode (wr_sess_s), not merely while WGATE is asserted: a
+  -- tab-blocked (discarding) or aborted episode keeps the gate shut while
+  -- the disk keeps spinning, and a decoding chain would refill the read FIFO
+  -- behind the write, pollute the read instruments and feed the DSKBYTR
+  -- observation surface with bytes during a write DMA, where a real Paula
+  -- shows none. wr_busy_s extends the reset through the writer's tail: the
+  -- episode level falls when Paula completes its DMA, but the writer keeps
+  -- WGATE open for up to about 104 us after that while it drains its
+  -- residue. wr_busy_s is in this clock domain, so the extra term needs no
+  -- CDC. See doc/developers/hardware-floppy.md, section 6.4 (Safety: WGATE,
+  -- the tab qualifier and the read chain).
   chain_rst <= rst_i or not (en_s and sel_s and mot_s)
                or wr_sess_s or wr_busy_s;
   dpll_en   <= not dpll_dis_i;
 
-  -- WORDSYNC-conditional framing hold (the sync-seam fix): once the engine
-  -- streams words past its serve-start sync AND live WORDSYNC is 0, the
-  -- aligner's word framing free-runs like a real Paula's shifter - no
-  -- mid-capture realignment turning the write-splice slip into a
-  -- rotation-inconsistent seam (tb_fdd_splice E2: RED without the hold in
-  -- both separator modes, GREEN with it). During the pre-serve hunt and
-  -- under WORDSYNC=1 realignment stays active (serve-from-sync and the
-  -- X-Copy class depend on it, and real Paula re-syncs per matching word
-  -- under WORDSYNC=1 too).
+  -- WORDSYNC-conditional framing hold: once the engine streams words past
+  -- its serve-start sync and live WORDSYNC is 0, the word framing of the
+  -- aligner free-runs like the shifter of a real Paula. Realigning
+  -- mid-stream would turn the once-per-revolution write-splice slip into a
+  -- seam that no trackdisk rotation table matches, and the read attempt
+  -- would fail. During the pre-serve hunt and under WORDSYNC=1 realignment
+  -- stays active: serve-from-sync needs it, and under WORDSYNC=1 a real
+  -- Paula re-frames at every matching word, which X-Copy and most
+  -- trackloaders rely on. See doc/developers/hardware-floppy.md, section 4.4
+  -- (The aligner and the framing hold).
   frame_hold <= srvd_s and not ws_s and not framehold_dis_i;
 
   i_gaps : entity work.physical_fdd_mfm_gaps
@@ -529,13 +510,17 @@ begin
     ); -- i_wfifo
 
   -----------------------------------------------------------------------------
-  -- THE WRITE PATH (WIP-V2-A9): the CDC FIFO mirror + the writer.
-  -- G_AW = 2 (4 words) is deliberately SHALLOW: Paula fires DSKBLK when the
-  -- HOST empties its FIFO, so every word still in our pipe at that moment is
-  -- flux the Amiga already believes written. The occupancy proof of spec 2.2
-  -- keeps this FIFO at 1..2 words, so the in-flight residue at episode end
-  -- stays <= 3 word times - real-Amiga scale, which is what lets X-Copy's
-  -- 40-100 us post-DSKBLK deselect truncate inside its own self-overlap.
+  -- Write path: the write CDC FIFO and the writer.
+  -- G_AW = 2 (4 words) keeps the pipe shallow: Paula fires DSKBLK when the
+  -- host empties its FIFO, so every word still in this pipe at that moment
+  -- is flux the Amiga already believes written. The engine pushes only while
+  -- the write-side occupancy is at most 1, which keeps this FIFO at 1..2
+  -- words and the in-flight residue at episode end at no more than 3 words
+  -- (3 word times plus the 3-cell precomp window, about 104 us). A host that
+  -- changes select or side inside that window would still cut the tail; the
+  -- drain hold in mega65.vhd covers it.
+  -- See doc/developers/hardware-floppy.md, sections 6.1 (The structure, and
+  -- the elastic-buffer argument) and 6.5 (The post-DSKBLK drain hold).
   -----------------------------------------------------------------------------
   i_wr_fifo : entity work.physical_fdd_wfifo
     generic map (
@@ -543,7 +528,7 @@ begin
     )
     port map (
       wr_clk_i   => rd_clk_i,          -- the engine's core clock
-      wr_rst_i   => rd_rst_i,          -- the SAME QNICE reset, synced there
+      wr_rst_i   => rd_rst_i,          -- the same QNICE reset, synchronized
       wr_en_i    => wr_push_i,
       wr_data_i  => wr_data_i,
       wr_full_o  => wfifo_full,
@@ -598,9 +583,9 @@ begin
       d_ctrl7c_o     => dwr_ctrl7c_o
     ); -- i_writer
 
-  -- 0x7D: count refused pushes in the CORE domain (the only place they are
-  -- visible) and Gray-cross the counter into this domain for the readout.
-  -- It must read 0 forever; any tear is itself the alarm.
+  -- 0x7D: count refused pushes in the core domain, the only place they are
+  -- visible, and Gray-cross the counter into this domain for the readout.
+  -- It must read 0: a refused push is a word missing from the written track.
   ovf_proc : process (rd_clk_i)
   begin
     if rising_edge(rd_clk_i) then
@@ -672,7 +657,7 @@ begin
   diag_rev_lol_o              <= rev_lol_last;
   diag_fmt_bad_o              <= fmt_bad_cnt;
 
-  -- diag map v7 taps
+  -- margin instrument taps
   diag_uptime_o               <= uptime_ms;
   diag_cnt_step_o             <= cnt_step;
   diag_cyl_o                  <= cyl;
@@ -698,7 +683,7 @@ begin
   diag_miss_o(5)              <= x"00" & std_logic_vector(miss_cnt(10));
   diag_qual_revs_o            <= qual_revs;
 
-  -- diag map v10 taps (seam instruments)
+  -- sync-seam instrument taps
   diag_realign_o              <= realign_cnt;
   diag_realign_ctx_o          <= std_logic_vector(realign_odd) & "0000"
                                  & std_logic_vector(realign_lrem);
@@ -710,22 +695,23 @@ begin
   diag_chain_win_o            <= chain_win;
   diag_frame_stat_o           <= framehold_dis_i & srvd_s & ws_s & frame_hold;
 
-  -- The sync-seam instruments (diag map v10). All 50 MHz domain:
-  --   * realign events: sync-window matches landing MID-WORD (bit_cnt /=
-  --     15) while the engine streams words = framing seams. With the hold
-  --     disabled these were taken (the pre-v10 realignment - one seam per
-  --     splice crossing); with the hold they are suppressed but still
-  --     counted, so the A/B dumps stay comparable. The remainder context
-  --     (last event's bit phase + odd-remainder count) separates odd from
+  -- Sync-seam instruments, all in this 50 MHz domain:
+  --   * realign events: sync-window matches landing mid-word (bit_cnt /= 15)
+  --     while the engine streams words, i.e. framing seams. They are taken
+  --     while the framing hold is off (one seam per splice crossing) and
+  --     suppressed while it is in force, and counted either way, so dumps of
+  --     the two framing arms compare directly. The remainder context (bit
+  --     phase of the last event, count of odd remainders) separates odd from
   --     even slips.
-  --   * pre-sync tap: the last C_CAP_WORDS words emitted BEFORE the seam
-  --     event = the [gap run][hybrid word] fingerprint the E2 testbench
-  --     showed, live from hardware.
+  --   * pre-sync tap: the last C_CAP_WORDS served-stream words emitted before
+  --     the seam event, i.e. the [gap run][hybrid word] fingerprint of the
+  --     seam.
   --   * serve-start sector: the first clean capture published after the
-  --     engine enters data streaming = where this session's serve began
-  --     (the escape-arc observable of audit residue r1; 0xFF = none yet).
-  --   * LOL twins: loss-of-lock events split by streaming state - the
-  --     honest version of "LOL during reads" (cnt_lol counts everything).
+  --     engine enters data streaming, i.e. where the serve of this session
+  --     began (0xFF = none since reset or clear).
+  --   * loss-of-lock twins: the loss-of-lock events split by whether words
+  --     stream into Paula (lol_srv) or not (lol_idle: pre-serve hunt, seeks,
+  --     idle spinning); cnt_lol counts all of them.
   seam_proc : process (clk_i)
   begin
     if rising_edge(clk_i) then
@@ -793,36 +779,37 @@ begin
     end if;
   end process seam_proc;
 
-  -- The interval-domain margin engine (diag map v7). Everything below runs
-  -- in the 50 MHz domain; step/stepdir/serving arrive from the core clock
-  -- domain and are 2-FF synchronized here (step pulses are CIA-driven,
-  -- microseconds wide - a 2-FF at 50 MHz cannot miss them).
+  -- Interval-domain margin instruments. Everything below runs in the 50 MHz
+  -- domain; step/stepdir/serving arrive from the core clock domain and are
+  -- 2-FF synchronized here (step pulses are CIA-driven and microseconds
+  -- wide, so a 2-FF at 50 MHz cannot miss them).
   --
-  --   * uptime: free-running millisecond counter since QNICE reset - the
-  --     dump-freshness proof (two dumps can never read the same value).
-  --   * head position: step pulses counted and direction-integrated into a
-  --     cylinder estimate; /TRK0 asserting forces 0 (mechanical ground
-  --     truth beats the integral). Makes seeks and the grinding position
-  --     visible in one register.
-  --   * margin statistics on every ACCEPTED gap while the gate is open:
+  --   * uptime: free-running millisecond counter since the QNICE reset, the
+  --     dump-freshness marker (two dumps can never read the same value).
+  --   * head position: step pulses counted and integrated by direction into
+  --     a cylinder estimate, zeroed on the /TRK0 assert edge (the sensor is
+  --     the ground truth the integral is referenced to). Shows seeks and the
+  --     position the drive is working at in one register.
+  --   * margin statistics on every accepted gap while the gate is open:
   --     gate = (serving OR ctrl[5]) AND (window open OR NOT ctrl[4]).
-  --     Default ctrl=0 = "during physical read sessions only" - seek noise
-  --     and idle streaming stay out of the distributions. The signed error
-  --     e = G - n*est lands in the per-class 8-bin histogram spanning
-  --     [-tol..+tol) (bin width tol/4, saturating); the minimum acceptance
-  --     margin tol - |e| is tracked together with the est, raw length and
-  --     class of the gap that produced it. Rejected gaps (class "11") and
-  --     sync hits are counted per gate so the histogram mass has its
-  --     denominators. est min/max track the estimate excursion UNgated
-  --     (drag is interesting wherever it happens).
-  --   * armed-sector window (ctrl[4]=1, K=ctrl[3:0]): opens at the clean
-  --     capture publish of sector K-1 (mod 11) and closes at the next sync
-  --     hit - i.e. it spans the approach to sector K: the tail of the
-  --     preceding sector's data field, the pre-sync gap bytes and K's sync.
-  --     When K's sync is MISSED the window stays open across K's whole
-  --     region until the next decoded sync - exactly the flux the failure
-  --     lives in. clear_i (control-register write with bit 15) zeroes all
-  --     "since clear" state for a fresh experiment without a power cycle.
+  --     The default ctrl=0 means "during physical read sessions only", so
+  --     seek noise and idle streaming stay out of the distributions. The
+  --     signed error e = G - n*est lands in the per-class 8-bin histogram
+  --     spanning [-tol..+tol) (bin width tol/4, saturating); the minimum
+  --     acceptance margin tol - |e| is tracked together with the est, raw
+  --     length and class of the gap that produced it. Rejected gaps (class
+  --     "11") and sync hits are counted per gate, so the histogram mass has
+  --     its denominators. est min/max track the estimate excursion ungated,
+  --     because drag matters wherever it happens.
+  --   * armed-sector window (ctrl[4]=1, K=ctrl[3:0], K > 10 acts as 0):
+  --     opens at the clean capture publish of sector K-1 (mod 11) and closes
+  --     at the next sync hit, so it spans the approach to sector K: the tail
+  --     of the data field of the preceding sector, the pre-sync gap bytes
+  --     and the sync of K. When that sync is missed, the window stays open
+  --     across the whole region of K until the next decoded sync, which is
+  --     the flux the failure is in. clear_i (a control-register write with
+  --     bit 15 set) zeroes all "since clear" state for a fresh experiment
+  --     without a power cycle.
   margin_proc : process (clk_i)
     variable v_off : unsigned(16 downto 0);
     variable v_tol : unsigned(16 downto 0);
@@ -864,9 +851,9 @@ begin
           ms_div <= ms_div + 1;
         end if;
 
-        -- step accounting on the accepted (synced) falling edge; the pin
-        -- mirror is already select-gated in mega65.vhd, so only our unit's
-        -- steps arrive here
+        -- step accounting on the accepted (synchronized) falling edge; the
+        -- pin mirror is select-gated in mega65.vhd, so only the steps of the
+        -- physical unit arrive here
         if step_s = '0' and step_p = '1' then
           cnt_step <= cnt_step + 1;
           if dir_s = '1' then                        -- toward track 0
@@ -877,11 +864,10 @@ begin
             cyl <= cyl + 1;
           end if;
         end if;
-        -- mechanical ground truth on the /TRK0 ASSERT EDGE only: the level
-        -- stays asserted for milliseconds after the first step away from
-        -- track 0 (the head is still moving), and a level-sensitive zero
-        -- swallowed that step - the 2026-08-08 field dumps read the
-        -- cylinder one low against every decoded track number
+        -- Zero the cylinder on the /TRK0 assert edge, not the level: /TRK0
+        -- stays low for milliseconds after the first step away from track 0
+        -- (the head is still moving), so a level-sensitive reset would
+        -- swallow that step and leave the count one low.
         trk0_p <= track0_n;
         if track0_n = '0' and trk0_p = '1' then
           cyl <= (others => '0');
@@ -1042,12 +1028,12 @@ begin
           idx_fresh <= '1';
         end if;
 
-        -- media_ready: qualified by spin-up + 2 index edges + freshness,
-        -- then HELD while the motor stays on. The mechanism gates INDEX
-        -- (like all outputs) on /SEL, so freshness starves across deselect
-        -- gaps and at operation starts - a real drive holds RDY while
-        -- spinning because its index sensing is internal. Eject detection
-        -- is /DSKCHG's job (hardware-proven), not freshness'.
+        -- media_ready: qualified by spin-up, 2 index edges and freshness,
+        -- then held while the motor stays on. The mechanism gates INDEX
+        -- (like all its outputs) on /SEL, so freshness starves across
+        -- deselect gaps and at operation starts; a real drive holds RDY
+        -- while spinning because its index sensing is internal. Eject
+        -- detection is the job of /DSKCHG, not of freshness.
         if mot_s = '0' then
           media_ready <= '0';
         elsif edge_cnt = C_READY_MIN_EDGES and spun_up = '1'
@@ -1079,19 +1065,18 @@ begin
   end process ctrl_proc;
 
   -- Sector-header capture. A sync hit (which accompanies its own diag-word
-  -- emission) restarts the capture and latches SIDE + /TRK0; each following
-  -- word of the DIAGNOSTIC stream fills the live buffer - the sync-anchored
-  -- framing keeps the captured words correctly framed even while the SERVED
-  -- framing is held across the write splice (in the realign-always arm the
-  -- two streams are identical, so nothing changes there).
-  -- Storing the last word publishes buffer + flags to the
-  -- shadow in the same cycle, so the diag never exposes a torn capture: a
-  -- capture cut short by deselect stays unpublished AND is abandoned - the
-  -- chain reset parks the write pointer, so the free-running words of the
-  -- next selection's pre-sync hunt can never complete a stale buffer into
-  -- a mixed-session garbage publish. During a read every
-  -- sector re-captures; an idle dump therefore shows the last sector header
-  -- of the last read burst.
+  -- emission) restarts the capture and latches SIDE and /TRK0; each
+  -- following word of the diagnostic stream fills the live buffer. The
+  -- sync-anchored framing keeps the captured words correctly framed even
+  -- while the served framing is held across the write splice (in the
+  -- realign-always arm the two streams are identical).
+  -- Storing the last word publishes buffer and flags to the shadow in the
+  -- same cycle, so the diag never exposes a torn capture. A capture cut
+  -- short by a deselect stays unpublished and is abandoned: the chain reset
+  -- parks the write pointer, so the free-running words of the pre-sync hunt
+  -- of the next selection cannot complete a stale buffer into a
+  -- mixed-session publish. During a read every sector re-captures, so an
+  -- idle dump shows the last sector header of the last read burst.
   --
   -- Each publish also feeds the per-revolution scoreboard: the info long's
   -- format and sector bytes are decoded from the captured words (byte b of
@@ -1129,11 +1114,11 @@ begin
         v_pub   := '0';
         pub_stb <= '0';
         if chain_rst = '1' then
-          -- abandon a torn capture: without this, the free-running words
-          -- of the NEXT selection's pre-sync hunt would complete a stale
-          -- mid-capture buffer into a mixed-session garbage publish (one
-          -- phantom fmt_bad tick - or worse, a phantom clean publish -
-          -- per re-selection that deselected mid-capture)
+          -- abandon a torn capture: otherwise the free-running words of the
+          -- pre-sync hunt of the next selection would complete a stale
+          -- buffer into a mixed-session publish (a phantom fmt_bad tick, or
+          -- a phantom clean publish, per re-selection that deselected
+          -- mid-capture)
           cap_wp <= to_unsigned(C_CAP_WORDS, cap_wp'length);
         elsif sync_hit = '1' then
           cap_wp    <= (others => '0');
@@ -1160,17 +1145,15 @@ begin
         -- (a capture or LOL landing exactly on the index edge is dropped -
         -- a once-per-revolution don't-care).
         if index_edge = '1' then
-          -- per-sector miss profile (diag map v7, re-qualified in v10): a
-          -- revolution that captured at least C_MISS_QUAL_CAPS headers AND
-          -- kept the decode chain running for its whole index-to-index
-          -- window was a read revolution; every sector absent from its
-          -- mask is a miss. The chain condition is load-bearing: a
-          -- deselect hole inside the window (trackdisk deselects around
-          -- every attempt) leaves sectors uncaptured without any flux
-          -- fault - the pre-v10 profile counted those as phantom misses
-          -- (audit finding). Windows that met the capture floor but lost
-          -- the chain are counted separately so the decoder sees how much
-          -- was excluded.
+          -- per-sector miss profile: a revolution that captured at least
+          -- C_MISS_QUAL_CAPS headers and kept the decode chain running for
+          -- its whole index-to-index window was a read revolution, and
+          -- every sector absent from its mask is a miss. Without the chain
+          -- condition a deselect hole inside the window (trackdisk deselects
+          -- around every attempt) would leave sectors uncaptured without
+          -- any flux fault and count them as misses. Windows that met the
+          -- capture floor but lost the chain are counted separately
+          -- (chain_win), so a dump shows how much was excluded.
           if rev_caps >= C_MISS_QUAL_CAPS then
             if rev_chain_ok = '1' then
               for s in 0 to 10 loop
@@ -1222,7 +1205,7 @@ begin
           end if;
         end if;
 
-        -- experiment clear (diag map v7/v10; last assignment wins)
+        -- experiment clear (last assignment wins)
         if clear_i = '1' then
           miss_cnt  <= (others => (others => '0'));
           qual_revs <= (others => '0');

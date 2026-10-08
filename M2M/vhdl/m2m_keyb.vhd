@@ -43,13 +43,13 @@ entity m2m_keyb is
 
       -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): the key(s) that drive the OSM-open
       -- bit (qnice_keys bit 7) are chosen by the core, so a core can offer the user a
-      -- key other than Help. The bit is built from the *ungated* scan below (never
-      -- gated by enable_core_i), so the chosen key opens AND closes the menu. The
-      -- defaults = key 67 (Help) => identical to the classic behaviour for any core
+      -- key other than Help. The bit is built from the ungated scan below (never
+      -- gated by enable_core_i), so the chosen key both opens and closes the menu.
+      -- The defaults select key 67 (Help), the classic behaviour, for any core
       -- that does not drive these ports.
       osm_key_a_i          : in integer range 0 to 79 := 67;   -- primary menu-open key
       osm_key_b_i          : in integer range 0 to 79 := 67;   -- second key of a combo
-      osm_combo_i          : in std_logic := '0';              -- '1' = require osm_key_a_i AND osm_key_b_i
+      osm_combo_i          : in std_logic := '0';              -- '1' = require osm_key_a_i and osm_key_b_i
 
       -- control the drive led on the MEGA65 keyboard
       power_led_i          : in std_logic;
@@ -145,13 +145,13 @@ begin
    -- make qnice_keys_o a register and fill it
    -- see sysdef.asm for the key-to-bit mapping
    --
-   -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): bit 7 (the OSM-open bit) is no
-   -- longer the fixed Help key. key_num cycles through all 80 keys at
-   -- SCAN_FREQUENCY; when it passes osm_key_a_i / osm_key_b_i we latch that key's
-   -- status into osm_sa_n / osm_sb_n. Bit 7 is then rebuilt every cycle from the
-   -- latches (low-active: '0' = pressed), so it refreshes once per pass just like
-   -- every other qnice_keys bit. Defaults (67/67/'0') reproduce the classic
-   -- "bit 7 follows Help" behaviour exactly.
+   -- M2M-UPSTREAM osm-hotkey (AExp 2026-07-10): bit 7 (the OSM-open bit) follows
+   -- the core-selected key(s) instead of a fixed Help key. key_num cycles through
+   -- all 80 keys at SCAN_FREQUENCY; when it passes osm_key_a_i / osm_key_b_i,
+   -- that key's status is latched into osm_sa_n / osm_sb_n. Bit 7 is rebuilt
+   -- every cycle from the latches (low-active: '0' = pressed), so it refreshes
+   -- once per pass like every other qnice_keys bit. The defaults (67/67/'0')
+   -- reproduce the classic "bit 7 follows Help" behaviour.
    handle_qnice_keys : process(clk_main_i)
    begin
       if rising_edge(clk_main_i) then
@@ -172,7 +172,7 @@ begin
          if key_num = osm_key_a_i then osm_sa_n <= key_status_n; end if;
          if key_num = osm_key_b_i then osm_sb_n <= key_status_n; end if;
          if osm_combo_i = '1' then
-            keys_n(7) <= osm_sa_n or osm_sb_n;   -- pressed only when BOTH are pressed
+            keys_n(7) <= osm_sa_n or osm_sb_n;   -- pressed only while both are pressed
          else
             keys_n(7) <= osm_sa_n;               -- single key
          end if;
@@ -181,7 +181,7 @@ begin
          -- MEGA half (osm_key_a_i) is held, Run/Stop is a combo component, not a
          -- stand-alone "menu up" - so hide it from bit 6 (this override runs after the
          -- case, so it wins for key_num = osm_key_b_i). Closing the OSM by holding both
-         -- again then fires ONLY the combo's bit-7 close; otherwise Run/Stop's bit 6
+         -- again then fires only the combo's bit-7 close; otherwise Run/Stop's bit 6
          -- (OPTM_KEY_MENUUP, the lower bit that KEYB$GETKEY returns first) closes the
          -- menu and the still-latched bit 7 immediately reopens it. Run/Stop alone
          -- (MEGA not held => osm_sa_n = '1') keeps bit 6, so it still closes the menu.

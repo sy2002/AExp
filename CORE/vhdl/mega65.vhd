@@ -3,18 +3,19 @@
 --
 -- MEGA65 main file that contains the whole machine
 --
--- The Amiga's memories live here as BRAM, dual-ported between the core
--- (28.375 MHz, port A) and QNICE (50 MHz falling edge, port B):
---   2 x 256K x 8  Chip RAM  (512 KB)   QNICE device 0x0101
---   2 x 256K x 8  Slow RAM  (512 KB)   QNICE device 0x0102
+-- The Amiga's memories live here as BRAM. The core uses port A (28.375 MHz);
+-- only the Kickstart has a QNICE port (port B, 50 MHz falling edge), because the
+-- QNICE address bus cannot reach the spread-out Chip and Slow RAM tiles in time:
+--   2 x 256K x 8  Chip RAM  (512 KB)   no QNICE port (device id 0x0101 reserved)
+--   2 x 256K x 8  Slow RAM  (512 KB)   no QNICE port (device id 0x0102 reserved)
 --   2 x 128K x 8  Kickstart (256 KB)   QNICE device 0x0100 (mandatory auto-load)
 -- Each memory is split into two 8-bit lanes: lane U = data bits 15:8 = the
 -- byte at the even (big-endian first) address, lane L = bits 7:0 = odd byte.
 -- A raw Kickstart ROM dump streamed byte-by-byte by the QNICE Shell therefore
 -- lands correctly without any byte swapping.
 --
--- The core side is the BANKED word address from minimig_sram_bridge.v
--- (see CORE/Minimig_MiSTerMEGA65/rtl/minimig_sram_bridge.v:70-74):
+-- The core side is the banked word address from minimig_sram_bridge.v
+-- (the address[22:18] bank mapping in CORE/Minimig_MiSTerMEGA65/rtl/minimig_sram_bridge.v):
 --   chip 512 KB at ram_addr(22:19)="0000"
 --   slow 512 KB at ram_addr(22:19)="1000"  (CPU $C00000-$C7FFFF)
 --   kick 256 KB at ram_addr(22:19)="1111"  (CPU $F80000-$FFFFFF, bit 18
@@ -151,9 +152,9 @@ port (
    main_drive_led_o        : out std_logic;
    main_drive_led_col_o    : out std_logic_vector(23 downto 0);
 
-   -- OSM-open key selection (issue #8): the core decodes the "OSM: %s" radio and
-   -- tells the framework's m2m_keyb which key(s) drive the menu-open bit
-   -- (qnice_keys bit 7). Threaded core->framework->m2m_keyb, exactly like video_fl_o.
+   -- OSM-open key selection: the core decodes the "OSM: %s" radio and tells the
+   -- framework's m2m_keyb which key(s) drive the menu-open bit (qnice_keys bit 7).
+   -- Threaded core->framework->m2m_keyb, like video_fl_o (GitHub #8).
    osm_key_a_o             : out integer range 0 to 79;
    osm_key_b_o             : out integer range 0 to 79;
    osm_combo_o             : out std_logic;
@@ -201,9 +202,9 @@ port (
 
    -- MEGA65 internal floppy drive (Hardware Floppy feature): the 34-pin
    -- connector, threaded as plain wires from the board tops (M2M-UPSTREAM
-   -- floppy-pins; the C64MEGA65 issue-#90 pattern). All active low. Drive B
-   -- (f_motorb/f_selectb) stays tied '1' at the top level; the WRITE pins
-   -- f_wdata/f_wgate are driven by physical_fdd_writer since WIP-V2-A9.
+   -- floppy-pins; the pattern of C64MEGA65 GitHub #90). All active low. Drive B
+   -- (f_motorb/f_selectb) stays tied '1' in the board tops; the write pins
+   -- f_wdata/f_wgate are driven by physical_fdd_writer.
    f_wdata_o               : out std_logic;
    f_wgate_o               : out std_logic;
    f_motora_o              : out std_logic;
@@ -312,7 +313,7 @@ signal main_chip_data_l       : std_logic_vector(7 downto 0);
 signal main_chip_wren_u       : std_logic;
 signal main_chip_wren_l       : std_logic;
 
--- LEDs of the emulated Amiga
+-- LEDs of the simulated Amiga
 signal main_pwr_led           : std_logic;
 signal main_fdd_led           : std_logic;
 
@@ -322,8 +323,8 @@ signal main_volume            : natural range 0 to 20;
 -- Stereo crossfeed: OSM "Stereo" radio decoded into MiSTer's aud_mix encoding
 signal main_stereo_mix        : std_logic_vector(1 downto 0);
 
--- ADF floppy: track engine's HyperRAM read port (main_clk side, post avm_cache
--- in main.vhd) and the mount status CDC'd from the QNICE domain
+-- ADF floppy: track engine's HyperRAM read/write port (main_clk side, post
+-- avm_cache in main.vhd) and the mount status CDC'd from the QNICE domain
 signal main_adf_avm_write         : std_logic;
 signal main_adf_avm_read          : std_logic;
 signal main_adf_avm_address       : std_logic_vector(31 downto 0);
@@ -382,7 +383,7 @@ signal main_hwf_pau_ws            : std_logic;
 signal main_hwf_serving           : std_logic;                     -- engine phys_stream (read session open)
 signal main_hwf_serving_data      : std_logic;                     -- ... and past the serve-start sync
 signal main_hwf_obs_legacy        : std_logic;                     -- DSKBYTR obs A/B (diag 0x35 bit 8), qnice->main
--- WIP-V2-A9: the physical WRITE datapath (engine <-> front end)
+-- Hardware Floppy write datapath (engine <-> front end)
 signal main_hwf_wr_valid          : std_logic;                     -- engine tap pulse
 signal main_hwf_wr_data           : std_logic_vector(15 downto 0);
 signal main_hwf_wr_session        : std_logic;                     -- episode level
@@ -397,20 +398,22 @@ signal main_hwf_precmode          : std_logic_vector(1 downto 0);  -- 0x7C mode 
 signal main_fdd_step_n            : std_logic := '1';              -- registered mirrors of the f_step /
 signal main_fdd_dir               : std_logic := '1';              -- f_stepdir pins for the diag cyl tracker
 signal main_qnice_rst             : std_logic;  -- QNICE reset synced into main_clk: the
-                                                -- front-end FIFO's read-side reset MUST
+                                                -- front-end FIFO's read-side reset must
                                                 -- derive from the same event as the
-                                                -- write side (Gray-pointer discipline)
+                                                -- write side, or the Gray pointers of
+                                                -- the two sides fall out of step
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
 
 -- write enables and read data of the QNICE side of the Kickstart ROM.
--- NOTE: Chip and Slow RAM deliberately have NO QNICE port: their 256 BRAM
--- tiles are spread over the whole die and the QNICE address bus could not
--- meet the falling-edge half-period (10 ns) to the farthest tiles (first R3
--- run: WNS -0.757 ns on exactly these paths). The kick ROM port (64 tiles)
--- is required for the mandatory ROM auto-load and meets timing.
+-- Chip and Slow RAM have no QNICE port: their 256 BRAM tiles are spread over
+-- the whole die, and the QNICE address bus cannot reach the farthest tiles
+-- within the falling-edge half-period (10 ns); such a port misses timing by
+-- about 0.76 ns. The kick ROM port (64 tiles) is needed for the mandatory
+-- auto-load and meets timing. See doc/developers/architecture.md, section 7.2
+-- (No QNICE ports on spread-out block RAM).
 signal qnice_kick_we_u        : std_logic;
 signal qnice_kick_we_l        : std_logic;
 signal qnice_kick_q_u         : std_logic_vector(7 downto 0);
@@ -418,7 +421,7 @@ signal qnice_kick_q_l         : std_logic_vector(7 downto 0);
 
 -- ADF mount buffer devices 0x0103 / 0x0105 / 0x0106 (three adf_mount_wrapper
 -- instances, index 0 = df0). The dirty-track event carries a per-drive request
--- toggle and a SHARED track payload: the engine serves one event at a time, so
+-- toggle and a shared track payload: the engine serves one event at a time, so
 -- the payload is stable for the whole round trip of the selected drive.
 type t_adf_byte is array (0 to 2) of std_logic_vector( 7 downto 0);
 type t_adf_word is array (0 to 2) of std_logic_vector(15 downto 0);
@@ -436,8 +439,8 @@ signal qnice_adf_wrt_track    : std_logic_vector(7 downto 0);
 signal qnice_adf_wrt_req      : std_logic_vector(2 downto 0);
 signal qnice_adf_wrt_ack      : std_logic_vector(2 downto 0);
 
--- Hardware Floppy front-end (physical_fdd_top runs on qnice_clk; every
--- magnetic constant is hardware-proven at exactly 50 MHz) + diag device 0x0104
+-- Hardware Floppy front end (physical_fdd_top runs on qnice_clk, because its
+-- magnetic constants were proven on this mechanism at 50 MHz) + diag device 0x0104
 signal qnice_fdd_track0_n     : std_logic;
 signal qnice_fdd_wprot_n      : std_logic;
 signal qnice_fdd_change_n     : std_logic;
@@ -466,12 +469,12 @@ signal qnice_fdd_rev_mask     : std_logic_vector(10 downto 0);
 signal qnice_fdd_rev_caps     : unsigned(7 downto 0);
 signal qnice_fdd_rev_lol      : unsigned(7 downto 0);
 signal qnice_fdd_fmt_bad      : unsigned(15 downto 0);
--- diag map v7: margin-engine control (reg 0x35), dump nonce, new taps
+-- control register (diag 0x35), dump nonce, margin and DPLL taps
 signal qnice_fdd_ctrl         : std_logic_vector(8 downto 0) := (others => '0');  -- bit 8 = DSKBYTR obs A/B (0x0100)
 signal qnice_fdd_dpll_cell    : unsigned(11 downto 0);
--- diag map v10: sync-seam instruments
+-- sync-seam instruments
 signal qnice_fdd_realign      : unsigned(15 downto 0);
--- WIP-V2-A9: the write instruments (diag map 0x000D) + the 0x7C register
+-- write instruments (diag 0x70..0x7D) and the precomp-mode register 0x7C
 signal qnice_fdd_precmode     : std_logic_vector(1 downto 0) := "00";
 signal qnice_fdd_wr_track     : std_logic_vector(7 downto 0);
 signal qnice_fdd_wr_epi       : unsigned(15 downto 0);
@@ -544,13 +547,13 @@ signal qnice_fdd_pau_ws       : std_logic;
 -- hr_clk (HyperRAM clock domain)
 ---------------------------------------------------------------------------------------------
 
--- HDMI flicker-free (issue #12): the core-speed select for clk.vhd, driven by the ascal
--- over/underflow feedback (hr_high_i/hr_low_i, already in the hr_clk domain -> no CDC), and
--- the flicker-free ON/OFF menu bit synchronized from the core clock domain. Power-up = native.
+-- HDMI flicker-free: the core-speed select for clk.vhd, driven by the ascal over/underflow
+-- feedback (hr_high_i/hr_low_i, already in the hr_clk domain -> no CDC), and the
+-- flicker-free ON/OFF menu bit synchronized from the core clock domain. Power-up = native.
 signal hr_core_speed              : unsigned(1 downto 0) := "00";
 signal hr_hdmi_ff                 : std_logic;
 
--- ADF track engine read chain after the main->hr CDC (avm_fifo below)
+-- ADF track engine read/write chain after the main->hr CDC (avm_fifo below)
 signal hr_flp_avm_write           : std_logic;
 signal hr_flp_avm_read            : std_logic;
 signal hr_flp_avm_address         : std_logic_vector(31 downto 0);
@@ -588,22 +591,18 @@ signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
 -- On-Screen-Menu bit positions: zero-based line numbers in config.vhd's OPTM_ITEMS
 ---------------------------------------------------------------------------------------------
 
--- (the three " dfN:%s" mount items at lines 2/4/6 and the " Drive Settings"
--- submenu head at line 8 are handled by the Shell / firmware and need no
--- C_MENU constant here; their hardware-drive twin lines 3/5/7 are TEXT)
--- ALL C_MENU_* constants below are additionally scraped by
--- CORE/m2m-rom/make_rom.sh into the autogenerated osm_const.asm (as
--- AEXP_OSM_*), so the firmware never hardcodes menu line numbers.
--- Keep them single-line for the awk scraper.
--- The drive block at lines 2..34 shifted every entry below it by 22 lines vs
--- the single-simulated-drive layout.
--- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
+-- The three " dfN:%s" mount items (lines 2/4/6), their hardware-drive TEXT
+-- twins (lines 3/5/7) and the " Drive Settings" submenu head (line 8) are
+-- handled by the Shell and the firmware; the HDL reads none of their bits.
+-- All C_MENU_* constants below are also scraped by CORE/m2m-rom/make_rom.sh
+-- into the generated osm_const.asm (as AEXP_OSM_*), so the firmware never
+-- hardcodes a menu line number. Keep each on one line for the awk scraper.
 
 -- Drive Settings submenu. Two radios decide the floppy configuration:
 --
 --   * "Drives" (lines 13..15, line 13 = OPTM_G_STDSEL = one drive) is how
 --     many Amiga units exist. Paula latches the drive count at reset and
---     AmigaOS enumerates units at boot, so a change cold-boots the emulated
+--     AmigaOS enumerates units at boot, so a change cold-boots the simulated
 --     Amiga through amiga_cold_boot.
 --   * one mode radio per unit: "Disk Image" (a simulated ADF drive) or
 --     "Hardware Floppy" (the MEGA65 internal mechanism, at most one unit) or
@@ -611,13 +610,13 @@ signal hr_arb_waitrequest         : std_logic_vector(3 downto 0);
 --     the Off item is what the Drives radio swaps in (menu dependency), which
 --     is also what hides that drive's twin lines in the main menu.
 --
--- The standard configuration is ONE drive, df0 as a Disk Image (issue #29):
--- a number of games and demos misbehave when the Amiga sees more than one
--- unit. Everything beyond that - a second and third unit, and the Hardware
--- Floppy - is opt-in through this submenu. That is why the fall-through
--- branches of the decoders below resolve to "one drive, df1/df2 Off, no
--- physical mechanism": that IS the standard configuration, and it is what
--- the core runs on while QNICE is still booting and every OSM bit is 0.
+-- The standard configuration is one drive, df0 as a Disk Image, because a
+-- number of games and demos misbehave when the Amiga sees more than one unit
+-- (GitHub #29). Everything beyond that - a second and third unit, and the
+-- Hardware Floppy - is opt-in through this submenu. That is why the
+-- fall-through branches of the decoders below resolve to "one drive, df1/df2
+-- Off, no physical mechanism": that is the standard configuration, and it is
+-- what the core runs on while QNICE is still booting and every OSM bit is 0.
 --
 -- Decoded below into main_drv_mode (two bits per unit, see C_DRV_*) plus the
 -- derived drive count. The firmware keeps these two radios consistent in
@@ -636,15 +635,14 @@ constant C_MENU_DF2_HW        : natural := 31;
 constant C_MENU_DF2_OFF       : natural := 32;
 
 -- Flat main-menu indexes of the six twin lines, one pair per drive: the mount
--- line and its "Hardware Floppy" TEXT twin. These carry NO osm_control meaning
--- - the HDL never reads them - they exist so that make_rom.sh can hand the
--- firmware the line numbers it needs (the C64MEGA65 C_MENU_DRV8_1581_LN
--- pattern): HANDLE_UNMOUNT_KEY tests them against OPTM_CUR_SEL to find out
--- which drive the cursor is on, and HANDLE_CORE_IO patches the live hardware
--- status into the TEXT lines. Declaring them here rather than hardcoding them
--- in the firmware is what puts them under the cross-check of
--- .research/check_osm_menu.py, which verifies every C_MENU_* against the TEXT
--- of the line it addresses.
+-- line and its "Hardware Floppy" TEXT twin. The HDL never reads these bits;
+-- the constants exist so that make_rom.sh can hand the firmware the line
+-- numbers it needs (the C64MEGA65 C_MENU_DRV8_1581_LN pattern):
+-- HANDLE_UNMOUNT_KEY tests them against OPTM_CUR_SEL to find out which drive
+-- the cursor is on, and HANDLE_CORE_IO patches the live hardware status into
+-- the TEXT lines. Declaring them here rather than in the firmware puts them
+-- under the cross-check of tools/check_osm_menu.py, which verifies every
+-- C_MENU_* against the text of the line it addresses.
 constant C_MENU_DF0_MOUNT_LN  : natural := 2;
 constant C_MENU_DF0_HW_LN     : natural := 3;
 constant C_MENU_DF1_MOUNT_LN  : natural := 4;
@@ -657,6 +655,7 @@ constant C_DRV_IMAGE          : std_logic_vector(1 downto 0) := "00";  -- simula
 constant C_DRV_HW             : std_logic_vector(1 downto 0) := "01";  -- the MEGA65 mechanism
 constant C_DRV_OFF            : std_logic_vector(1 downto 0) := "10";  -- unit does not exist
 
+-- An OCS PAL Amiga is a 50 Hz machine, so only 50 Hz HDMI modes are offered.
 constant C_MENU_HDMI_16_9_50  : natural := 41;
 constant C_MENU_HDMI_4_3_50   : natural := 42;
 constant C_MENU_HDMI_5_4_50   : natural := 43;
@@ -680,8 +679,8 @@ constant C_MENU_FLT_SCANLINES     : natural := 56;
 constant C_MENU_FLT_CRT_SVIDEO    : natural := 57;
 constant C_MENU_FLT_CRT_COMPOSITE : natural := 58;
 
--- HDMI flicker-free toggle (issue #12): single-select, default ON, read here in HDL
--- (like the VGA radio) and CDC'd into the hr_clk domain to drive the core-speed FSM.
+-- HDMI flicker-free toggle: single-select, default ON, read here in HDL (like the VGA
+-- radio) and CDC'd into the hr_clk domain to drive the core-speed FSM (GitHub #12).
 constant C_MENU_HDMI_FF       : natural := 61;
 
 constant C_MENU_VGA_STD       : natural := 65;   -- VGA: Standard (scandoubled 31.25 kHz); default
@@ -708,38 +707,38 @@ subtype C_MENU_STEREO is natural range 123 downto 120;
 -- with OPTM_G_STDSEL = default ON. A500 Filter inserts the fixed 4400 Hz
 -- low-pass behind Paula's DAC ('0' = brighter A1200-style output stage); LED
 -- Filter arms the switchable 3 kHz low-pass on CIA-A PA1, which then follows
--- the emulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
+-- the simulated power LED live (MiSTer's "Auto(LED)"). Both are static OSM bits
 -- wired straight into main.vhd like the keyboard/VGA bits.
 constant C_MENU_A500FILT      : natural := 126;
 constant C_MENU_LEDFILT       : natural := 127;
 
--- Keyboard mapping mode radio (issue #6): '1' = Amiga (pure positional), '0' = MEGA65
--- (semantic "cap is law"; default). Read here in HDL and wired straight into
--- keyboard.vhd via main.vhd, exactly like the VGA/flicker-free bits. Line 132 (MEGA65)
--- carries OPTM_G_STDSEL, so this Amiga bit is 0 at power-up.
+-- Keyboard mapping mode radio: '1' = Amiga (pure positional), '0' = MEGA65 (semantic
+-- "cap is law"; default). Read here in HDL and wired straight into keyboard.vhd via
+-- main.vhd, like the VGA/flicker-free bits. Line 132 (MEGA65) carries OPTM_G_STDSEL,
+-- so this Amiga bit is 0 at power-up (GitHub #6).
 constant C_MENU_KBD_AMIGA     : natural := 131;
 
--- OSM-open key radio (issue #8): selects which key(s) drive the framework's
--- menu-open bit (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b +
--- combo inputs and threaded core->framework->m2m_keyb, so the firmware stays
--- byte-identical (bit 7 keeps its "the menu key" meaning). Line 136 (Help) carries
--- OPTM_G_STDSEL = the classic default. MEGA+Run/Stop is a two-key combo.
+-- OSM-open key radio: selects which key(s) drive the framework's menu-open bit
+-- (qnice_keys bit 7). Decoded below into m2m_keyb's osm_key_a/b + combo inputs and
+-- threaded core->framework->m2m_keyb, so the firmware needs no change (bit 7 keeps
+-- its meaning "the menu key"). Line 136 (Help) carries OPTM_G_STDSEL = the classic
+-- default. MEGA+Run/Stop is a two-key combo (GitHub #8).
 constant C_MENU_OSMKEY_HELP   : natural := 136;
 constant C_MENU_OSMKEY_F11    : natural := 137;
 constant C_MENU_OSMKEY_F13    : natural := 138;
 constant C_MENU_OSMKEY_COMBO  : natural := 139;
 
--- Slow RAM (A501) toggle (issue #20): single-select, default ON. '1' = the classic
--- 512 KB trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500.
--- Wired into main.vhd -> amiga_config.vhd, which encodes it in the userio memory
--- config (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's
--- warm-boot state and resets only the emulated Amiga; QNICE keeps running.
+-- Slow RAM (A501) toggle: single-select, default ON. '1' = the classic 512 KB
+-- trapdoor expansion at $C00000 is present, '0' = chip-RAM-only A500. Wired into
+-- main.vhd -> amiga_config.vhd, which encodes it in the userio memory config
+-- (command 0xF5). amiga_cold_boot detects a change, invalidates Kickstart's warm-boot
+-- state and resets only the simulated Amiga; QNICE keeps running (GitHub #20).
 constant C_MENU_SLOWRAM       : natural := 143;
 
 begin
 
-   -- hr_core_* is driven by the 2-master HyperRAM arbiter at the bottom of this
-   -- file (ADF track engine read chain + ADF mount wrapper write/read chain)
+   -- hr_core_* is driven by the four-master HyperRAM arbiter at the bottom of this
+   -- file (the track engine chain and the three ADF mount wrappers)
 
    -- Tristate all expansion port drivers that we can directly control
    cart_ctrl_oe_o       <= '0';
@@ -797,7 +796,7 @@ begin
 
 
    -- MMCME2_ADV clock generator: 28.375 MHz Amiga PAL master clock, plus the
-   -- 28.4375 MHz HDMI flicker-free "fast" twin selected by hr_core_speed (issue #12)
+   -- 28.4375 MHz HDMI flicker-free "fast" twin selected by hr_core_speed
    clk_gen : entity work.clk
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
@@ -821,9 +820,9 @@ begin
    main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else x"00FF00";
 
    -- Amiga floppy LED on the MEGA65 drive LED (Paula disk-DMA activity).
-   -- While unflushed ADF writes exist the LED is forced ON and turns YELLOW -
+   -- While unflushed ADF writes exist the LED is forced on and turns yellow -
    -- "do not power off yet" - and back to green once the background flush is
-   -- done (the C64MEGA65 vdrives UX, their main.vhd:621-629).
+   -- done (the vdrives LED behaviour of C64MEGA65).
    main_drive_led_o     <= main_fdd_led or main_adf_any_dirty;
    main_drive_led_col_o <= x"FFFF00" when main_adf_any_dirty = '1' else x"00FF00";
 
@@ -831,7 +830,7 @@ begin
    -- must stay yellow until the last drive is clean
    main_adf_any_dirty   <= '1' when main_adf_dirty /= "000" else '0';
 
-   -- OSM-open key selection (issue #8): decode the "OSM: %s" radio into m2m_keyb's
+   -- OSM-open key selection: decode the "OSM: %s" radio into m2m_keyb's
    -- selected-key inputs. main_osm_control_i is static in the core clock domain
    -- (like the keyboard-mode and VGA bits), so this is pure combinational routing -
    -- no CDC. Key numbers share the m2m_keyb / keyboard.vhd m65_* numbering:
@@ -881,7 +880,7 @@ begin
    -- Drive Settings decode. Each Amiga unit gets a two-bit mode; the drive
    -- count comes from the Drives radio and is clamped so that a unit which the
    -- count does not cover is Off no matter what its own radio says (the
-   -- firmware enforces the same thing in the menu, this is the belt).
+   -- firmware enforces the same in the menu; this decode does not rely on it).
    -- Fall-through defaults reproduce the OPTM_G_STDSEL lines, so the core
    -- behaves per the standard configuration while QNICE is still booting.
    drv_decode : process (main_osm_control_i)
@@ -957,8 +956,8 @@ begin
    -- Memory topology is guest state, so changing it must be a cold boot from
    -- Kickstart's perspective; the Hardware Floppy drive map is treated the
    -- same way (drive count is reset-latched in Paula, units are enumerated at
-   -- boot). This local controller deliberately does not drive either M2M
-   -- reset: the menu, QNICE and the framework remain alive.
+   -- boot). This local controller does not drive either M2M reset, so the
+   -- menu, QNICE and the framework stay alive.
    i_amiga_cold_boot : entity work.amiga_cold_boot
       port map (
          clk_i             => main_clk,
@@ -1030,7 +1029,7 @@ begin
          ram_we_n_o           => main_ram_we_n,
          ram_oe_n_o           => main_ram_oe_n,
 
-         -- LEDs of the emulated Amiga
+         -- LEDs of the simulated Amiga
          pwr_led_o            => main_pwr_led,
          fdd_led_o            => main_fdd_led,
 
@@ -1056,12 +1055,12 @@ begin
          kb_key_num_i         => main_kb_key_num_i,
          kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
 
-         -- Keyboard mapping mode (issue #6): '1' = Amiga positional, '0' = MEGA65 semantic.
+         -- Keyboard mapping mode: '1' = Amiga positional, '0' = MEGA65 semantic.
          -- Static OSM bit in the core clock domain, wired straight through to keyboard.vhd
          -- (like video_retro15khz_i above).
          keyboard_mode_i      => main_osm_control_i(C_MENU_KBD_AMIGA),
 
-         -- Slow RAM (A501) toggle (issue #20): '1' = 512 KB Slow RAM at $C00000 present.
+         -- Slow RAM (A501) toggle: '1' = 512 KB Slow RAM at $C00000 present.
          -- Sampled by amiga_config.vhd during the Amiga-local cold boot above, so the new
          -- topology is installed before Kickstart rebuilds its memory list.
          slow_ram_i           => main_osm_control_i(C_MENU_SLOWRAM),
@@ -1178,7 +1177,6 @@ begin
    -- VGA (analog) output mode, three-way radio in the OSM (decode as in
    -- C64MEGA65). The Amiga outputs a 15.625 kHz signal:
    --   Standard          = scandoubler on -> 31.25 kHz RGBHV, VGA monitors lock
-   --                       (see .research/INTEGRATION-SPEC-video-audio.md section 4)
    --   15 kHz with HS/VS = raw 15.625 kHz RGB, separate syncs (retro CRTs)
    --   15 kHz with CSYNC = raw 15.625 kHz RGB, composite sync (SCART/RGB CRTs)
    -- In the 15 kHz modes a CRT displays interlace natively (the half-line
@@ -1190,9 +1188,10 @@ begin
    qnice_csync_o              <= qnice_osm_control_i(C_MENU_VGA_15KHZCS);
 
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
-   qnice_audio_filter_o       <= '0';                                         -- raw Paula output; "Audio improvements"
-                                                                              -- menu item removed for now
-   qnice_zoom_crop_o          <= '0';                                         -- no zoom/crop menu item in milestone 1
+   qnice_audio_filter_o       <= '0';                                         -- generic M2M filter off; the Amiga filters
+                                                                              -- are in audio_filters.vhd (doc/developers/
+                                                                              -- audio.md, section 4)
+   qnice_zoom_crop_o          <= '0';                                         -- no zoom/crop menu item
    qnice_osm_cfg_scaling_o    <= qnice_osm_control_i(C_MENU_OSM_SCALING);
 
    -- ascal mode: with ASCAL_USAGE=1 (AUSE_CUSTOM) in config.vhd these inputs to
@@ -1202,8 +1201,9 @@ begin
    qnice_ascal_mode_o         <= "00";
    qnice_ascal_polyphase_o    <= '0';
 
-   -- ascal triple-buffering
-   -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
+   -- ascal triple-buffering: must stay off. It grows the ascal frame buffer to 6 MB, over
+   -- the ADF pools in HyperRAM (see the HyperRAM map in globals.vhd), and it breaks the
+   -- flicker-free mode.
    qnice_ascal_triplebuf_o    <= '0';
 
    -- Flip joystick ports (i.e. the joystick in port 2 is used as joystick 1 and vice versa)
@@ -1212,13 +1212,14 @@ begin
    ---------------------------------------------------------------------------------------------
    -- Core specific device handling (QNICE clock domain)
    --
-   -- Device map (QNICE dev_addr is a BYTE address into the Amiga memories;
+   -- Device map (QNICE dev_addr is a byte address into the Amiga memories;
    -- even byte = data bits 15:8 (lane U), odd byte = bits 7:0 (lane L)):
    --   0x0100  C_DEV_AMIGA_KICK  256 KB  Kickstart ROM (mandatory auto-load target)
    --   0x0103  C_DEV_AMIGA_ADF0  df0 ADF mount buffer in HyperRAM + CSR window 0xFFFF
    --           (adf_mount_wrapper packs its own byte order - byte address bit 0
-   --           selects the HyperRAM word's LOW byte lane for EVEN addresses)
-   --   0x0104  C_DEV_AMIGA_FDD   Hardware Floppy diagnostics (read-only bank)
+   --           selects the HyperRAM word's low byte lane for even addresses)
+   --   0x0104  C_DEV_AMIGA_FDD   Hardware Floppy diagnostics (read bank; 0x1F, 0x35
+   --                             and 0x7C are also writable)
    --   0x0105  C_DEV_AMIGA_ADF1  df1 ADF mount buffer
    --   0x0106  C_DEV_AMIGA_ADF2  df2 ADF mount buffer
    -- Chip and Slow RAM have no QNICE access for timing reasons (see the
@@ -1263,8 +1264,8 @@ begin
 
          -- Hardware Floppy diagnostics: registered readout (the diag bank
          -- latches the addressed word on the falling edge and this arm sees
-         -- a plain flip-flop - zero wait states, kick-ROM-identical bus
-         -- timing; the writable registers 0x1F and 0x35 live in the
+         -- a plain flip-flop - zero wait states, the same bus timing as the
+         -- kick ROM; the writable registers 0x1F, 0x35 and 0x7C live in the
          -- process below)
          when C_DEV_AMIGA_FDD =>
             qnice_dev_data_o <= qnice_fdd_data;
@@ -1273,26 +1274,28 @@ begin
       end case;
    end process core_specific_devices;
 
-   -- Hardware Floppy diag write registers + dump nonce (all on the falling
-   -- edge, the M2M device-write convention; the front-end's rising-edge
-   -- processes sample these half a 50 MHz cycle later - the same relation
-   -- every QNICE MMIO register in this design already relies on):
-   --   0x1F bit 0 = side-invert, XORed onto the f_side1 pin (hwf_pins_proc)
-   --        for the empirical side-polarity verdict - flip it live from the
-   --        QNICE debug console, no rebuild. Round 3 proved the straight
-   --        wire correct on this mechanism: keep it 0.
-   --   0x35 = margin-engine control {7: realign-ALWAYS word framing
-   --        instead of the WORDSYNC-conditional framing hold (reset
-   --        default 0 = hold in force - the sync-seam A/B switch), 6:
-   --        LEGACY quantiser bit source instead of the DPLL data
-   --        separator (reset default 0 = DPLL -
-   --        the A/B switch), 5: all-gaps, 4: window mode, 3..0: armed
-   --        sector}; writing bit 15 additionally pulses the
-   --        experiment-clear strobe (strobe is not stored).
-   --   The nonce counts QNICE READS of diag register 0x00 (one per dump;
-   --        the firmware's live-status poll reads only 0x02/0x1B, so tester
-   --        dumps are the only thing that advances it). Edge-filtered so a
-   --        multi-cycle bus access counts once.
+   -- Hardware Floppy diag write registers and dump nonce. All on the falling
+   -- edge, the M2M device-write convention; the front end's rising-edge
+   -- processes sample them half a 50 MHz cycle later, the same relation every
+   -- QNICE MMIO register in this design relies on. All reset to 0.
+   --   0x1F bit 0  side invert, XORed onto the f_side1 pin (hwf_pins_proc),
+   --               settable live from the QNICE debug console. Keep it 0:
+   --               the straight wire is correct on this mechanism.
+   --   0x35        control register: bit 8 disables the DSKBYTR observation
+   --               surface (Paula falls back to the constant stub), bit 7
+   --               realign-always word framing instead of the
+   --               WORDSYNC-conditional framing hold, bit 6 legacy quantiser
+   --               bit source instead of the DPLL data separator, bit 5
+   --               all-gaps histogram, bit 4 window mode, bits 3..0 armed
+   --               sector. Writing bit 15 pulses the statistics-clear strobe
+   --               (not stored).
+   --   0x7C        bits 1..0 precomp mode: 00/11 AUTO (the Kickstart 1.3
+   --               policy, precomp on tracks >= 81), 01 on, 10 off; the diag
+   --               bank reads back the mode plus status bits.
+   --   The nonce counts QNICE reads of register 0x00, one per dump: the
+   --   firmware's live status poll reads only 0x02 and 0x1B, so only dumps
+   --   advance it. Edge-filtered, so a multi-cycle bus access counts once.
+   -- See doc/developers/hardware-floppy.md, section 8.2 (The runtime switches).
    fdd_diag_wr_proc : process (qnice_clk_i)
       variable v_rd0 : std_logic;
    begin
@@ -1311,14 +1314,11 @@ begin
                if qnice_dev_addr_i(6 downto 0) = "0011111" then      -- 0x1F
                   qnice_fdd_sideinv <= qnice_dev_data_i(0);
                elsif qnice_dev_addr_i(6 downto 0) = "1111100" then   -- 0x7C
-                  -- WIP-V2-A9 WRITE control: {1:0} precomp mode
-                  -- (00/11 = AUTO per the KS1.3 track >= 81 policy,
-                  -- 01 = ON, 10 = OFF). Reset default 00 = AUTO.
+                  -- precomp mode, see above
                   qnice_fdd_precmode <= qnice_dev_data_i(1 downto 0);
                elsif qnice_dev_addr_i(6 downto 0) = "0110101" then   -- 0x35
-                  -- 9 control bits: [7:0] margin/separator/framing control
-                  -- (see physical_fdd_diag.vhd 0x35), bit 8 = DSKBYTR obs
-                  -- surface A/B (1 = disable = revert to the A7 stub)
+                  -- bits 8..0 are stored, bit 15 is the clear strobe (see
+                  -- above); physical_fdd_diag.vhd reads back bits 7..0
                   qnice_fdd_ctrl  <= qnice_dev_data_i(8 downto 0);
                   qnice_fdd_clear <= qnice_dev_data_i(15);
                end if;
@@ -1540,29 +1540,30 @@ begin
       ); -- kick_rom_l
 
    ---------------------------------------------------------------------------------------------
-   -- Hardware Floppy: connector driving, 50 MHz read front-end, CDC and diagnostics
+   -- Hardware Floppy: connector driving, 50 MHz front end, CDC and diagnostics
    --
-   -- The MEGA65's real internal 3.5" drive as an Amiga unit (read milestone).
-   -- Control pins are driven straight from Minimig's CIA-B taps (registered
-   -- in the core clock domain; the connector is asynchronous). The flux
-   -- front-end runs on qnice_clk = exactly 50 MHz, where all magnetic
-   -- constants are hardware-proven (C64MEGA65 physical-1581 bring-up); its
-   -- conditioned status levels cross into the core domain via cdc_stable and
-   -- the reconstructed MFM words via the front-end's dual-clock FIFO.
+   -- The MEGA65's real internal 3.5" drive as an Amiga unit that reads and
+   -- writes. Control pins are driven straight from Minimig's CIA-B taps
+   -- (registered in the core clock domain; the connector is asynchronous).
+   -- The front end (read chain and writer) runs on qnice_clk = 50 MHz, where
+   -- its magnetic constants were proven on this mechanism (C64MEGA65
+   -- physical-1581 bring-up). The conditioned status levels cross into the
+   -- core domain via cdc_stable, the reconstructed MFM words via the read
+   -- FIFO, and the words to write leave it via the write FIFO.
+   -- See doc/developers/hardware-floppy.md.
    ---------------------------------------------------------------------------------------------
 
    -- Connector outputs, registered in the core clock domain. Polarity facts
-   -- (hardware-proven on this mechanism): select/motor/step active low;
-   -- f_stepdir '1' = toward track 0 = Minimig's direc; f_density '1' is the
-   -- DD-safe level. f_side1 <= side is the straight wire (Minimig side=0
-   -- selects the upper head = PC "side 1") - CONFIRMED on real hardware
-   -- 2026-07-26 by the diag sector-header capture: a cylinder-0/head-0 read
-   -- returned an info long claiming track 0, so the mapping is correct as
-   -- wired. The diag register 0x1F (main_hwf_sideinv) remains as a live
-   -- inversion facility for future mechanisms; it must stay 0 on this one.
-   -- STEP is additionally gated on "our unit selected" (drives gate on
-   -- SELECT internally anyway; this keeps the pin quiet when the virtual
-   -- unit steps). main_hwf_ctrl = {motor_n,sel3..0_n,side,direc,step_n}.
+   -- (verified on this mechanism): select/motor/step active low; f_stepdir
+   -- '1' = toward track 0 = Minimig's direc; f_density '1' is the DD-safe
+   -- level. f_side1 <= side is a straight wire (Minimig side=0 selects the
+   -- upper head = PC "side 1"), verified on hardware with a sector header
+   -- captured at cylinder 0, head 0, which claimed track 0. The diag register
+   -- 0x1F (main_hwf_sideinv) inverts it live for other mechanisms; it stays 0
+   -- on this one. STEP is additionally gated on "our unit selected" (drives
+   -- gate on SELECT internally anyway; this keeps the pin quiet when a
+   -- simulated unit steps). main_hwf_ctrl = {motor_n,sel3..0_n,side,direc,step_n}
+   -- (doc/developers/hardware-floppy.md, section 12.4, The connector pins).
    hwf_pins_proc : process (main_clk)
       variable v_sel_n : std_logic;
    begin
@@ -1588,77 +1589,17 @@ begin
                f_step_o <= '1';
             end if;
 
-            -- WIP-V2-A9 round 2: THE POST-DSKBLK PIN HOLD, SELECT AND SIDE
-            -- ONLY. Paula reports the write complete when the ENGINE takes
-            -- the last word out of its FIFO, so at that instant our CDC FIFO
-            -- and the writer's shifter still owe ~3 word times of flux; a
-            -- real Paula owes ONE, its own output shifter. X-Copy sizes its
-            -- margin for a real Paula - a single trailing $AAAA word - and
-            -- toggles SIDE about 30 us after DSKBLK. Letting that reach the
-            -- pin lays the tail on the WRONG SURFACE; refusing to write it
-            -- destroyed sector 10's last word on every upper-side track
-            -- (measured: 85 bytes of 901,120, all sector 10, all head 1).
-            --
-            -- The two pins are held for DIFFERENT reasons and neither is
-            -- redundant. SIDE: a mechanism switches heads the moment /SIDE1
-            -- moves, so without this the tail lands on the other surface.
-            -- SELECT: a mechanism gates its write circuitry on /SELn, so a
-            -- deselected drive IGNORES WGATE and the tail is lost anyway -
-            -- silently, with no abort and no tail-cut tick.
-            --
-            -- STEP AND DIR ARE DELIBERATELY *NOT* HELD. STEP is a PULSE, and
-            -- nothing here latches or replays one, so a pulse that began and
-            -- ended inside a hold would be DESTROYED rather than delayed -
-            -- the host would advance its cylinder counter while the head
-            -- stayed put, and every later access would silently go to the
-            -- wrong cylinder. Holding it would also buy nothing: the
-            -- writer's STEP abort term is left live and unqualified and
-            -- closes WGATE in the same cycle, in tens of nanoseconds, while
-            -- a head needs milliseconds to move.
-            --
-            -- SCOPE: the DRAIN only - the writer is still busy but the host
-            -- has already been told the write finished. NOT the whole
-            -- episode: during the DMA the host is blocked waiting for
-            -- DSKBLK, and gating on busy alone would freeze the pins for the
-            -- ~207 ms of a full track, for the remainder of a tab-blocked or
-            -- aborted episode, and - because a held reset leaves the episode
-            -- latched (adf_track_engine 'does NOT clear the episode itself')
-            -- - across a reset, right where trackdisk recalibrates with a
-            -- burst of steps. Keying on the drain makes all three impossible:
-            -- a stuck episode keeps wr_session HIGH, so the hold never
-            -- engages at all.
-            --
-            -- The window is the pipe depth, <= ~104 us, far inside X-Copy's
-            -- own 253 us post-side settle and trackdisk's 2000 us
-            -- post-DSKBLK wait. It is a strict SUPERSET of the writer's own
-            -- v_hold: wr_session is native to this domain and falls first,
-            -- while wr_busy returns through a cdc_stable and falls last.
-            -- Note wr_session falls when the ENGINE OBSERVES the DMA end
-            -- (dmaen clear and Paula's FIFO empty), which is one poll frame
-            -- after DSKBLK itself, so the honest guard band against X-Copy's
-            -- ~30 us side toggle is ~25 us, not the full 30.
-            --
-            -- HOLD ONLY AN *ASSERTED* SELECT. Freezing a DESELECTED value
-            -- protects nothing - there is no flux in flight to protect, and
-            -- every route that reaches the guard deselected has the gate
-            -- already shut (a tab-blocked DISCARD, an episode aborted
-            -- mid-stream, or a deselect inside the DSKBLK-to-observation
-            -- gap). It can only do harm: a mechanism qualifies STEP by
-            -- /SELn, so a drive pinned deselected IGNORES a step pulse that
-            -- reaches its pin, and the head silently stays behind the host's
-            -- cylinder counter - the same failure class that took STEP out
-            -- of this freeze in the first place.
-            --
-            -- Only the PINS are held. main_hwf_selected, main_fdd_step_n and
-            -- main_fdd_dir keep following the live Amiga values, because the
-            -- engine's episode-bind qualifier (spec 9a) and the diagnostics
-            -- must keep describing what the host is doing.
-            --
-            -- Holding SELECT asserted past a host deselect is safe on this
-            -- board because there is exactly ONE physical drive on the
-            -- cable: f_selectb/f_motorb stay tied inactive (M2M exception 7),
-            -- so no second mechanism can contend for the shared open-
-            -- collector status lines.
+            -- Post-DSKBLK drain hold. Paula reports a write complete when the
+            -- engine pops its last word, while the write FIFO and the writer
+            -- still owe up to ~104 us of flux. During that drain (writer busy,
+            -- episode level already low, select pin asserted) the select and
+            -- side pins keep their episode values, so a host that deselects or
+            -- flips /SIDE1 right after DSKBLK (X-Copy flips it ~30 us later)
+            -- cannot cut the tail or lay it on the other surface. STEP/DIR and
+            -- main_hwf_selected, main_fdd_step_n, main_fdd_dir stay live. Must
+            -- ship together with v_hold in physical_fdd_writer.vhd; see
+            -- doc/developers/hardware-floppy.md, section 6.5 (The post-DSKBLK
+            -- drain hold).
             if not (main_hwf_wr_busy = '1' and main_hwf_wr_session = '0'
                     and main_hwf_selpin_n = '0') then
                f_selecta_o       <= v_sel_n;
@@ -1682,11 +1623,12 @@ begin
 
    main_hwf_motor <= main_hwf_motor_on(to_integer(unsigned(main_hwf_unit)));
 
-   -- The read front-end: pins -> conditioner -> gaps -> adaptive quantiser ->
-   -- raw-bit rebuild/DSKSYNC aligner -> word FIFO. Control context and the
-   -- live DSKSYNC enter as async signals (synchronized/settle-filtered
-   -- inside); the FIFO read side runs on main_clk with the QNICE reset
-   -- synced below (shared-reset discipline).
+   -- The front end. Read: pins -> conditioner -> gaps -> DPLL data separator
+   -- (or the legacy adaptive quantiser) -> raw-bit rebuild/DSKSYNC aligner ->
+   -- read FIFO. Write: write FIFO -> writer -> f_wdata/f_wgate. Control
+   -- context and the live DSKSYNC enter as async signals (synchronized/
+   -- settle-filtered inside); the read FIFO's read side runs on main_clk with
+   -- the QNICE reset synced below, so both FIFO sides reset on one event.
    i_physical_fdd_top : entity work.physical_fdd_top
       port map (
          clk_i               => qnice_clk_i,
@@ -1718,9 +1660,9 @@ begin
          ready_n_o           => qnice_fdd_ready_n,
          index_o             => qnice_fdd_index,
          present_o           => qnice_fdd_present,
-         -- WIP-V2-A9: the write path. The tap and the level are plain
-         -- core-domain wires (ready is computed engine-side, so nothing
-         -- crosses); the episode levels cross inside the writer.
+         -- Write path. The tap and the level are plain core-domain wires
+         -- (the engine computes ready itself, so nothing crosses here); the
+         -- episode levels cross inside the writer.
          wr_push_i           => main_hwf_wr_valid,
          wr_data_i           => main_hwf_wr_data,
          wr_level_o          => main_hwf_wr_level,
@@ -1796,9 +1738,10 @@ begin
          dwr_overflow_o      => qnice_fdd_wr_ovf
       ); -- i_physical_fdd_top
 
-   -- DSKBYTR observation-surface A/B bit (diag 0x35 bit 8) into the core
+   -- DSKBYTR observation-surface switch (diag 0x35 bit 8) into the core
    -- domain (quasi-static level; covered by M2M/common.xdc's cdc_stable
-   -- constraint) - reverts Paula's Copylock DSKBYTR to the A7 stub when set
+   -- constraint). When set, Paula's DSKBYTR reverts to the constant Minimig
+   -- stub, which Copylock-protected disks cannot boot with.
    i_cdc_hwf_obs_leg : entity work.cdc_stable
       generic map (
          G_DATA_SIZE    => 1,
@@ -1811,8 +1754,9 @@ begin
          dst_data_o(0) => main_hwf_obs_legacy
       ); -- i_cdc_hwf_obs_leg
 
-   -- WIP-V2-A9 CDC. Three quasi-static crossings, all cdc_stable (the
-   -- blanket qnice<->main max_delay pair in CORE/CORE.xdc bounds them):
+   -- Write-path CDC. Three quasi-static crossings, all cdc_stable (covered by
+   -- M2M/common.xdc's cdc_stable constraint, which takes precedence over the
+   -- clock-pair max_delay in CORE/CORE.xdc):
    --   * the writer's status levels 50 MHz -> core (the engine's busy
    --     interlock and the announce's writable bit),
    --   * the 0x7C precomp mode 50 MHz -> core (the engine decides precomp
@@ -1860,8 +1804,9 @@ begin
          dst_data_o(0) => main_hwf_sideinv
       ); -- i_cdc_hwf_sideinv
 
-   -- QNICE reset into the core domain: the FIFO read-side reset (must derive
-   -- from the same event as the write side - Gray-pointer discipline)
+   -- QNICE reset into the core domain: the read FIFO's read-side reset, which
+   -- must derive from the same event as the write side, or the Gray pointers
+   -- of the two sides fall out of step
    i_cdc_hwf_rst : entity work.cdc_stable
       generic map (
          G_DATA_SIZE    => 1,
@@ -1900,7 +1845,7 @@ begin
 
    -- drive map for the diag device, decoded in the QNICE domain (same OSM bits
    -- and the same rules as drv_decode above; the diag reads it CDC-free).
-   -- Encoding {unit[1:0], enable} of the PHYSICAL drive: the lowest unit whose
+   -- Encoding {unit[1:0], enable} of the physical drive: the lowest unit whose
    -- mode radio says "Hardware Floppy" and that the drive count still covers.
    qnice_hwf_map3_decode : process (qnice_osm_control_i)
       variable v_count : natural range 1 to 3;
@@ -2082,23 +2027,23 @@ begin
    end generate gen_adf_wrapper;
 
    ---------------------------------------------------------------------------------------------
-   -- HDMI flicker-free core-speed FSM (issue #12), hr_clk domain
+   -- HDMI flicker-free core-speed FSM, hr_clk domain (GitHub #12)
    ---------------------------------------------------------------------------------------------
 
    -- Bang-bang loop: nudge the core clock so its frame rate embraces the exact 50.000 Hz HDMI
    -- output. hr_low_i/hr_high_i are the ascal write-lead over/underflow flags, registered in
    -- the same hr_clk net (hdmi_flicker_free.vhd) -> sampled here without any CDC. Direction is
-   -- inverted vs C64MEGA65: the Amiga's native rate is BELOW 50, so "too slow" picks the FAST
+   -- inverted vs C64MEGA65: the Amiga's native rate is below 50, so "too slow" picks the fast
    -- twin and "too fast" falls back to native. The OFF override forces authentic native and is
    -- last so it always wins. The two flags are mutually exclusive, so their order is immaterial.
    p_flicker_fsm : process (hr_clk_i)
    begin
       if rising_edge(hr_clk_i) then
          if hr_low_i = '1' then      -- core too slow (write pointer lagging) ...
-            hr_core_speed <= "01";   -- ... speed up: FAST twin (28.4375 MHz, above 50)
+            hr_core_speed <= "01";   -- ... speed up: fast twin (28.4375 MHz, above 50)
          end if;
          if hr_high_i = '1' then     -- core too fast (write pointer leading) ...
-            hr_core_speed <= "00";   -- ... slow down: NATIVE (28.375 MHz, below 50)
+            hr_core_speed <= "00";   -- ... slow down: native (28.375 MHz, below 50)
          end if;
          if hr_hdmi_ff = '0' then    -- flicker-free OFF ...
             hr_core_speed <= "00";   -- ... hold authentic native, no dither
@@ -2144,9 +2089,9 @@ begin
          dst_data_o(32 downto 30)  => main_adf_dirty
       ); -- i_cdc_adf_mount
 
-   -- dirty-track event channel main->qnice: two-phase toggle handshake, now
-   -- with one request toggle per drive and a SHARED track payload. The engine
-   -- holds the track number stable, waits ~1 us, THEN flips the toggle of the
+   -- dirty-track event channel main->qnice: two-phase toggle handshake, with
+   -- one request toggle per drive and a shared track payload. The engine
+   -- holds the track number stable, waits ~1 us, then flips the toggle of the
    -- owning drive (and the payload stays put until that ack round trip
    -- completes), so cdc_stable's per-bit settling can never deliver a torn
    -- payload with a fresh toggle, and the two idle drives see no edge at all.
@@ -2178,7 +2123,7 @@ begin
          dst_data_o(2 downto 0)  => main_adf_wr_ack
       ); -- i_cdc_adf_wrt_ack
 
-   -- track engine read chain: main_clk -> hr_clk (domain resets - never the
+   -- track engine read/write chain: main_clk -> hr_clk (domain resets - never the
    -- core reset: the command FIFO resets from the s side, the response FIFO
    -- from the m side, and resetting only one side desynchronizes the chain)
    i_avm_fifo_adf : entity work.avm_fifo

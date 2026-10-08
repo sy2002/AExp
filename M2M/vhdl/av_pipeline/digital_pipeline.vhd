@@ -159,7 +159,8 @@ architecture synthesis of digital_pipeline is
 
    -- M2M-UPSTREAM screen-center: the input crop rectangle driven into ascal
    -- (iauto=0), registered on video_clk_i. 0 offsets => [0, measured size] =
-   -- the full auto-detected window (identical to the previous iauto=1 path).
+   -- the full auto-detected window, the same window the original iauto=1
+   -- setting selects.
    constant C_HDMI_MIN_BOX       : natural := 16;   -- min ascal input window (px)
    signal himin_r                : natural range 0 to 4095 := 0;
    signal himax_r                : natural range 0 to 4095 := 0;
@@ -284,7 +285,7 @@ begin
    -- measured input size + the four signed edge offsets, clamped so ascal
    -- always sees 0 <= himin < himax <= measured size (its "MIN<MAX, MAX<DISP"
    -- contract), registered into the video domain. Zero offsets => [0, measured]
-   -- = the full auto-detected window (the previous iauto=1 behaviour). himin
+   -- = the full auto-detected window (as with the original iauto=1). himin
    -- larger trims the left border; himax smaller trims the right; an asymmetric
    -- trim re-centers content within the frame (MiSTer-style).
    p_crop : process (video_clk_i)

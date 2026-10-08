@@ -4,22 +4,22 @@
 -- adf_mount_wrapper: one QNICE ADF mount buffer in HyperRAM (C_DEV_AMIGA_ADF0/1/2)
 --
 -- The M2M Shell's OSM file browser loads the selected .ADF byte by byte into this device
--- (C_CRTROMTYPE_DEVICE manual load; see CORE/vhdl/globals.vhd). The device has two faces:
+-- (C_CRTROMTYPE_DEVICE manual load; see CORE/vhdl/globals.vhd). The device has three faces:
 --
---   * 4k windows 0x0000.. : byte-window bridge into HyperRAM. Each QNICE word address holds ONE
+--   * 4k windows 0x0000.. : byte-window bridge into HyperRAM. Each QNICE word address holds one
 --     file byte; the bridge packs two bytes per 16-bit HyperRAM word (even file offset -> word
 --     bits 7:0, odd offset -> bits 15:8, i.e. little-endian-in-word) at word base G_BASE_ADDRESS.
---     NOTE for readers: Amiga data is big-endian, so the track engine byte-swaps on read-back.
+--     Amiga data is big-endian, so the track engine byte-swaps on read-back.
 --   * 4k window 0xFFFF   : the M2M CSR protocol (M2M/vhdl/qnice_csr.vhd). The Shell writes
 --     STATUS=ST_LDNG before streaming, then file size + STATUS=ST_OK, then polls PARSEST until
 --     the core answers READY or ERROR (M2M/rom/crts-and-roms.asm, HANDLE_CRTROM_M).
 --   * 4k window 0xFFFE   : the write-back CSR (WBC) - the ADF write support's core<->firmware
---     interface (see doc/developers/floppy-adf.md). The track engine commits
+--     interface (see doc/developers/floppy-adf.md, section 8.3). The track engine commits
 --     Amiga-written sectors into HyperRAM and queues the track number over a two-phase toggle
 --     handshake (CDC in mega65.vhd); this wrapper collects them in a 166-bit dirty bitmap and
 --     runs the vdrives-style anti-thrashing ms-countdown. The firmware (HANDLE_CORE_IO in
 --     CORE/m2m-rom/m2m-rom.asm) polls the bitmap, clears a track's bit (write-1-to-clear)
---     BEFORE reading the track through the byte window and flushing it to the SD card file.
+--     before reading the track through the byte window and flushing it to the SD card file.
 --     Registers (word offsets): 0x000 CTRL (bit0 WR_EN, firmware-armed "disk is writable"),
 --     0x001 STAT (bit0 any_dirty, bit1 flush_start), 0x002 anti-thrash delay in ms (default
 --     2000, firmware loads config.vhd's VD_ANTI_THRASHING_DELAY), 0x010..0x01A DIRTY0..10
@@ -47,7 +47,8 @@ use work.qnice_csr_pkg.all;
 
 entity adf_mount_wrapper is
    generic (
-      -- HyperRAM word base address = C_HMAP_ADF_DF0(9 downto 0) & X"000" (see globals.vhd)
+      -- HyperRAM word base address of this drive's image pool:
+      -- C_HMAP_ADF_DF<n>(9 downto 0) & X"000" (C_HMAP_ADF_POOLS in globals.vhd)
       G_BASE_ADDRESS : std_logic_vector(21 downto 0)
    );
    port (
@@ -126,8 +127,10 @@ architecture synthesis of adf_mount_wrapper is
    signal qnice_resp_error : std_logic_vector( 3 downto 0);
 
    -- write-back CSR (window 0xFFFE): dirty bitmap + anti-thrash countdown.
-   -- All plain FFs in the QNICE domain (falling edge, device convention) -
-   -- no BRAM (rule 4), no CDC beyond the toggle handshake.
+   -- All plain FFs in the QNICE domain (falling edge, the M2M device
+   -- convention), no CDC beyond the toggle handshake. No block RAM: it is
+   -- fully used, and a QNICE port would have to meet the half-period budget
+   -- of the falling-edge access.
    constant C_MS_TICKS     : natural := 50_000;   -- 1 ms at the 50 MHz QNICE clock
    signal qnice_wbc        : std_logic;
    signal wbc_wr_en        : std_logic := '0';
@@ -196,7 +199,7 @@ begin
    -- CDC is needed here (unlike the C64's HyperRAM-reading CRT parser).
    -- Falling edge to match the M2M QNICE device convention (qnice_csr.vhd).
    --
-   -- The Shell polls PARSEST with no timeout, so this FSM must ALWAYS answer
+   -- The Shell polls PARSEST with no timeout, so this FSM must always answer
    -- (READY or ERROR) once STATUS=ST_OK, and must return to IDLE when the
    -- request drops (STATUS=ST_LDNG of the next load) or the second mount hangs.
    ------------------------------------------------------------------------------
@@ -421,7 +424,10 @@ begin
 
    ------------------------------------------------------------------------------
    -- Clock-domain crossing QNICE <-> HyperRAM (identical to the C64 wrappers).
-   -- Domain resets on both sides - never a core reset (see the ADF spec).
+   -- Each side resets from its own domain reset (qnice_rst_i, hr_rst_i),
+   -- never from the Amiga core reset: avm_fifo resets its command FIFO from
+   -- the s side and its response FIFO from the m side, so a core reset on one
+   -- side would clear one FIFO without the other and desynchronize the chain.
    ------------------------------------------------------------------------------
 
    i_avm_fifo : entity work.avm_fifo

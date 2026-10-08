@@ -212,7 +212,13 @@ precisely the pattern an encoder can never produce and is therefore
 unambiguously findable in the stream.
 
 The data cells are untouched by this, so nothing a reader can see changes - and
-the served words now match, bit for bit, what a genuine Amiga disk carries.
+the served words match, bit for bit, what a genuine Amiga disk carries, with one
+exception. When Paula's FIFO fills and the engine pauses a read (status bit 8
+low at a sector re-check), the next read session starts the clock chain afresh
+from 0, so the first preamble clock cell after that seam is 1 even when the
+previous sector ended on a data 1: two adjacent 1 cells, which MFM forbids.
+Paula and `trackdisk` never look at clock cells, so this only matters when the
+stream is raw-copied onto real media.
 
 ---
 
@@ -502,9 +508,11 @@ defect class that silently corrupts a disk image:
 > **A frame belonging to unit B, fed into a decoder that was opened for unit A,
 > would checksum-verify perfectly and be committed into unit A's image.** The
 > price of aborting unconditionally is that a transient foreign `sel` sample
-> costs the sector that was mid-decode. Losing a sector is recoverable —
-> `trackdisk` verifies a track after writing it and retries. Committing it into
-> the wrong drive's image is not.
+> costs the sector that was mid-decode: it is never committed, and the image
+> keeps that sector's previous contents. `trackdisk` never verifies a write,
+> so the loss is silent, but it stays confined to the drive that was being
+> written. Committing the frame into the wrong drive's image would corrupt a
+> disk that nobody was writing.
 
 ### 6.4 The HyperRAM pools
 
@@ -629,10 +637,18 @@ Three details here are easy to get wrong and are worth stating flatly:
   **bit 8** (`trackrd & ~fifo_full`, masked while the FIFO holds ≥ 1024 words).
   Rule: re-poll status before every sector, and push at most one sector (+ track
   gap) per grant. Worst-case fill stays at `1023 + 544 + 350 = 1917 < 2048`.
+  A read throttled this way simply waits for the next regular poll, about 1 ms
+  later. Before bit 8 returns, Paula has to move up to 894 words (from 1917
+  down to 1023) into Chip RAM at the speed of its DMA slots, about 21.3 µs per
+  word, which takes some 19 ms, so the 1 ms re-poll granularity costs less
+  than 10 %.
 - **Polling is what arms Paula's DMA.** Paula's disk-DMA state machine only
   leaves idle at word 1 of a poll frame — without polling, disk DMA never
   starts, and the arming poll itself still reports the stale `trackrd = 0`; the
-  next poll sees the real request.
+  next poll sees the real request. That is also why the engine decides the
+  frame type from `w0`, before it strobes word 1. A drain frame continues only
+  when `w0` showed `trackwr = 1`, so its word 1 cannot arm a read the CPU has
+  just requested, and its dummy data words cannot land in that read's FIFO.
 - **`disk_present` is wiped by *every* Amiga reset**, including the `RESET`
   instruction Kickstart executes on each reboot. So the engine re-sends the
   drive-status word **every poll cycle** (MiSTer does the same). That word must
@@ -686,8 +702,12 @@ engine must **drain** Amiga writes, because of a hard safety rule:
 
 So the engine always has a `WDRAIN` path that pops write words; write support is,
 at its core, the difference between "discard" and "decode and commit". A drive
-whose write-back is not armed, and a unit backed by the Hardware Floppy, take
-the pure-discard branch — the data must still be consumed, or the machine hangs.
+whose write-back is not armed takes the pure-discard branch — the data must
+still be consumed, or the machine hangs. A unit backed by the Hardware Floppy
+never decodes either: inside a write episode the engine hands every popped
+word to the writer of the real drive
+([hardware-floppy.md](hardware-floppy.md#6-the-write-datapath)), and only a
+drain outside an episode is a pure discard.
 
 ### 8.2 The MFM write decoder
 
@@ -931,13 +951,17 @@ The engine re-sends one drive-status word per poll cycle:
 Amiga unit. For a simulated drive, `present` is that drive's `disk_mounted` and
 `writable` is `disk_mounted AND WR_EN` — both taken from *that drive's* wrapper.
 A unit backed by the Hardware Floppy reports `present` from the real disk-change
-latch and is **never** announced writable (the real `/WPROT` level still reaches
-CIA-A through the `paula_floppy` mux). A unit that is Off contributes nothing.
+latch and `writable` while a disk is present and the writer's tab qualifier
+holds (`phys_wr_ok_i`, see
+[hardware-floppy.md](hardware-floppy.md#64-safety-wgate-the-tab-qualifier-and-the-read-chain)).
+The Amiga never sees that bit: for the physical unit, the `paula_floppy` mux
+routes the real `/WPROT` line to CIA-A. A unit that is Off contributes nothing.
 
-So a drive is write-protected until its own mount completes and arms, across SD
-card changes, and while it is being remounted — and each drive's protection state
-is independent of the others. When `WR_EN` is set, Paula's `_wprot` line reflects
-it, `trackdisk` sees a writable disk, and `info df1:` reports `Read/Write`.
+So a simulated drive is write-protected until its own mount completes and arms,
+across SD card changes, and while it is being remounted — and each drive's
+protection state is independent of the others. When `WR_EN` is set, Paula's
+`_wprot` line reflects it, `trackdisk` sees a writable disk, and `info df1:`
+reports `Read/Write`.
 
 ---
 

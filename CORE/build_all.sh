@@ -71,12 +71,12 @@ esac
 jobs="${JOBS:-4}"
 max_miss="${REROLL_MAX_MISS:-0.3}"
 
-# Board names are case-insensitive on the command line ("R4", "r4" and "R4" all
+# Board names are case-insensitive on the command line ("R4" and "r4" both
 # work), but the Vivado project files CORE-R<n>.xpr are always upper case, so we
-# normalise them here. This also matters on the case-sensitive Linux build VM,
-# where "r4" would otherwise fail to open CORE-R4.xpr. Unknown boards are
-# rejected up front (checked against the actual .xpr files) instead of failing
-# deep inside Vivado.
+# normalise them here. On a case-sensitive file system (Linux), "r4" would
+# otherwise fail to open CORE-R4.xpr. Unknown boards are rejected up front
+# (checked against the actual .xpr files) instead of failing deep inside
+# Vivado.
 for i in "${!boards[@]}"; do
     boards[$i]=$(printf '%s' "${boards[$i]}" | tr '[:lower:]' '[:upper:]')
     if [ ! -f "CORE-${boards[$i]}.xpr" ]; then

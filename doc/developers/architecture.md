@@ -4,7 +4,7 @@ This document is the starting point for anyone who works on the Amiga 500
 core for the MEGA65. It explains how the core is put together, where each part
 lives in the repository, which clock domains and buses connect the parts, and
 which rules you have to respect when you change something. The deeper design
-documents are listed at the [end](#12-where-to-read-next); this one tells you
+documents are listed at the [end](#13-where-to-read-next); this one tells you
 which of them to open.
 
 It assumes that you know VHDL, the Xilinx tools and the MEGA65, and ideally the
@@ -25,8 +25,9 @@ text explains it or points to the glossary in
 8. [The modified M2M framework](#8-the-modified-m2m-framework)
 9. [The Minimig submodule](#9-the-minimig-submodule)
 10. [The MiSTer HPS code and its replacements](#10-the-mister-hps-code-and-its-replacements)
-11. [Checking your work before a Vivado run](#11-checking-your-work-before-a-vivado-run)
-12. [Where to read next](#12-where-to-read-next)
+11. [Mouse and joystick](#11-mouse-and-joystick)
+12. [Checking your work before a Vivado run](#12-checking-your-work-before-a-vivado-run)
+13. [Where to read next](#13-where-to-read-next)
 
 ---
 
@@ -166,8 +167,9 @@ HDMI and the 3.5 mm jack. See [audio.md](audio.md).
 
 **Keyboard, mouse, joysticks.** `keyboard.vhd` translates the MEGA65 key matrix
 into raw Amiga keycodes and hands them to CIA-A with the real keyboard
-handshake. The DB9 ports reach Minimig almost unfiltered, so a real Amiga
-mouse works in either port.
+handshake. The DB9 ports reach Minimig without debouncing, so a real Amiga
+mouse moves smoothly; section [11](#11-mouse-and-joystick) explains the mouse
+path and why the MEGA65 cannot see the right button of a passive Amiga mouse.
 
 ## 3. Repository layout
 
@@ -616,8 +618,8 @@ builds.
   joystick enable gating stay.
 * Files: `debouncer.vhd`.
 * Why: a real Amiga does not debounce its DB9 lines, and a quadrature mouse
-  produces pulses faster than the filter let through, so the pointer froze and
-  jumped.
+  produces pulses faster than a 1 ms filter lets through, so the pointer
+  freezes and jumps (section [11.1](#111-movement)).
 * Other cores: this one is not default-off. Every core using this copy gets
   raw joystick lines. Upstream it should become a framework option.
 
@@ -646,8 +648,9 @@ builds.
   `strings.asm`, `sysdef.asm`.
 * Why: each drive has two lines in the main menu, a mount line and a Hardware
   Floppy status line, and the menu shows the one that matches the drive's mode.
-  Unlike the C64 original, this copy allows dependent ROM/disk-image mount
-  lines, partially visible radio groups and two-level chains, and its
+  Unlike the C64 original, this copy allows dependent ROM-loader
+  (`OPTM_G_LOAD_ROM`) lines, through which AExp mounts its ADF images,
+  partially visible radio groups and two-level chains, and its
   validator is correspondingly less strict in two of its rule classes (the
   reasons are in the header of `optm_deps.asm`).
 * Other cores: a core whose `config.vhd` does not answer the feature probe
@@ -666,18 +669,45 @@ builds.
 
 ### 8.10 Other differences to V2.0.1
 
-A few further differences are not part of the nine:
+Besides the nine changes of sections 8.1 to 8.9, AExp differs from M2M V2.0.1
+in four more places. Three of them are in `M2M/`, the fourth in AExp's own
+firmware.
 
-* Two framework bug fixes ported from C64MEGA65, each tagged with its own
-  name. `qnice2hyperram-watchdog`: a QNICE read from HyperRAM whose response
-  is lost (for example when the reset button resets the HyperRAM domain
-  mid-access) used to freeze the QNICE CPU forever; a watchdog now re-issues
-  it. `gencfg-r7`: `gencfg.asm` used register R7 without loading it.
-* The board constraint files `M2M/MEGA65-R<n>.xdc` contain a pblock that keeps
-  the HyperRAM controller next to its I/O pins.
-* `m2m-rom.asm` contains a copy of `M2M$LOAD_POLYPHASE` from M2M V2.1 (used to
-  load the HDMI filter coefficients). Delete it when the framework is upgraded;
-  the assembler will report the duplicate label.
+* HyperRAM read watchdog (tag `qnice2hyperram-watchdog`, ported from
+  C64MEGA65). QNICE waits for the answer to every HyperRAM read. If the
+  answer is lost, for example because the reset button resets the HyperRAM
+  side in the middle of a read, QNICE would otherwise wait until a framework
+  reset (reset button held for 1.5 s) or a power cycle. The watchdog in
+  `qnice2hyperram.vhd` sends the read again every 0.65 ms until an answer
+  arrives.
+
+    It has one known limit. If the reset only delayed the original read,
+    because the command was still queued in the clock-crossing FIFO
+    (`avm_fifo`) between QNICE and HyperRAM, both the original and the
+    repeated read are answered. The module drops a surplus answer that
+    arrives while no read is waiting. If QNICE has already issued its next
+    read, the module takes the surplus answer for that read, which then
+    returns the data of the previous address. Only a reset during a QNICE
+    HyperRAM read can cause this. Closing the gap needs the QNICE side of
+    `avm_fifo` to be reset together with the HyperRAM side; AExp resets each
+    side from its own domain only.
+
+* R7 fix in `gencfg.asm` (tag `gencfg-r7`, ported from C64MEGA65).
+  `gencfg.asm` writes the control and status register through R7, but V2.0.1
+  never loads R7 first, so those writes land wherever R7 happens to point and
+  the core may never leave reset. This copy loads `M2M$CSR` into R7.
+
+* HyperRAM placement. The board constraint files `M2M/MEGA65-R<n>.xdc`
+  contain a pblock that keeps the HyperRAM controller next to its I/O pins.
+  This keeps its receive path close to the input registers, so that it
+  reliably meets the 2 ns maximum-delay constraints of `common.xdc`.
+
+* A routine borrowed from the M2M V2.1.0 development line, kept in AExp's
+  firmware rather than in `M2M/`. `m2m-rom.asm` carries a copy of
+  `M2M$LOAD_POLYPHASE` from that line (C64MEGA65's copy of the framework,
+  `M2M/rom/tools.asm` there), which V2.0.1 lacks; it loads the coefficients
+  of the HDMI scaling filters. Delete this copy when AExp moves to M2M
+  V2.1.0; the assembler then reports the duplicate label.
 
 ## 9. The Minimig submodule
 
@@ -741,10 +771,11 @@ firmware:
 | `minimig_share.cpp` | Shared folder between Linux and AmigaOS. | Not used. |
 
 Outside `support/minimig/`, `keyboard.vhd` takes the place of MiSTer's USB
-keyboard translation (AExp's mapping of the MEGA65 keyboard is its own). The
-framework hands the MEGA65's battery-backed clock to Minimig at reset, and the
-firmware's `RTC_STEP` reseeds it once per minute, the same cadence the HPS
-uses.
+keyboard translation (AExp's mapping of the MEGA65 keyboard is its own).
+MiSTer's USB mouse path has no counterpart: a real Amiga mouse in the DB9 port
+is read directly (section [11](#11-mouse-and-joystick)). The framework hands
+the MEGA65's battery-backed clock to Minimig at reset, and the firmware's
+`RTC_STEP` reseeds it once per minute, the same cadence the HPS uses.
 
 Both reference copies are stored verbatim from Main_MiSTer commit
 [`c738023`](https://github.com/MiSTer-devel/Main_MiSTer/tree/c73802332ff9c73659410084b6319ccd29f0b3aa)
@@ -764,7 +795,130 @@ setting, and new CD32, CDTV and Ethernet configuration. None of this is
 reconciled with AExp. Compare against the reference copies first when you look
 at upstream changes, so that you see only what changed after the port.
 
-## 11. Checking your work before a Vivado run
+## 11. Mouse and joystick
+
+The MEGA65's two DB9 ports are wired like the Amiga's, so a real Amiga mouse
+or joystick plugs straight in, and Minimig reads the pins the way Denise,
+Paula and CIA-A read them in an A500. A joystick needs nothing beyond that. A
+mouse needs two things that are easy to break: every edge of its movement
+signals has to reach Minimig, and its right and middle buttons sit on lines
+that the MEGA65 can only partly read.
+
+| DB9 pin | Mouse signal | The Amiga reads it through | Framework signal |
+|---|---|---|---|
+| 1, 3 | vertical quadrature pair | the `JOY0DAT`/`JOY1DAT` counters | joystick up, left |
+| 2, 4 | horizontal quadrature pair | the same counters | joystick down, right |
+| 6 | left button | CIA-A port A (`/FIR0`, `/FIR1`) | joystick fire |
+| 9 | right button | `POTINP` bit 10 (`DATLY`) | `pot1_x` (`POTX`) |
+| 5 | middle button | `POTINP` bit 8 (`DATLX`) | `pot1_y` (`POTY`) |
+
+The `POTINP` bits are those of port 1 (the port the Hardware Reference Manual
+numbers 0: `JOY0DAT` and the L bits of `POTINP`). Pins 9 and 5 carry a naming
+trap: the
+Amiga reads pin 9 through the channel it calls Y, while the MEGA65 schematics
+and the framework follow the C64 and call the same pin X. Both are right in
+their own world; on the core side, the right button is `pot1_x_i`.
+
+`userio.v` swaps the two ports unless its `joy_swap` bit is set, and
+`amiga_config.vhd` sets it (command `0xF9`, payload `0x0008`). MEGA65 port 1
+is therefore Amiga port 1, the mouse port, and port 2 the joystick port, as on
+an A500.
+
+### 11.1 Movement
+
+There is no dedicated mouse decoder. Minimig's `userio.v` keeps the counters
+of the original Minimig that are fed from the joystick pins (`dmouse0dat`,
+`dmouse1dat`, called "docking" counters in its comments), which count the
+transitions of the two quadrature pairs into `JOYxDAT`, exactly like Denise. A
+counter only notices a transition that is still there at its next sample, so
+the whole path from the pin to the counter has to pass every edge:
+
+* The framework's `debouncer.vhd` is reduced to plain two-flop synchronizers
+  (section [8.6](#86-raw-joyports)). A 1 ms stable-time filter swallows the
+  pulse trains of a moving mouse, and the pointer freezes and then jumps.
+* The input synchronizer of `userio.v` (`_sjoy`/`_djoy`) shifts on `clk7_en`,
+  the rate at which the counters sample. Shifted at the full 28 MHz, as in the
+  upstream code, a transition would show as a difference between `_sjoy` and
+  `_djoy` for a single clock only, and the counters, which look once every
+  four clocks, would catch about one transition in four; the pointer would
+  crawl at a quarter of its speed and jitter. MiSTer never shows this, because
+  there these inputs come from gamepad states that the HPS latches.
+
+A joystick takes the same path and needs nothing else: its directions and its
+fire button are slow levels.
+
+### 11.2 The right and middle buttons
+
+On a real Amiga, the right and middle buttons are passive switches from pins 9
+and 5 to ground; the mouse has no pull-up. Paula provides the high level:
+`input.device` writes `$FF00` to `POTGO`, which drives all four POT pins high,
+and then reads `POTINP`, where a pressed button reads 0. Minimig models this at
+register level: `userio.v` builds the `POTINP` bits from its `mouse_btn` input
+and the `POTGO` state, so the simulated Amiga always sees a clean register,
+and the physical side ends at `main.vhd`.
+
+The MEGA65 cannot drive those pins. On every board from R3 to R6, each POT pin
+goes through 1 kΩ to a 1.2 nF capacitor with a discharge transistor and then
+through an always-enabled buffer into the FPGA; this is the C64 paddle
+circuit. There is no pull-up, and the FPGA can neither drive the pin nor reach
+it with an internal pull-up. The bidirectional joystick lines of R4 and later
+cover only the five digital pins (AExp keeps their outputs released). A
+passive button that grounds pin 9 therefore looks exactly like an open pin:
+the right and middle buttons of a real Amiga mouse are invisible, and no FPGA
+design can change that.
+
+What the MEGA65 can read is a device that drives the pin itself. The
+framework's paddle sampler (`mouse_input.vhdl`, instantiated in
+`qnice_wrapper.vhd`) discharges the capacitor for 256 µs and then counts, at
+1 MHz and up to 255, how long the pin stays low; one cycle takes about
+514 µs. The framework hands 255 minus that count to the core clock domain, so
+an open or grounded pin reads `0x00` and a pin driven high reads close to
+`0xFF`. The `pot_buttons` process in `main.vhd` takes bit 7 of `pot1_x_i` and
+`pot1_y_i` with the Amiga's polarity, low means pressed, and guards it twice:
+
+* A presence latch (`rmb_capable`, `mmb_capable`): a button is only read once
+  its line has been seen high. An empty port and a passive mouse both read
+  low and would otherwise hold the button down forever. On an Amiga, Paula's
+  drive rules this case out; here the latch has to.
+* A watchdog: after 30 seconds of uninterrupted "pressed"
+  (`C_POT_BTN_TIMEOUT`), the latch clears, because that is what the floating
+  line of an unplugged adapter looks like. A genuine hold of more than 30
+  seconds is released once. The latch arms again within one sampler cycle,
+  about half a millisecond, as soon as the line is driven high again.
+
+Both latches and watchdogs clear with the Amiga reset. The result enters
+Minimig as `mouse_btn <= pot_mmb & (kbd_mouse_rmb or pot_rmb) & '0'`, active
+high in the order middle, right, left. The left button stays `'0'` here
+because it reaches CIA-A through the fire line.
+
+`kbd_mouse_rmb` is the keyboard substitute for the right button, `mouse_rmb_o`
+of `keyboard.vhd`: RUN/STOP (matrix key 63) in MEGA65 keyboard mode, and the
+up-arrow symbol key left of RESTORE (key 54) in Amiga mode, where RUN/STOP is
+Esc. Neither key sends an Amiga keycode in the mode in which it is the
+substitute, so the substitute never disturbs the key stream, and a reset
+releases it. The middle button has no
+substitute.
+
+### 11.3 What works
+
+| Device | Movement and left button | Right and middle button |
+|---|---|---|
+| Amiga mouse | works | invisible; use the keyboard substitute |
+| Passive mouse behind a pull-up adapter (2 kΩ from pin 7 to pins 9 and 5, see [Mouse and joystick](../../README.md#mouse-and-joystick) in the README) | works | works |
+| Adapter that drives the lines push-pull, high when released and low when pressed | works | works |
+| Adapter that only grounds the lines | works | invisible; use the keyboard substitute |
+| mouSTer in Amiga mouse mode, default settings | works | invisible; use the keyboard substitute |
+| mouSTer firmware 3.23.5313 or newer with `activepotlines=true` in `[mouse]` | works | right button works |
+| Commodore 1350 or 1351 | not supported | the 1351's changing POT value can cause phantom right clicks |
+
+The buttons on the POT lines are read on port 1 only, because `userio.v` feeds
+`mouse_btn` into the port-1 bits of `POTINP`; a mouse in port 2 moves and
+clicks left, but nothing more. Passive Amiga mice have been tested on R3
+(movement, left button, keyboard substitute, no phantom clicks) and a
+push-pull USB adapter on R6 (right button). The middle button has not been
+tried with a real three-button device.
+
+## 12. Checking your work before a Vivado run
 
 A synthesis takes long, so the project relies on a few local checks first. The
 tools are free: [nvc](https://github.com/nickg/nvc) for VHDL, GHDL as a second
@@ -802,7 +956,7 @@ prove is described in
 In the Vivado log, check that the 68000's `microrom.mem` and `nanorom.mem` were
 read successfully: a failure there is silent and produces a dead CPU.
 
-## 12. Where to read next
+## 13. Where to read next
 
 * [developers.md](../developers.md): building the core from source.
 * [floppy-adf.md](floppy-adf.md): the simulated floppy drives, from the Amiga

@@ -276,8 +276,8 @@ M2M$CFG_OPTM_CRTROM .EQU 0x0311     ; Menu item = manually load CRT/ROM
 M2M$CFG_OPTM_CRSTR  .EQU 0x0312     ; CRT/ROM load str. to show instead of %s
 M2M$CFG_OPTM_DEPS   .EQU 0x0313     ; Per-line menu dependency word (OPTM_DEP);
                                     ; index 4095 = feature probe, see
-                                    ; OPTM_DEPS_PROBE in options.asm
-                                    ; (M2M-UPSTREAM osm-deps)
+                                    ; OPTM_DEPS_PROBE in options.asm.
+                                    ; M2M-UPSTREAM osm-deps (AExp 2026-08-02)
 
 ; M2M$CFG_WHS
 

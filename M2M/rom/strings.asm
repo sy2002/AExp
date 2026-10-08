@@ -175,9 +175,9 @@ ERR_F_MENUNGRP  .ASCII_P "config.vhd: No selected menu group item\n"
 ERR_F_NEWLINE   .ASCII_P "config.vhd: Each line in OPTM_ITEMS needs\n"
                 .ASCII_W "to be terminated by a newline character.\n"
 
-; M2M-UPSTREAM osm-deps: the five authoring errors OPTM_DEPS_VAL can find in
-; the OPTM_DEP() / OPTM_DEP2() tags of OPTM_GROUPS. The fatal screen shows the
-; offending menu line as the error code.
+; M2M-UPSTREAM osm-deps (AExp 2026-08-02): the five authoring errors that
+; OPTM_DEPS_VAL can find in the OPTM_DEP() / OPTM_DEP2() tags of OPTM_GROUPS.
+; The fatal screen shows the offending menu line as the error code.
 ERR_F_DEPMOTHER .ASCII_P "config.vhd: An OPTM_DEP() refers to a\n"
                 .ASCII_W "mother group that does not exist.\n"
 ERR_F_DEPIDX    .ASCII_P "config.vhd: An OPTM_DEP() item index is\n"

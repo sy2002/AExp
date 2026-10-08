@@ -3,7 +3,7 @@
 --
 -- physical_fdd_mfm_gaps: DD-MFM read pipeline, stage 1 of 3: flux edges ->
 -- gap interval.
---   A free-running counter increments every front-end clock. On the START of
+--   A free-running counter increments every front-end clock. On the start of
 --   an active-low RDATA flux pulse (falling edge of f_rdata_i) it emits the
 --   accumulated gap length and pulses gap_valid_o, then restarts the counter.
 --   f_rdata_i is assumed already 2-FF synchronized into this clock domain.
@@ -11,18 +11,18 @@
 -- Runt filter: a measured gap shorter than C_GAP_GLITCH (16 cycles = 320 ns)
 --   is an electrical glitch, never a legitimate DD flux interval (the
 --   shortest valid gap acceptance begins around 150 cycles). Such a gap is
---   NOT emitted; the runt edge is dropped and its length accumulates into
+--   not emitted; the runt edge is dropped and its length accumulates into
 --   the following gap (a runt double-edge collapses into one edge), so
 --   downstream stages see only clean, full-length gaps. Each merged runt
 --   pulses runt_o for one cycle (counted by the diagnostics). The threshold
---   must stay FAR below the shortest valid window: a larger value turns
---   late-in-gap noise into a merge of the FOLLOWING REAL edge, silently
---   corrupting the gap stream (hardware-proven on this mechanism by the
---   C64MEGA65 issue-#90 round-10/11 regression).
+--   must stay far below the shortest valid window: a larger value turns
+--   late-in-gap noise into a merge of the following real edge and silently
+--   corrupts the gap stream (the C64MEGA65 physical-1581 bring-up hit this
+--   regression on this mechanism).
 --
--- First-edge rule: a gap is the interval between TWO flux edges, so the first
---   edge after reset only STARTS the first gap - it emits nothing (neither a
---   gap nor a runt).
+-- First-edge rule: a gap is the interval between two flux edges, so the
+--   first edge after reset only starts the first gap; it emits nothing
+--   (neither a gap nor a runt).
 --
 -- Adapted from C64MEGA65 CORE/vhdl/physical_1581/physical_1581_mfm_gaps.vhd
 -- (sy2002 2026, GPLv3; rooted in mega65-core mfm_gaps.vhdl, Paul

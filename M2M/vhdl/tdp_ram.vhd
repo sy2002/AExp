@@ -72,9 +72,10 @@ architecture synthesis of tdp_ram is
    signal address_a_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
    signal address_b_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
 
-   -- M2M-UPSTREAM osm-scale: Allow a caller with known memory geometry to
-   -- override Vivado's global resource-pressure heuristic.  "auto" retains
-   -- the established behaviour for every existing caller.
+   -- M2M-UPSTREAM osm-scale (AExp 2026-07-16): lets a caller with known memory
+   -- geometry override the RAM inference heuristic of Vivado, which decides
+   -- by global resource pressure. The default "auto" leaves every other
+   -- caller as it is.
    attribute ram_style : string;
    attribute ram_style of ram : signal is RAM_STYLE_SELECT;
 

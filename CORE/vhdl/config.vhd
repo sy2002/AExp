@@ -786,7 +786,7 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &    --  71: line
    " Back to main menu\n"   &    --  72: close submenu
 
-   " Reload Screen Config\n" &   --  73: re-read /amiga/screen_*.bin (no re-synth)
+   " Reload Screen Config\n" &   --  73: re-read /amiga/aexp_screen.cfg (no re-synth)
 
    " OSM: %s\n"             &    --  74: OSM Scaling submenu, directly under Reload Screen Config
    " OSM Scaling\n"         &    --  75: headline (inside submenu)
@@ -881,7 +881,7 @@ constant OPTM_G_HDMI       : integer := 2;
 constant OPTM_G_FILTER     : integer := 3;   -- HDMI Filter radio; mirrored as OPTM_G_FLT in CORE/m2m-rom/m2m-rom.asm
 constant OPTM_G_VGA        : integer := 4;   -- VGA/analog output mode radio (Standard / 15 kHz HS+VS / 15 kHz CSYNC)
 constant OPTM_G_About      : integer := 5;
-constant OPTM_G_SCRRELOAD  : integer := 6;   -- momentary: re-read /amiga/screen_*.bin
+constant OPTM_G_SCRRELOAD  : integer := 6;   -- momentary: re-read /amiga/aexp_screen.cfg
 constant OPTM_G_HDMIFF     : integer := 7;   -- HDMI flicker-free toggle (issue #12); read in HDL (mega65.vhd)
 constant OPTM_G_KBD        : integer := 8;   -- keyboard mapping mode radio (issue #6): Amiga / MEGA65; read in HDL (mega65.vhd)
 constant OPTM_G_OSMKEY     : integer := 9;   -- OSM-open key radio (issue #8): Help / F11 / F13 / MEGA+Run-Stop; read in HDL (mega65.vhd)
@@ -1043,7 +1043,7 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              --  71: Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,            --  72: Close submenu / back to main menu
 
-                                             OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,      --  73: Reload screen cfg (momentary action)
+                                             OPTM_G_SCRRELOAD + OPTM_G_SINGLESEL,      --  73: Reload Screen Config (momentary action)
 
                                              OPTM_G_SUBMENU,                           --  74: OSM Scaling submenu block: "OSM: %s"
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            --  75: Headline "OSM Scaling"

@@ -12,44 +12,44 @@
 ## have been named/defined here before
 ## otherwise Vivado does not find the pins)
 ##
-## main_clk is the Amiga's core clock (PAL 28.37516 MHz, -5.6 ppm). Everything in the core
-## runs on it; the 7.09 MHz bus timing is made of clock enables (amiga_clk.v), and
+## main_clk is the Amiga's core clock (natively 28.375 MHz, -5.6 ppm from PAL 28.37516 MHz;
+## for timing it is defined on the faster flicker-free leg, see below). Minimig and fx68k
+## run on it; the 7.09 MHz bus timing is made of clock enables (amiga_clk.v), and
 ## cpu_wrapper.v contains a (pruned with cpucfg=00) negedge-clk FSM - both edges of main_clk
 ## are therefore timed automatically.
 ##
-## HDMI flicker-free (issue #12): clk.vhd generates two core clocks - "native" 28.375000 MHz
-## (i_clk_main) and the flicker-free "fast" twin 28.437500 MHz (i_clk_fast) - and a
+## HDMI flicker-free (GitHub #12): clk.vhd generates two core clocks, "native" 28.375000 MHz
+## (i_clk_main) and the flicker-free "fast" twin 28.437500 MHz (i_clk_fast), and a
 ## BUFGMUX_CTRL selects between them from hr_core_speed(0) (the FSM in mega65.vhd). We time
-## the SHORTEST-period leg for worst-case setup: set_case_analysis 1 freezes the select on
+## the shortest-period leg for worst-case setup: set_case_analysis 1 freezes the select on
 ## the fast leg, and main_clk is defined on i_clk_fast/CLKOUT0. That single generated clock
 ## constant-propagates the native leg off the net, so no set_clock_groups is needed (the
 ## C64MEGA65 pattern, with the twin direction mirrored: our twin is faster, not slower).
 ##
-## PIN-NAME DISCIPLINE (load-bearing): if either get_pins matches nothing (instance renamed,
-## or the select FF merged/retimed away), Vivado only WARNS ("no pins matched") and the
-## constraint silently no-ops - an empty set_case_analysis re-introduces phantom
-## native<->fast inter-clock paths, and main_clk becomes undefined. Keep the leaf names
-## i_clk_fast (clk.vhd) and hr_core_speed (mega65.vhd). Post-synth sign-off gate: BOTH
-## get_pins must return non-empty, and the routed report must show main_clk at ~35.165 ns
-## (the fast period), not 35.242 ns.
+## Pin names: if either get_pins matches nothing (instance renamed, or the select FF
+## merged or retimed away), Vivado only warns ("no pins matched") and the constraint
+## silently does nothing. An empty set_case_analysis re-introduces phantom native<->fast
+## inter-clock paths, and main_clk becomes undefined. Keep the leaf names i_clk_fast
+## (clk.vhd) and hr_core_speed (mega65.vhd). build_bitstream.tcl fails the build if the
+## select pin is missing or main_clk is not at the fast period (~35.165 ns, not 35.242 ns).
 set_case_analysis 1 [get_pins CORE/hr_core_speed_reg[0]/Q]
 create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_fast/CLKOUT0]
 # Add more clocks here, if needed
 
 ## ascal asynchronous FIFO data crossings (framework paths, constrained here
-## because M2M/common.xdc must not be modified - candidate for upstreaming).
+## rather than in M2M/common.xdc; a candidate for upstreaming).
 ##
-## ascal's input and output double buffers (i_dpram/o_dpram, explicitly kept
-## in LUTRAM with ram_style="distributed") are ping-pong CDC FIFOs: i_dpram
-## is written on i_clk (= main_clk) and read on avl_clk (= hr_clk); o_dpram is
-## written on avl_clk and read on o_clk (= hdmi_clk). The handshake registers
-## are already cut by the false_path patterns in M2M/common.xdc:113-117, but
-## those match only register /C pins. The LUTRAM primitives launch from their
-## /CLK pins and were therefore timed at the worst-case edge alignment of
-## unrelated MMCM outputs (44 ps / 34 ps requirements, impossible by
-## construction). Worse, the router inserted large hold-fix detours on these
-## paths, which polluted the genuine intra-hr_clk setup paths (first R3 run:
-## WNS -6.7 ns).
+## ascal's input and output double buffers (i_dpram/o_dpram, kept in LUTRAM
+## with ram_style="distributed") are ping-pong CDC FIFOs: i_dpram is written
+## on i_clk (= main_clk) and read on avl_clk (= hr_clk); o_dpram is written on
+## avl_clk and read on o_clk (= hdmi_clk). The handshake registers are already
+## cut by the i_ascal set_false_path patterns in M2M/common.xdc, but those
+## match only register /C pins. The LUTRAM primitives launch from their /CLK
+## pins, so without this constraint they are timed at the worst-case edge
+## alignment of unrelated MMCM outputs (44 ps / 34 ps requirements, impossible
+## by construction). The router then inserts large hold-fix detours on these
+## paths, which spoil the genuine intra-hr_clk setup paths; the build misses
+## timing by several nanoseconds.
 ##
 ## set_max_delay -datapath_only bounds the data staleness to one destination
 ## clock period and removes the hold analysis (and with it the detours).
@@ -60,41 +60,42 @@ set_max_delay -datapath_only 13.400 \
    -from [get_pins -hierarchical -regexp {.*/i_ascal/o_dpram_reg.*/CLK}] \
    -to   [get_cells -hierarchical -regexp {.*/i_ascal/o_dr_reg\[[0-9]+\]}]
 
-## Hardware Floppy: qnice_clk <-> main_clk CDC (WIP-V2-A2)
+## Hardware Floppy: qnice_clk <-> main_clk CDC
 ##
-## The physical-floppy read front-end (physical_fdd_top, 50 MHz qnice_clk)
-## introduced the first RAW synchronizer crossings between qnice_clk and
-## main_clk: the Cummings word FIFO (Gray-pointer 2-FF syncs both ways plus
-## the LUTRAM read data into adf_track_engine's io_din register), and the
-## control-context/dsksync 2-FF metas (en/sel/mot_meta, sync_meta). All
-## earlier qnice<->main traffic went through cdc_stable (bounded by
-## M2M/common.xdc) or dual-clock BRAM, so these two MMCM-unrelated clocks
-## had never exposed an unconstrained fabric path - the first R3 build
-## timed them at worst-case edge alignment: WNS -6.331, 47 endpoints, ALL
-## of them inside this plumbing (the exact failure class of C64MEGA65's
-## physical-1581 first build).
+## The Hardware Floppy (front end physical_fdd_top on the 50 MHz qnice_clk,
+## plus its plumbing in mega65.vhd) has raw synchronizer crossings to
+## main_clk: the two Gray-pointer FIFOs (read words into the core, words to
+## write out of it, each with its LUTRAM read data), the Gray-coded served-word
+## and overflow counters, and the 2-FF level synchronizers of the control
+## context, the live DSKSYNC and the write episode (en_meta, sync_meta,
+## sess_m and their siblings). All other qnice<->main traffic goes through
+## cdc_stable (bounded by M2M/common.xdc) or dual-clock BRAM. Unconstrained,
+## these paths between two unrelated MMCM clocks are timed at worst-case edge
+## alignment and the build misses timing by more than 6 ns, every failing
+## endpoint inside this plumbing (C64MEGA65's physical 1581 drive shows the
+## same failure class).
 ##
 ## Every crossing is a 2-FF synchronizer (async_reg-tagged), a Gray-coded
-## pointer, or the FIFO data path whose stability the Gray protocol
+## pointer or counter, or a FIFO data path whose stability the Gray protocol
 ## guarantees (data settles >= 2 destination periods before the synced
 ## pointer exposes it). A clock-pair set_max_delay -datapath_only of one
-## qnice period bounds the staleness/skew of all of them and removes the
-## hold-fix detours. DELIBERATELY max_delay and not the C64's blanket
-## set_false_path: object-scoped exceptions of the same type stay in force
+## qnice period bounds the staleness and skew of all of them and removes the
+## hold-fix detours. It is a max_delay and not the blanket set_false_path of
+## C64MEGA65: object-scoped exceptions of the same type stay in force
 ## (common.xdc's cdc_stable set_max_delay keeps its tighter bound), while a
-## clock-pair false path would OVERRIDE those bounds (false path outranks
+## clock-pair false path would override those bounds (a false path outranks a
 ## max delay regardless of specificity).
 set_max_delay -datapath_only 20.000 \
    -from [get_clocks qnice_clk] -to [get_clocks main_clk]
 set_max_delay -datapath_only 20.000 \
    -from [get_clocks main_clk] -to [get_clocks qnice_clk]
 
-## Notes for timing review after the first synthesis (do not enable blindly):
+## Paths to check in the timing report of every build (no constraint here;
+## do not add one without a reason):
 ## - rtl/minimig_m68k_bridge.v uses a logic signal (_as_and_cs) as an async
-##   preset (infers FDPE) - check the timing report for it.
-## - rtl/paula_floppy.v has 'posedge clk or negedge IO_ENA' blocks. Since the
-##   ADF floppy milestone, IO_ENA (= IO_FPGA) is LIVE: it is driven by a
-##   plain main_clk register in adf_track_engine.vhd (io_fpga_o, no
-##   combinational gating), so the async CLR pins get same-clock
-##   recovery/removal checks that Vivado analyzes automatically - verify
-##   them in the timing report of every build.
+##   preset (infers FDPE).
+## - rtl/paula_floppy.v has 'posedge clk or negedge IO_ENA' blocks. IO_ENA
+##   (= IO_FPGA) is driven by a plain main_clk register in
+##   adf_track_engine.vhd (io_fpga_o, no combinational gating), so the async
+##   CLR pins get same-clock recovery/removal checks that Vivado analyzes
+##   automatically.

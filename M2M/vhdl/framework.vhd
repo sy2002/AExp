@@ -927,7 +927,7 @@ begin
          qnice_poly_wr_i         => qnice_poly_wr,
          qnice_ascal_mode_i      => qnice_ascal_mode,
 
-         -- M2M-UPSTREAM screen-center: HDMI ascal INPUT-crop per-edge offsets from
+         -- M2M-UPSTREAM screen-center: HDMI ascal input-crop per-edge offsets from
          -- the CFD gp_reg (words 4-7, low 12 bits each); QNICE clock domain
          qnice_himin_off_i       => qnice_gp_reg_o( 75 downto  64),
          qnice_himax_off_i       => qnice_gp_reg_o( 91 downto  80),

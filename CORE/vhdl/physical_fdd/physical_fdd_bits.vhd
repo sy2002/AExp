@@ -1,101 +1,79 @@
 -------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- physical_fdd_bits: DD-MFM read pipeline, stage 3 of 3 (Amiga-specific, new):
--- gap class -> raw channel-bit reconstruction -> DSKSYNC bit alignment ->
--- 16-bit word assembly.
+-- physical_fdd_bits: DD-MFM read pipeline, stage 3 of 3 (Amiga-specific):
+-- channel-bit reconstruction -> DSKSYNC word alignment -> 16-bit word
+-- assembly.
 --
--- Unlike the C64MEGA65 physical-1581 decoder (which decodes DATA bits, bytes,
--- sector fields and CRCs in hardware), the Amiga needs the RAW channel-bit
--- stream: Minimig's Paula consumes pre-encoded, word-aligned 16-bit MFM words
+-- Unlike the C64MEGA65 physical-1581 decoder, which decodes data bits,
+-- bytes, sector fields and CRCs in hardware, the Amiga needs the raw
+-- channel-bit stream: Minimig's Paula consumes pre-encoded 16-bit MFM words,
 -- and all decoding happens in Amiga software (trackdisk or the loader). This
--- stage therefore reconstructs exactly what a real data separator delivers:
+-- stage therefore delivers what a real data separator delivers.
 --
---   * Each accepted gap of n channel cells (n = 2/3/4) is (n-1) '0' channel
---     bits followed by a '1' (the flux transition). The bits are shifted
---     MSB-first into a 16-bit register, exactly like Paula's own serial
---     shifter.
---   * WORD ALIGNMENT: whenever the 16 most recent channel bits equal the
---     live DSKSYNC value (sync_i, captured from Paula by the track engine),
---     the register is emitted as a word and the bit counter restarts - from
---     here on words leave this stage sync-aligned, and they re-align on
---     EVERY subsequent sync match (drift correction at sector boundaries).
---     The sync word itself is emitted too: Paula's WORDSYNC gate drops the
---     first matching word and stores from the next one, so an Amiga MFM
---     sector's double 0x4489 behaves exactly as with the virtual-ADF stream.
---     A 16-bit full compare is structurally stronger than any per-gap
---     qualifier, and a false match merely shifts alignment until the next
---     true sync (self-healing; Paula word-compares the stream again).
---     sync_i = 0x0000 disables alignment (free-running word phase - the
---     "WORDSYNC off" semantic of real hardware, where the phase is
---     undefined anyway).
---   * FRAMING HOLD (frame_hold_i = '1'): word framing FREE-RUNS - a sync
---     match still reports sync_hit_o (and realign_evt_o when it lands
---     mid-word) but neither resets the bit counter nor emits early. This
---     reproduces what a real Paula delivers under WORDSYNC=0, where the
---     capture carries ONE constant framing for its whole length: KS1.3
---     trackdisk clears WORDSYNC and its software decoder absorbs a
---     CONSTANT splice framing shift through its 16-entry rotation tables
---     plus the gap re-hunt's own shift - but it can NOT decode a stream
---     whose framing re-anchors at every sync, because the once-per-rev
---     write-splice slip then becomes a rotation-inconsistent seam
---     ([old-framing gap run][hybrid word][word-aligned sync]) that
---     matches none of its tables: TDERR $1A/$17 on every attempt whose
---     anchor is not the first-written sector (proven RED in BOTH
---     separator modes by tb_fdd_splice, the E2 experiment of the
---     2026-08-15 audit). The top asserts frame_hold_i while the engine
---     serves words past its serve-start sync AND live WORDSYNC is 0;
---     during the pre-serve hunt alignment stays active (that is what
---     makes serve-from-sync work), and under WORDSYNC=1 (X-Copy, most
---     trackloaders) realignment stays active too - matching real Paula,
---     which does re-sync its shifter per matching word in that mode.
---     With frame_hold_i = '0' this stage is bit-identical to the
---     realign-always behavior.
---   * DIAGNOSTIC WORD STREAM (dword_valid_o/dword_o): a second framing
---     counter over the SAME shift register that ALWAYS realigns on a sync
---     match, regardless of frame_hold_i. It exists for the capture
---     instruments only: while the framing hold is engaged the SERVED
---     stream deliberately free-runs across the write splice (that is the
---     fix), so a capture that follows the served framing decodes misframed
---     words for every post-splice sector - the A6 dump caveat. The
---     capture path in physical_fdd_top therefore consumes this stream,
---     whose framing re-anchors at each sync exactly like the pre-hold
---     behavior. While the hold has never been engaged since the counters
---     last coincided (reset, loss of lock, or any sync match) the two
---     streams are bit-identical - in particular the realign-always A/B
---     arm, where the hold never engages, measures exactly what it always
---     did. After a hold episode the counters stay divergent until the
---     next sync match / LOL / chain reset re-converges them (a window in
---     which nothing mixes the two streams: captures only start at a sync
---     hit, where both framings coincide again). The served stream
---     (word_valid_o/word_o into the FIFO) is untouched in every mode.
---   * Loss of lock (gap class "11") clears the pending bits and the bit
---     counter: a loud resync, mirroring the C64 pipeline.
---   * FLUX DROUGHT: when no transition arrives for C_DROUGHT_ARM_CYC cycles
---     (beyond the longest legal gap), one '0' channel bit is synthesized per
---     nominal cell time, like a real separator idling over unformatted
---     media - so Paula's DMA keeps seeing a bitstream instead of stalling
---     harder than real hardware would. The next real edge yields an
---     oversized gap = class "11" = resync, so filler bits never corrupt
---     locked data.
+-- Two bit sources, selected at run time by dpll_en_i (diagnostics register
+-- 0x35 bit 6; see doc/developers/hardware-floppy.md, section 4.3 (Two data
+-- separators)):
+--   * Digital PLL, the default. It consumes the runt-filtered edge events of
+--     the gap stage (edge_valid_i) and emits one channel bit per tracked cell
+--     in real time, '1' when an edge fell into the cell. Nothing is
+--     classified and nothing resyncs: a wild interval degrades one bit
+--     position and the loop re-centres within a few edges. The algorithm and
+--     its constants are described in physical_fdd_pkg.vhd.
+--   * Legacy. Each accepted gap of n channel cells (class n = 2/3/4) becomes
+--     (n-1) '0' bits followed by a '1' (the flux transition), shifted in on
+--     back-to-back cycles; real-time pacing comes from the gap arrival times
+--     (~32 us per word). A loss of lock (gap class "11") clears the pending
+--     bits and the bit counter, a loud resync. In a flux drought (no
+--     transition for C_DROUGHT_ARM_CYC cycles) one '0' is synthesized per
+--     nominal cell, like a real separator idling over unformatted media, so
+--     Paula's DMA keeps receiving words. The next real edge yields an
+--     oversized gap, a loss of lock, so filler bits never corrupt locked
+--     data.
+-- The quantiser stays connected in both modes, so lol_o reports what the
+-- legacy classifier rejects and the margin instruments in physical_fdd_top
+-- measure the same way in either mode.
 --
--- Bit pacing within this stage is NOT real-time (the up-to-4 bits of a gap
--- are shifted in back-to-back cycles); real-time pacing is inherent in the
--- gap ARRIVAL times, which is what defines the word cadence (~32 us/word).
+-- Word alignment: the bits are shifted MSB-first into a 16-bit register,
+-- like Paula's own shifter. When the 16 most recent bits equal the live
+-- DSKSYNC value (sync_i, captured from Paula by the track engine), the
+-- register is emitted as a word and the bit counter restarts, so the words
+-- leave this stage sync-aligned and re-align at every later sync match
+-- unless the framing hold is engaged. The sync word itself is emitted, as on
+-- the ADF path: with WORDSYNC set, Paula drops the first matching word and
+-- stores from the next one, so the double 0x4489 of a sector leaves one sync
+-- word in the buffer; with WORDSYNC clear (Kickstart 1.3 trackdisk) Paula
+-- stores every word. A false match only shifts the framing until the next
+-- true sync. sync_i = 0x0000 disables alignment, and the word phase
+-- free-runs.
 --
--- WIP-V2-A5: the stage carries a SECOND bit source, a counter-based digital
--- PLL data separator (design + field rationale in physical_fdd_pkg.vhd),
--- selected at runtime by dpll_en_i. It consumes the runt-filtered edge
--- events directly (edge_valid_i, from the gaps stage) and emits one channel
--- bit per tracked cell in real time - '1' when an edge fell into the cell.
--- No classification, no loss-of-lock resync, no drought filler needed: a
--- wild interval degrades one bit position locally and the PLL re-centers
--- within a few edges, while the 16-bit DSKSYNC compare downstream keeps
--- doing the structural qualification. With dpll_en_i = '0' this stage is
--- BIT-IDENTICAL to the shipped A4 behavior (the legacy branches are
--- untouched); the quantiser output remains connected in both modes so
--- lol_o keeps reporting what the legacy classifier would reject and the
--- diag margin instrumentation measures identically either way.
+-- Framing hold (frame_hold_i = '1'): a sync match is still reported on
+-- sync_hit_o (and on realign_evt_o when it lands mid-word) but neither
+-- restarts the bit counter nor emits early, so the word framing free-runs
+-- like a real Paula under WORDSYNC=0, whose capture carries one constant
+-- framing. trackdisk absorbs the constant framing shift at the write splice
+-- with its rotation tables, but it cannot decode a stream that re-frames at
+-- every sync: the once-per-revolution splice slip then becomes a seam that
+-- matches none of its tables, and every attempt whose anchor is not the
+-- first-written sector fails with trackdisk error $1A or $17.
+-- physical_fdd_top asserts the hold while the engine serves words past its
+-- serve-start sync and WORDSYNC is 0. With frame_hold_i = '0' the stage
+-- realigns on every match. See doc/developers/hardware-floppy.md, section
+-- 4.4 (The aligner and the framing hold).
+--
+-- Diagnostic word stream (dword_valid_o/dword_o): a second framing counter
+-- over the same shift register that always realigns on a sync match,
+-- regardless of frame_hold_i. The capture instruments in physical_fdd_top
+-- consume it: while the hold is engaged the served stream free-runs across
+-- the write splice, and a capture following that framing would read every
+-- post-splice sector misframed. Reset, a loss of lock in legacy mode (the
+-- DPLL never resyncs; in DPLL mode a loss of lock only pulses lol_o) and
+-- every sync match that restarts the served framing clear both counters
+-- together, so the two streams are identical until a sync match lands
+-- mid-word under the hold, and stay apart until the next common clear.
+-- Nothing mixes them: the capture path reads only the diagnostic stream,
+-- and only from a sync hit on. The served stream (word_valid_o/word_o into
+-- the FIFO) is the same in every mode.
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -112,20 +90,20 @@ entity physical_fdd_bits is
     gap_class_i  : in  unsigned(1 downto 0);
     sync_i       : in  std_logic_vector(15 downto 0);  -- live DSKSYNC (settled); 0x0000 = free-run
     -- DPLL separator (see header): runtime select + the runt-filtered edge
-    -- event stream from the GAPS stage (one pulse per accepted flux edge,
+    -- event stream from the gap stage (one pulse per accepted flux edge,
     -- constant pipeline delay - a constant phase offset the PLL absorbs)
     dpll_en_i    : in  std_logic := '0';
     edge_valid_i : in  std_logic := '0';
     dpll_cell_o  : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
-    -- '1' = hold the word framing (no realign on sync matches - the real
-    -- WORDSYNC=0 Paula behavior; see FRAMING HOLD in the header)
+    -- '1' = hold the word framing (no realign on sync matches, like a real
+    -- Paula under WORDSYNC=0; see Framing hold in the header)
     frame_hold_i : in  std_logic := '0';
     word_valid_o : out std_logic := '0';               -- 1-clk pulse
     word_o       : out std_logic_vector(15 downto 0) := (others => '0');
     -- diagnostic word stream: always sync-realigned framing over the same
-    -- bits (for the capture instruments - see DIAGNOSTIC WORD STREAM in
-    -- the header); identical to word_valid_o/word_o whenever the hold has
-    -- not been engaged since the counters last coincided
+    -- bits, for the capture instruments (see Diagnostic word stream in the
+    -- header); identical to word_valid_o/word_o until a sync match lands
+    -- mid-word under the hold
     dword_valid_o : out std_logic := '0';              -- 1-clk pulse
     dword_o       : out std_logic_vector(15 downto 0) := (others => '0');
     sync_hit_o   : out std_logic := '0';               -- diag: 1-clk pulse per sync match
@@ -150,11 +128,11 @@ architecture rtl of physical_fdd_bits is
   signal bit_cnt     : unsigned(3 downto 0) := (others => '0');
 
   -- diagnostic framing counter over the same shifter: always realigns on a
-  -- sync match (see DIAGNOSTIC WORD STREAM in the header). Reset, LOL and
-  -- every sync match clear it together with bit_cnt; only a sync match
-  -- taken UNDER the hold diverges them (until the next common clear), so
-  -- the streams coincide whenever the hold has not been engaged since the
-  -- counters last coincided.
+  -- sync match (see Diagnostic word stream in the header). Reset, a
+  -- legacy-mode LOL and every sync match clear it; bit_cnt is cleared along
+  -- with it except by a mid-word sync match under the hold, which is the
+  -- only event that makes the two counters diverge (until the next common
+  -- clear).
   signal dbit_cnt    : unsigned(3 downto 0) := (others => '0');
 
   -- flux-drought zero synthesis
@@ -204,8 +182,8 @@ begin
 
         if dpll_en_i = '1' then
           ---------------------------------------------------------------
-          -- DPLL bit source (see header + pkg). One boundary per cycle
-          -- at most (cell >= 90 cycles, tick = 1 cycle); after an edge
+          -- DPLL bit source (see the header and the pkg). One boundary per
+          -- cycle at most (cell >= 90 cycles, tick = 1 cycle); after an edge
           -- correction the phase sits in [cell/4 .. 3*cell/4] + one tick,
           -- always below cell, so an edge never emits in its own cycle -
           -- its '1' leaves at the next boundary.
@@ -242,13 +220,13 @@ begin
           pend_edge <= v_pend;
 
           -- diagnostic only: what the legacy classifier would have
-          -- rejected (keeps cnt_lol/scoreboard semantics comparable
-          -- across the A/B) - no resync happens in DPLL mode
+          -- rejected (keeps the cnt_lol and scoreboard figures comparable
+          -- between the two modes); no resync happens in DPLL mode
           if gap_valid_i = '1' and gap_class_i = "11" then
             lol_o <= '1';
           end if;
 
-        -- legacy bit source: BIT-IDENTICAL to the shipped A4 behavior
+        -- legacy bit source
         -- 1) new gap event dominates (physically >= 16 cycles apart, while
         --    the pending queue drains in at most 4 - see the gaps stage)
         elsif gap_valid_i = '1' then
@@ -284,9 +262,9 @@ begin
         end if;
 
         -- shift the emitted bit in, MSB-first; a sync match dominates the
-        -- 16-bit rollover so words re-align on every DSKSYNC occurrence -
-        -- unless the framing is held (frame_hold_i: real-Paula WORDSYNC=0
-        -- behavior, see the header), in which case the match is only
+        -- 16-bit rollover so words re-align on every DSKSYNC occurrence,
+        -- unless the framing is held (frame_hold_i, the behaviour of a real
+        -- Paula under WORDSYNC=0, see the header): then the match is only
         -- reported and the free-running rollover keeps the word phase
         if v_emit = '1' then
           v_new_sr := sr(14 downto 0) & v_bit;
@@ -312,10 +290,10 @@ begin
             bit_cnt <= bit_cnt + 1;
           end if;
 
-          -- diagnostic framing: ALWAYS realigns on a sync match (the
-          -- pre-hold behavior), so the capture instruments read correctly
-          -- framed words even while the served framing is held across the
-          -- write splice. Same shift register, own counter.
+          -- diagnostic framing: always realigns on a sync match, so the
+          -- capture instruments read correctly framed words even while the
+          -- served framing is held across the write splice. Same shift
+          -- register, own counter.
           if sync_i /= x"0000" and v_new_sr = sync_i then
             dword_o       <= v_new_sr;
             dword_valid_o <= '1';

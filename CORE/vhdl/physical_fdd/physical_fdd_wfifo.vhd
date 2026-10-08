@@ -1,12 +1,17 @@
 -------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- physical_fdd_wfifo: dual-clock asynchronous WORD FIFO for the physical
--- floppy read stream. Write side runs on the 50 MHz front-end clock; read
--- side runs on the 28.375 MHz core clock (adf_track_engine drains it into
--- Paula's host channel). This is the elastic queue that absorbs CDC latency
--- between the two async clock domains - never a pacing element (words arrive
--- at real disk speed, ~1 per 32 us, and the engine drains far faster).
+-- physical_fdd_wfifo: dual-clock asynchronous word FIFO between the 50 MHz
+-- front end and the 28.375 MHz core clock. physical_fdd_top uses it in both
+-- directions:
+--   * read path, G_AW = 5 (32 words), 50 MHz -> core clock, drained by
+--     adf_track_engine into Paula's host channel. It is the elastic queue
+--     for the clock crossing, never a pacing element: words arrive at disk
+--     speed, about one per 32 us, and the engine drains far faster.
+--   * write path, G_AW = 2 (4 words), core clock -> physical_fdd_writer at
+--     50 MHz. Its shallowness bounds the flux still owed when Paula signals
+--     DSKBLK; see doc/developers/hardware-floppy.md, section 6.1 (The
+--     structure, and the elastic-buffer argument).
 --
 -- Textbook Gray-code async FIFO (Cummings, SNUG 2002):
 --   * Binary and Gray write/read pointers, each G_AW+1 bits wide (the extra
@@ -20,18 +25,19 @@
 --     read of the current head (first-word-fall-through: rd_data_o always
 --     shows the head; rd_en_i pops it).
 --
--- RESET DISCIPLINE (load-bearing, learned the hard way in C64MEGA65 issue
--- #90): BOTH sides must reset from the SAME event, each synchronized into
--- its own domain - a one-sided reset permanently desynchronizes the Gray
--- pointers and produces silent data corruption. mega65.vhd derives both
--- resets from the QNICE reset.
+-- Reset discipline: both sides must reset from the same event, each
+-- synchronized into its own domain. A one-sided reset permanently
+-- desynchronizes the Gray pointers and corrupts data silently (seen in the
+-- C64MEGA65 physical-1581 bring-up). Both instances take their resets from
+-- the QNICE reset; mega65.vhd provides the copy synchronized into the core
+-- clock domain.
 --
 -- Depth = 2**G_AW (default 32). G_AW must be >= 2. Storage is distributed
--- LUTRAM by construction (BRAM is full - CLAUDE.md rule 3).
+-- LUTRAM by construction, because the block RAM of the device is fully used.
 --
 -- Adapted from C64MEGA65 CORE/vhdl/physical_1581/physical_1581_rdfifo.vhd
 -- (sy2002 2026, GPLv3); changes: 16-bit words instead of bytes, level tap
--- width for the shallow default depth.
+-- width for the shallow default depth, and the read-side level rd_level_o.
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -49,10 +55,11 @@ entity physical_fdd_wfifo is
     wr_en_i    : in  std_logic;
     wr_data_i  : in  std_logic_vector(15 downto 0);
     wr_full_o  : out std_logic;
-    -- Write-side occupancy for the diagnostics: binary write pointer minus
-    -- the Gray-synced (decoded) read pointer, in the wr_clk_i domain.
-    -- Conservative-high: reads show up only after their Gray pointer crosses
-    -- the 2-FF sync.
+    -- Write-side occupancy: binary write pointer minus the Gray-synced
+    -- (decoded) read pointer, in the wr_clk_i domain. Conservative-high:
+    -- reads show up only after their Gray pointer crosses the 2-FF sync.
+    -- The read-path instance feeds it to the diagnostics; on the write path
+    -- adf_track_engine admits a pop only while it reads at most 1.
     wr_level_o : out unsigned(G_AW downto 0);
     rd_clk_i   : in  std_logic;
     rd_rst_i   : in  std_logic;
@@ -61,12 +68,11 @@ entity physical_fdd_wfifo is
     rd_empty_o : out std_logic;
     -- Read-side occupancy, the mirror of wr_level_o: the Gray-synced
     -- (decoded) write pointer minus the binary read pointer, in the
-    -- rd_clk_i domain. Conservative-LOW: writes show up only after their
+    -- rd_clk_i domain. Conservative-low: writes show up only after their
     -- Gray pointer has crossed the 2-FF sync, so a consumer that waits for
-    -- a threshold can never be told there is more than there really is.
-    -- ADDITIVE (WIP-V2-A9): the read path's instance leaves it open and is
-    -- bit-identical; the write path's instance uses it for the writer's
-    -- STREAM threshold (spec 3.1).
+    -- a threshold is never told there is more than there really is. The
+    -- read-path instance leaves it open; the write-path instance feeds it to
+    -- the writer, which starts streaming only once two words are buffered.
     rd_level_o : out unsigned(G_AW downto 0)
   );
 end entity physical_fdd_wfifo;

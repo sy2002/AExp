@@ -1,76 +1,77 @@
 -------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- physical_fdd_writer: the WRITE front end for the MEGA65 internal floppy
--- drive (WIP-V2-A9). Runs on the 50 MHz front-end clock, like the read
--- chain; all magnetic constants are hardware-proven at exactly this
--- frequency on this mechanism.
+-- physical_fdd_writer: the write front end for the MEGA65 internal floppy
+-- drive. Runs on the 50 MHz front-end clock, like the read chain; the
+-- constants below are verified on this mechanism at this frequency.
 --
 --   engine tap -> write CDC FIFO (4 deep) -> [this block] -> f_wdata/f_wgate
 --
--- A dumb, format-agnostic bit pipe: we never parse what we write, so
--- AmigaDOS tracks, X-Copy images and trackloader formats pass through
--- identically. What this block DOES own is the magnetic and safety
--- discipline the emulated Paula has no concept of:
+-- A format-agnostic bit pipe: nothing parses what is written, so AmigaDOS
+-- tracks, X-Copy images and trackloader formats pass through identically.
+-- The block owns the magnetic and safety discipline that the simulated
+-- Paula has no concept of:
 --
---   * SERIALIZER: one channel bit per 2.000 us cell (C_CELL cycles),
---     MSB-first per word - the mirror of the read aligner's and Paula's
---     shift order. The shift register reloads from the FIFO head in the
---     cycle its last bit leaves (first-word-fall-through: the pop IS the
---     reload), because the <= 3-word-time tail bound of the shallow pipe
---     depends on there being no holding register.
+--   * Serializer: one channel bit per 2.000 us cell (C_CELL cycles),
+--     MSB-first per word, the mirror of the shift order of the read aligner
+--     and of Paula. The shift register reloads from the FIFO head in the
+--     cycle its last bit leaves (first-word-fall-through: the pop is the
+--     reload). A holding register would add one more word to the flux that
+--     is still unwritten when Paula signals DSKBLK, which the shallow pipe
+--     bounds to 3 word times.
 --
---   * WDATA: idle high, one active-LOW pulse of C_WR_PULSE cycles per '1'
---     channel bit, launched at C_WR_LAUNCH within the cell. Registered
---     output, single driver, no combinational path to the pin - the
---     mega65-core lesson (a runt low from any producer becomes a written
---     flux transition; see RESEARCH-write-mega65-core.md section 5.1).
+--   * WDATA: idle high, one active-low pulse of C_WR_PULSE cycles per '1'
+--     channel bit, launched at C_WR_LAUNCH within the cell. The output is
+--     registered, with a single driver and no combinational path to the
+--     pin, because a runt low from any source is written as a flux
+--     transition.
 --
---   * WRITE PRECOMPENSATION (ROM-faithful): a 7-channel-bit window whose
---     middle bit is the one being written. A '1' whose gap-BEFORE is
---     shorter than its gap-AFTER launches EARLY, the mirror case LATE,
---     symmetric and invalid-MFM neighborhoods unshifted - textbook peak-
---     shift compensation, the mega65-core f_write_buf table
---     (mfm_bits_to_gaps.vhdl:123-189). ONE uniform magnitude of
---     C_WR_PRECOMP cycles = 140 ns = Paula's PRECOMP0. KS1.3 trackdisk
---     programs exactly this for every track >= 81 (FEA2DA..FEA306); the
---     decision is made ENGINE-side at the episode bind and arrives here as
---     one level. A bit whose window reaches before the episode's first bit
---     or beyond its last one gets NO shift (the explicit boundary rule -
---     zero-filling alone would classify the missing side as a long gap and
---     shift the very first and last pulses).
+--   * Write precompensation (magnitude and track threshold as Kickstart
+--     programs them): a 7-channel-bit window whose middle bit is the one
+--     being written. A '1' whose gap before is shorter than its gap after
+--     launches early, the mirror case late; symmetric and invalid-MFM
+--     neighbourhoods are not shifted. This is textbook peak-shift
+--     compensation, the f_write_buf table of mega65-core
+--     mfm_bits_to_gaps.vhdl, with one magnitude: C_WR_PRECOMP cycles =
+--     140 ns = Paula's PRECOMP0. KS1.3 trackdisk programs it for
+--     every track >= 81 (ROM $FEA2DA..$FEA306); the engine decides at the
+--     episode bind and the decision arrives here as one level. A bit whose
+--     window reaches before the first bit of the episode or beyond its last
+--     one is not shifted: zero-filling alone would classify the missing
+--     side as a long gap and shift the very first and last pulses.
 --
---   * WGATE is defined at the OUTPUT stage: it opens in the cell in which
---     the episode's first bit reaches the pulse generator and closes at the
---     boundary of the cell in which the last bit left it. The window is
---     therefore words x 16 cells EXACTLY, pin to pin, with zero lead-in and
---     zero lead-out cells (a real Paula ends mid-stream; trailing erased
---     cells would put a 4-6 us drought at the end splice).
+--   * WGATE is defined at the output stage: it opens in the cell in which
+--     the first bit of the episode reaches the pulse generator and closes
+--     at the boundary of the cell in which the last bit left it. The window
+--     is therefore words x 16 cells, pin to pin, with no lead-in and no
+--     lead-out cells: a real Paula ends mid-stream, and trailing erased
+--     cells would leave a 4-6 us drought at the end splice.
 --
---   * THE TAB QUALIFIER (wr_ok): the PC mechanism drives its outputs only
---     while selected, so /WPROT is meaningful ONLY while sel_i is high, and
---     the first C_SEL_SETTLE after a select edge are ignored. wr_ok is set
---     once wprot_n has read writable for C_WPROT_QUAL of CUMULATIVE
---     SELECTED time; it is cleared by a 4-sample-qualified protected level,
---     by the 4-sample-qualified disk-change ASSERT EDGE (an event, never a
---     level - the mechanism holds /DSKCHG until the next step, and a level
---     would block X-Copy single-drive writes of the same track after a
---     swap) and by reset. Deselect merely PAUSES the accumulator.
+--   * Write-protect qualifier (wr_ok): the PC mechanism drives its outputs
+--     only while selected, so /WPROT is read only while sel_i is high, and
+--     not during the first C_SEL_SETTLE after a select edge. wr_ok is set
+--     once wprot_n has read writable for C_WPROT_QUAL of cumulative
+--     selected time. It is cleared by a protected level that persists for
+--     C_FILT samples, by the assert edge of /DSKCHG through the same
+--     filter, and by reset. The disk change counts as an event, not a
+--     level: the mechanism holds /DSKCHG until the next step, and a level
+--     would block X-Copy single-drive writes, which swap disks and rewrite
+--     the same track. Deselect only pauses the accumulator.
 --
---   * THE ABORT LATCH: on any gate term lost while streaming, on the
---     engine's abort level or on an underrun, WGATE closes in the SAME
---     cycle and the episode is DEAD - the gate never re-opens until the
---     session has fallen and a new episode arms. A returning gate term, a
---     re-opened engine drain or a re-select cannot resurrect it.
+--   * Abort latch: a gate term lost while streaming, the abort level of the
+--     engine or an underrun closes WGATE within one clock and ends the
+--     episode as aborted. The gate stays shut until the session has fallen
+--     and a new episode arms; a returning gate term, a re-opened engine
+--     drain or a re-select cannot reopen it.
 --
---   * DISCARD and ABORTED both keep CONSUMING at cell pace into the bit
---     bucket, so the FIFO keeps draining, the engine's ready keeps cycling,
---     Paula's DMA completes and DSKBLK fires. An aborted episode is a track
---     the Amiga believes written and the disk does not hold - exactly what
---     a real Amiga leaves after a mid-write fault.
+--   * Discarded and aborted episodes keep consuming words at cell pace with
+--     the gate shut, so the FIFO drains, the engine keeps popping, Paula's
+--     DMA completes and DSKBLK fires. The Amiga then believes the track
+--     written while the disk does not hold it, which is also what a real
+--     Amiga leaves after a mid-write fault.
 --
--- Full design rationale and the verification contract:
--- .research/INTEGRATION-SPEC-hardware-floppy-write.md revision 3.5.
+-- Design and safety rationale: doc/developers/hardware-floppy.md, section 6
+-- (The write datapath).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -94,7 +95,7 @@ entity physical_fdd_writer is
     change_n_i    : in  std_logic;                     -- conditioned /DSKCHG
 
     -- engine levels (core clock domain; 2-FF synchronized here)
-    wr_session_i  : in  std_logic;                     -- the trackwr EPISODE
+    wr_session_i  : in  std_logic;                     -- trackwr episode level
     wr_abort_i    : in  std_logic;                     -- episode abort level
     wr_precomp_i  : in  std_logic;                     -- precomp active
     wr_track_i    : in  std_logic_vector(7 downto 0);  -- episode track (diag)
@@ -115,7 +116,8 @@ entity physical_fdd_writer is
     wr_ok_o       : out std_logic := '0';              -- tab qualified
     sess_s_o      : out std_logic := '0';              -- synced episode level
 
-    -- diag map 0x000D taps (0x70..0x7C; 0x7D is counted in the core domain)
+    -- diagnostics taps, registers 0x70..0x7C (0x7D is counted in the core
+    -- domain)
     d_epi_cnt_o    : out unsigned(15 downto 0) := (others => '0');
     d_words_last_o : out unsigned(15 downto 0) := (others => '0');
     d_words_tot_o  : out unsigned(15 downto 0) := (others => '0');
@@ -135,34 +137,35 @@ end entity physical_fdd_writer;
 architecture rtl of physical_fdd_writer is
 
   -----------------------------------------------------------------------------
-  -- magnetic constants (spec 3.2; mechanism spec 0.2-1.1 us WDATA pulse)
+  -- Magnetic constants. The mechanism accepts WDATA pulses of 0.2 to 1.1 us.
   -----------------------------------------------------------------------------
   constant C_CELL       : natural := C_HALF_CELL_CYC;  -- 100 = 2.000 us
-  -- The falling edge IS the flux reversal, so C_WR_LAUNCH places the written
+  -- The falling edge is the flux reversal, so C_WR_LAUNCH places the written
   -- transition inside the cell and C_WR_PULSE only has to be a width the
-  -- mechanism reliably registers (spec window 0.2-1.1 us).
-  --   LAUNCH at the cell MIDPOINT, like the reference encoder: it gives the
-  --   write amplifier a full microsecond to come up after WGATE opens before
-  --   the track's first reversal, and leaves 860 ns of headroom to either cell
-  --   boundary once precomp has shifted the edge - against 60 ns when the
-  --   launch sat at cycle 10.
-  --   WIDTH stays 500 ns, i.e. the MIDDLE of the mechanism's window, rather
-  --   than the reference's half-cell 988 ns which grazes its upper limit. A
-  --   MEGA65 carries a salvaged drive of unknown provenance, so the pulse
-  --   sits mid-window by choice; the trailing edge is a don't-care as long as
-  --   WDATA is back high before the next launch, and 1500 -> 2000 ns is ample.
+  -- mechanism reliably registers.
+  --   Launch at the cell midpoint, like the mega65-core encoder: the write
+  --   amplifier gets a full microsecond after WGATE opens before the first
+  --   reversal of the track, and an edge moved by precomp still keeps 860 ns
+  --   to either cell boundary.
+  --   The 500 ns width sits in the middle of the mechanism window. The
+  --   half-cell pulse of mega65-core (988 ns) is close to its upper limit,
+  --   and a MEGA65 may carry a salvaged drive of unknown provenance. The
+  --   trailing edge does not matter as long as WDATA is high again before
+  --   the next launch, and the pulse ends at most 1640 ns into the 2000 ns
+  --   cell.
   constant C_WR_LAUNCH  : natural := 50;               -- 1000 ns: cell midpoint
   constant C_WR_PULSE   : natural := 25;               -- 500 ns low
   constant C_WR_PRECOMP : natural := 7;                -- 140 ns = PRECOMP0
 
-  -- the tab qualifier (spec 3.3; sy2002-confirmed constants)
+  -- write-protect qualifier
   constant C_WPROT_QUAL : natural := 500_000;          -- 10 ms selected time
   constant C_SEL_SETTLE : natural := 2_500;            -- 50 us output settle
   constant C_FILT       : natural := 4;                -- 80 ns revoke filter
 
-  -- the window: index 0 = OLDEST bit, index 6 = NEWEST, written bit = 3.
-  -- Gap BEFORE the written bit is read from indices 2/1/0, gap AFTER from
-  -- 4/5/6 - the same orientation as the mega65-core f_write_buf table.
+  -- the precomp window: index 0 = oldest bit, index 6 = newest, written
+  -- bit = 3. The gap before the written bit is read from indices 2/1/0, the
+  -- gap after from 4/5/6, the same orientation as the mega65-core
+  -- f_write_buf table.
   constant C_WIN : natural := 7;
   constant C_MID : natural := 3;
 
@@ -186,9 +189,9 @@ architecture rtl of physical_fdd_writer is
   signal win      : std_logic_vector(C_WIN - 1 downto 0) := (others => '0');
   signal vwin     : std_logic_vector(C_WIN - 1 downto 0) := (others => '0');
   signal pulse_cnt : natural range 0 to C_WR_PULSE := 0;
-  signal gate_r    : std_logic := '0';               -- WGATE, active HIGH here
+  signal gate_r    : std_logic := '0';               -- WGATE, active high here
 
-  -- the tab qualifier
+  -- write-protect qualifier
   signal qual_cnt  : natural range 0 to C_WPROT_QUAL := 0;
   signal settle    : natural range 0 to C_SEL_SETTLE := 0;
   signal sel_p     : std_logic := '0';
@@ -208,10 +211,10 @@ architecture rtl of physical_fdd_writer is
   signal tail_max  : unsigned(7 downto 0) := (others => '0');
   signal completed : std_logic := '0';
   signal did_gate  : std_logic := '0';
-  -- 0x79 bit 10 must describe the LAST EPISODE, so it is latched like its
-  -- four sibling flags. Decoding it from the live FSM state would make it
-  -- read 0 in every field dump, because by the time QNICE reads the bank
-  -- the writer is long back in IDLE.
+  -- 0x79 bit 10 describes the last episode, so it is latched like its four
+  -- sibling flags. Decoded from the live FSM state it would read 0 in every
+  -- dump, because the writer is back in IDLE long before QNICE reads the
+  -- bank.
   signal discarded : std_logic := '0';
 
   signal fl_discard : std_logic;
@@ -223,8 +226,8 @@ begin
   wr_ok_o  <= wr_ok_r;
   sess_s_o <= sess_s;
 
-  -- 0x79 = {15:8 flags, 7:0 the episode's track}: bit 8 completed,
-  -- 9 aborted, 10 discard, 11 underrun, 12 tail-cut (spec 5.)
+  -- 0x79 = {15:8 flags, 7:0 the track of the episode}: bit 8 completed,
+  -- 9 aborted, 10 discard, 11 underrun, 12 tail cut
   fl_discard <= discarded;
   fl_tailcut <= '0' when tail_cut = 0 else '1';
   d_flags79_o <= "000" & fl_tailcut & reason(6) & fl_discard & abort_lat
@@ -240,7 +243,7 @@ begin
     variable v_shift  : integer range -C_WR_PRECOMP to C_WR_PRECOMP;
     variable v_inflt  : natural;
     variable v_term   : std_logic;
-    variable v_hold   : std_logic;   -- post-DSKBLK drain hold (round 2)
+    variable v_hold   : std_logic;   -- post-DSKBLK drain hold
     variable v_reload : std_logic;
     variable v_dry    : std_logic;
   begin
@@ -256,7 +259,7 @@ begin
       v_dry     := '0';
 
       ---------------------------------------------------------------------
-      -- THE TAB QUALIFIER (spec 3.3)
+      -- write-protect qualifier
       ---------------------------------------------------------------------
       sel_p <= sel_i;
       if sel_i = '0' then
@@ -267,7 +270,7 @@ begin
         settle <= settle + 1;
       end if;
 
-      -- 4-sample filters, sampled only while selected AND settled: the
+      -- 4-sample filters, sampled only while selected and settled: the
       -- mechanism does not drive its outputs otherwise
       if sel_i = '1' and settle = C_SEL_SETTLE then
         if wprot_n_i = '0' then
@@ -283,11 +286,11 @@ begin
           end if;
         else
           chg_lo    <= 0;
-          chg_armed <= '1';                       -- re-arm the EDGE detector
+          chg_armed <= '1';                       -- re-arm the edge detector
         end if;
       end if;
 
-      -- accumulate cumulative SELECTED time with the tab readable writable
+      -- accumulate selected time while the tab reads writable
       if sel_i = '1' and settle = C_SEL_SETTLE and wprot_n_i = '1'
          and wp_lo = 0 then
         if qual_cnt /= C_WPROT_QUAL then
@@ -302,7 +305,7 @@ begin
         wr_ok_r  <= '0';
         qual_cnt <= 0;
       end if;
-      if chg_lo = C_FILT and chg_armed = '1' then -- the change ASSERT EDGE
+      if chg_lo = C_FILT and chg_armed = '1' then -- the change assert edge
         chg_armed <= '0';
         wr_ok_r   <= '0';
         qual_cnt  <= 0;
@@ -311,46 +314,17 @@ begin
       ---------------------------------------------------------------------
       -- gate-term monitoring while streaming
       ---------------------------------------------------------------------
-      -- THE POST-DSKBLK DRAIN HOLD (WIP-V2-A9 round 2, bench 2026-08-31).
-      -- Paula fires DSKBLK when the HOST empties its FIFO, i.e. when the
-      -- ENGINE takes the last word out of it - so at that instant the word
-      -- just handed over is unwritten by definition, and our CDC FIFO and
-      -- shifter hold more. Residue is ~3 word times where a real Paula owes
-      -- ONE (its own shifter). X-Copy's DOS engine leaves exactly one
-      -- sacrificial $AAAA word for that (DSKLEN $D955 = 6485 = 500 + 11x544
-      -- + 1) and then toggles the SIDE line ~30 us after DSKBLK, which used
-      -- to cut WGATE mid-cell and destroy sector 10's last word - measured
-      -- on real media as 85 bytes of 901,120, every one in sector 10 of an
-      -- ODD track at byte 510/511.
-      --
-      -- Once wr_session has fallen the host has ALREADY been told the write
-      -- completed, and the flux we still owe is flux the Amiga believes is
-      -- on the disk. Cutting it is strictly worse than writing it. So a
-      -- SELECT or SIDE change during the drain no longer aborts - and
-      -- mega65.vhd holds f_selecta_o/f_side1_o at their episode values over
-      -- a window that strictly CONTAINS this one (it keys on wr_busy and
-      -- wr_session, and wr_busy returns through a cdc_stable so it falls
-      -- last), so the tail lands on the head it belongs to instead of the
-      -- one the host has already moved on to. The window is the pipe depth,
-      -- <= ~104 us, far inside X-Copy's own 253 us post-side settle and
-      -- trackdisk's 2000 us post-DSKBLK wait.
-      --
-      -- EVERY OTHER TERM STAYS LIVE, and STEP deliberately so: a seek moves
-      -- the head, and writing across it smears the data over two cylinders.
-      -- Motor and enable stay live because a stopped spindle or a disabled
-      -- unit means the flux would be laid down in the wrong place or not at
-      -- all. The tab and disk-change revokes are also unqualified here, and
-      -- they stay genuinely live in the SIDE arm - the head-1 path that IS
-      -- the measured defect - because X-Copy makes no selection change
-      -- between its two write passes, so sel_i stays '1' and their filters
-      -- keep sampling. In a DESELECT arm their filters freeze with the
-      -- settle counter (see the wr_ok section). That IS a real
-      -- consequence of suppressing the deselect abort - before the fix
-      -- the episode ended there, and now it continues with the revokes
-      -- blind - but it is bounded by the drain, the mechanism really is
-      -- still selected through the held pin, and the tab was qualified
-      -- at the episode arm. The medium cannot change under a head that
-      -- is mid-write.
+      -- Post-DSKBLK drain hold: once the session has fallen, the Amiga
+      -- already believes the track written, and the up to 3 word times
+      -- still in the pipe must reach the disk. A select or side change then
+      -- no longer aborts (X-Copy toggles SIDE about 30 us after DSKBLK);
+      -- mega65.vhd holds f_selecta_o and f_side1_o at their episode values
+      -- over a window that contains this one. Every other term stays live,
+      -- step included: writing across a seek smears the tail over two
+      -- cylinders. While sel_i is low the tab and change filters pause and
+      -- the settle counter restarts, for at most the length of the drain. See
+      -- doc/developers/hardware-floppy.md, section 6.5 (The post-DSKBLK
+      -- drain hold).
       v_hold := '0';
       if state = ST_STREAM and sess_s = '0' then
         v_hold := '1';
@@ -377,7 +351,7 @@ begin
       end if;
 
       ---------------------------------------------------------------------
-      -- THE CELL ENGINE: one channel bit per C_CELL cycles
+      -- cell engine: one channel bit per C_CELL cycles
       ---------------------------------------------------------------------
       if state = ST_STREAM or state = ST_DISCARD or state = ST_ABORTED then
         if cell_cnt = C_CELL - 1 then
@@ -400,7 +374,7 @@ begin
             v_reload := '1';
           end if;
 
-          -- FWFT reload: the pop IS the reload (no holding register)
+          -- FWFT reload: the pop is the reload (no holding register)
           if v_reload = '1' and fifo_empty_i = '0' then
             sh_reg    <= fifo_data_i;
             sh_cnt    <= 16;
@@ -408,11 +382,11 @@ begin
             words_ep  <= words_ep + 1;
             d_words_tot_o <= d_words_tot_o + 1;
           elsif v_reload = '1' and sess_s = '1' and state = ST_STREAM then
-            -- THE UNDERRUN, detected at the cell boundary where it happens.
+            -- Underrun, detected at the cell boundary where it happens.
             -- Waiting for the whole 7-cell window to empty would let a dry
-            -- spell of 1..6 cells pass as a WGATE deassert followed by a
-            -- RE-ASSERT mid-track: an erased hole in the middle of a
-            -- written track, with no abort, no reason code and no 0x75.
+            -- spell of 1..6 cells close WGATE and open it again mid-track:
+            -- an erased hole in a written track, with no abort, no reason
+            -- code and no count in 0x75.
             v_dry := '1';
           end if;
         else
@@ -423,7 +397,8 @@ begin
       end if;
 
       ---------------------------------------------------------------------
-      -- PRECOMP + PULSE GENERATION (the output stage; WGATE defined here)
+      -- precomp and pulse generation (the output stage, where WGATE is
+      -- defined)
       ---------------------------------------------------------------------
       -- gap classes around the written bit, from the window
       if win(2) = '1' then v_gap_b := 1;
@@ -438,7 +413,7 @@ begin
       v_shift := 0;
       if prec_s = '1' and vwin = (vwin'range => '1')
          and v_gap_b /= 1 and v_gap_a /= 1 and v_gap_b /= v_gap_a then
-        -- short before / long after -> EARLY; the mirror -> LATE
+        -- short before / long after -> early; the mirror -> late
         if v_gap_b < v_gap_a then
           v_shift := -C_WR_PRECOMP;
         else
@@ -446,20 +421,19 @@ begin
         end if;
       end if;
 
-      -- WGATE follows the OUTPUT stage: it is open exactly while the middle
-      -- window slot carries a real episode bit, so the window is
-      -- words x 16 cells with zero lead-in and zero lead-out cells
-      -- WGATE IS the spec-3.3 conjunction, evaluated every cycle - not a
-      -- streaming flag that a separate monitor is trusted to revoke. The
-      -- v_term monitor below latches the ABORT (so the gate cannot come
-      -- back), but the gate itself must fall out of the terms directly:
-      -- v_term is blind for the whole C_SEL_SETTLE window after a select
-      -- edge, and a wr_ok_r left qualified by a PREVIOUS disk would
-      -- otherwise open WGATE on a just-swapped write-protected one.
-      -- sel_i is satisfied by v_hold during the drain: mega65.vhd is holding
-      -- f_selecta_o asserted for exactly this window, so the mechanism IS
-      -- still selected even though the host has logically moved on. Every
-      -- other term is unchanged and still evaluated every cycle.
+      -- WGATE follows the output stage: it is open while the middle window
+      -- slot carries a real episode bit, so the window is words x 16 cells
+      -- with no lead-in and no lead-out cells. The gate is the full
+      -- conjunction of its terms, evaluated every cycle, rather than a
+      -- streaming flag that the v_term monitor is trusted to revoke. The
+      -- monitor latches the abort, so the gate cannot come back, but its
+      -- tab and change filters are frozen for C_SEL_SETTLE after a select
+      -- edge, and a wr_ok_r left qualified by a previous disk would
+      -- otherwise open WGATE on a just-swapped write-protected one. During
+      -- the drain hold v_hold stands in for sel_i: mega65.vhd keeps
+      -- f_selecta_o asserted, so the mechanism is still selected although
+      -- the host has moved on. See doc/developers/hardware-floppy.md,
+      -- section 6.4 (Safety: WGATE, the tab qualifier and the read chain).
       if vwin(C_MID) = '1' and abort_lat = '0' and state = ST_STREAM
          and en_i = '1' and (sel_i = '1' or v_hold = '1') and mot_i = '1'
          and wr_ok_r = '1' then
@@ -492,7 +466,7 @@ begin
       end if;
 
       ---------------------------------------------------------------------
-      -- THE EPISODE FSM
+      -- episode FSM
       ---------------------------------------------------------------------
       case state is
 
@@ -519,26 +493,26 @@ begin
 
         when ST_ARM =>
           -- STREAM needs two buffered words (so the serializer rides out the
-          -- 3-words-then-62-us Agnus line burst) AND a qualified tab; an
-          -- unqualified episode DISCARDS for its whole duration
+          -- 3-words-then-62-us Agnus line burst) and a qualified tab; an
+          -- unqualified episode discards for its whole duration
           if sess_s = '0' then
-            -- The DMA ended before STREAM was ever reached (a <= 1-word
-            -- write, or a reset landing in the first microseconds). Go out
-            -- through the DRAIN path, not straight to IDLE: whatever the
-            -- engine already pushed is still in the CDC FIFO, and jumping
-            -- to IDLE would leave it there to be serialized in FRONT of the
-            -- next episode's first word - stale flux on a real disk.
+            -- The DMA ended before STREAM was reached (a write of at most
+            -- one word, or a reset in the first microseconds). Leave through
+            -- ST_DISCARD, not straight to IDLE: words the engine already
+            -- pushed are still in the CDC FIFO, and from IDLE they would be
+            -- serialized in front of the first word of the next episode,
+            -- stale flux on a real disk.
             state <= ST_DISCARD;
           elsif fifo_level_i >= 2 then
-            -- wr_ok_r alone is not enough: it survives a deselect by design
-            -- (the accumulator only PAUSES), so a disk swapped to a
+            -- wr_ok_r alone is not enough: it survives a deselect (the
+            -- accumulator only pauses), so a disk swapped for a
             -- write-protected original while the drive was deselected would
-            -- still carry the PREVIOUS disk's qualification through the
-            -- first C_SEL_SETTLE after re-selection - exactly the window in
-            -- which the revoke filters are frozen because the mechanism is
-            -- not driving its outputs yet. Require the settle to have
-            -- completed and the live tab reading to be clean in THIS
-            -- selection before streaming.
+            -- carry the qualification of the previous disk through the
+            -- first C_SEL_SETTLE after re-selection, the window in which
+            -- the revoke filters are frozen because the mechanism is not
+            -- yet driving its outputs. Streaming therefore also requires a
+            -- completed settle and a clean live tab reading in this
+            -- selection.
             if wr_ok_r = '1' and en_i = '1' and sel_i = '1'
                and mot_i = '1' and settle = C_SEL_SETTLE and wp_lo = 0 then
               state <= ST_STREAM;
@@ -551,15 +525,15 @@ begin
 
         when ST_STREAM =>
           if v_term = '1' then
-            -- WGATE closes in this same cycle (the gate expression above is
-            -- gated on abort_lat) and the episode is DEAD
+            -- abort_lat keeps WGATE shut from the next clock on (the gate
+            -- expression includes it); the episode stays aborted
             abort_lat <= '1';
             state     <= ST_ABORTED;
             if sess_s = '0' then
               tail_cut <= tail_cut + 1;           -- lost during the drain
             end if;
           elsif v_dry = '1' then
-            -- the serializer ran dry with the DMA still open: UNDERRUN
+            -- the serializer ran dry with the DMA still open: underrun
             abort_lat    <= '1';
             reason       <= x"40";
             d_underrun_o <= d_underrun_o + 1;
@@ -580,16 +554,15 @@ begin
       end case;
 
       ---------------------------------------------------------------------
-      -- episode-end bookkeeping. TWO DIFFERENT INSTANTS, deliberately:
-      --   * 0x77's in-flight residue is sampled at the DSKBLK moment (the
-      --     session fall) - that is exactly the question it asks, "how much
-      --     flux does the Amiga already believe written but we still hold";
-      --   * 0x71 (words consumed) and 0x73/0x74 (the WGATE window) are
-      --     latched when the episode really COMPLETES, i.e. when the writer
-      --     returns to IDLE. Latching them at the session fall would miss
-      --     the tail: the last <= 3 words are consumed AFTER trackwr drops,
-      --     so 0x71 would under-report the DMA length by exactly that
-      --     residue (caught by S1's words-consumed assert).
+      -- episode-end bookkeeping, at two different instants:
+      --   * the in-flight residue (0x77) is sampled at the session fall,
+      --     the DSKBLK moment: it measures the flux the Amiga already
+      --     believes written that the pipe still holds;
+      --   * words consumed (0x71) and the WGATE window (0x73/0x74) are
+      --     latched when the writer returns to IDLE. At the session fall
+      --     they would miss the tail: up to 3 words are consumed after
+      --     trackwr drops, and 0x71 would under-report the DMA length by
+      --     that residue.
       ---------------------------------------------------------------------
       if sess_s = '0' and sess_p = '1' then
         v_inflt := to_integer(fifo_level_i);
@@ -628,9 +601,9 @@ begin
         discarded  <= '0';
         did_gate   <= '0';
         fifo_rd_o  <= '0';
-        -- the instruments reset with the QNICE reset, exactly like the read
-        -- chain's counters in physical_fdd_top's ctrl_proc: rst_i is a
-        -- power-on-class event here, not an Amiga reboot
+        -- the instruments reset with the QNICE reset, like the read-chain
+        -- counters in ctrl_proc of physical_fdd_top: rst_i is a power-on
+        -- class event here, not an Amiga reboot
         words_ep      <= (others => '0');
         wg_cyc        <= (others => '0');
         tail_cut      <= (others => '0');

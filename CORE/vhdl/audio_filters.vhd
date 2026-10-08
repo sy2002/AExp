@@ -14,7 +14,7 @@
 --  * led_filter_i ("LED Filter") arms the switchable 3000 Hz + 3400 Hz
 --    two-stage low-pass that Commodore attached to CIA-A PA1 - the same pin
 --    that controls the power LED, so a bright LED means "filter engaged".
---    While armed, the filter follows the emulated software live via pwr_led_i
+--    While armed, the filter follows the Amiga software live via pwr_led_i
 --    (MiSTer's "Auto(LED)" mode); disarmed it never engages.
 --  * stereo_mix_i is MiSTer's aud_mix crossfeed for Paula's hard-panned
 --    channels (0+3 = left, 1+2 = right): 00 = full separation,

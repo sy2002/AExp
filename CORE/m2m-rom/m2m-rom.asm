@@ -1,7 +1,7 @@
 ; ****************************************************************************
 ; Amiga for Mega65 (AExp) QNICE ROM
 ;
-; Main program that is used to build m2m-rom.rom by make-rom.sh.
+; Main program that is used to build m2m-rom.rom by make_rom.sh.
 ;
 ; The execution starts at the label START_FIRMWARE.
 ;
@@ -14,7 +14,7 @@
 ;   * avoid genitive apostrophes; use an of-construction instead (the
 ;     sub-activity of the menu selection, not the possessive apostrophe-s form);
 ;   * never split a double-quoted string across two lines (keep it on one line;
-;     a balanced pair on ONE line is fine).
+;     a balanced pair on one line is fine).
 ; Either slip only yields a harmless missing-terminating preprocessor warning.
 
 ; If the define RELEASE is defined, then the ROM will be a self-contained and
@@ -138,12 +138,13 @@ _FFILES_RET     MOVE    R0, R9
 ; "image type". In case this is used at the core of your choice, make sure
 ; you return the correct image type.
 ;
-; The ADF is streamed into the C_DEV_AMIGA_ADF device, which bridges into a
-; 4 MB HyperRAM region (see globals.vhd). We range-guard the file size to
-; 160..166 tracks x 5632 bytes = 901,120..934,912 bytes BEFORE streaming, so
-; an absurd (renamed) file can never stream past the region. The exact
-; multiple-of-5632 validation happens in the core-side CSR responder
-; (adf_mount_wrapper.vhd), which reports "Invalid ADF size" to the OSM.
+; The ADF is streamed into the ADF mount device of the drive (AEXP_DEV_ADF0/1/2),
+; which bridges into the HyperRAM pool of that drive (115 windows of 8 KB, see
+; globals.vhd). We range-guard the file size to 160..166 tracks x 5632 bytes =
+; 901,120..934,912 bytes before streaming, so an absurd (renamed) file can never
+; stream past the pool. The exact multiple-of-5632 validation happens in the
+; core-side CSR responder (adf_mount_wrapper.vhd), which reports "Invalid ADF size"
+; to the OSM.
 ;
 ; Input:
 ;   R8: File handle: You are allowed to modify the read pointer of the handle
@@ -166,17 +167,17 @@ PREP_LOAD_IMAGE INCRB
 _PREP_LI_ADF    MOVE    R9, R6                  ; R6: the drive 0..2 behind the
                 MOVE    R5, R8                  ; group id; restore the handle
 
-                ; Every gate below is PER DRIVE. The flush and the disarm act
-                ; on the drive that is being (re)loaded, the size gate keeps an
-                ; oversized file from streaming past the HyperRAM pool of that
+                ; Every gate below works per drive. The flush and the disarm
+                ; act on the drive that is being (re)loaded, the size gate keeps
+                ; an oversized file from streaming past the HyperRAM pool of that
                 ; drive, and the duplicate gate keeps the same file out of two
                 ; drives at once.
                 ;
-                ; BEFORE anything else, force-flush all unsaved writes of the
-                ; disk currently in THIS drive - the streaming that follows
+                ; Before anything else, force-flush all unsaved writes of the
+                ; disk currently in this drive - the streaming that follows
                 ; overwrites its HyperRAM image, and the Shell has already
-                ; re-opened HNDL_RM_FILES[drive] for the NEW file (which is
-                ; exactly why the flush works from the own FDH snapshot of that
+                ; re-opened HNDL_RM_FILES[drive] for the new file (which is
+                ; why the flush works from the own FDH snapshot of that
                 ; drive, see FLUSH_ADF_STEP). Bounded to >4 full disks of
                 ; chunks so an Amiga that re-dirties tracks forever cannot
                 ; starve the OSM; in that case we bail out with a friendly,
@@ -195,13 +196,14 @@ _PREP_LI_FL     MOVE    1, R8                   ; forced step (ignore the
                 DECRB
                 RET
 
-                ; The mount flow OWNS the arm state: disarm the write-back of
-                ; THIS drive here and let the PARSEST=READY of the NEW mount
+                ; The mount flow owns the arm state: disarm the write-back of
+                ; this drive here and let the PARSEST=READY of the new mount
                 ; re-arm it with a fresh handle snapshot. HANDLE_CORE_IO alone
                 ; cannot do that: the whole load runs without HANDLE_IO
                 ; polling, so the READY -> LOADING -> READY transient of a
                 ; re-mount is invisible to it - without this disarm, flushes
-                ; after a disk swap would write the new disk into the OLD file.
+                ; after a disk swap would write the new disk into the old file
+                ; (see doc/developers/floppy-adf.md, section 9).
 _PREP_LI_FLD    MOVE    R6, R8
                 RSUB    ADF_DISARM, 1           ; WR_EN := 0 until the new
                 MOVE    R3, R8                  ; mount is complete; restore
@@ -233,7 +235,7 @@ _PREP_LI_MAX    CMP     R1, ADF_MAX_SIZE_HI     ; file > maximum: too big
                 RBRA    _PREP_LI_BAD, N
 
                 ; The same image file may not sit in two drives at once. Each
-                ; drive holds its OWN copy of the image in HyperRAM, so both
+                ; drive holds its own copy of the image in HyperRAM, so both
                 ; would collect their own writes and the drive that flushes
                 ; last would silently overwrite what the other one saved. We
                 ; refuse the second mount rather than let that happen: the
@@ -322,17 +324,18 @@ PREP_START      INCRB
 ;   R9: 0=OK, else error code
 OSM_SEL_POST    INCRB
 
-                ; issue #16: the sub-activity of the menu selection (file
-                ; browser / help viewer) has returned - drop the gate-4 flag so
-                ; SPACE-unmount works again. Reached on EVERY non-fatal path out
-                ; of OPTM_CB_SEL (incl. the CLOSE early-out via _OPTMCB_RET), so
-                ; the flag can never stick at 1. R8 (the selected group, used
-                ; below) is untouched: R0 is bank-local after the INCRB.
+                ; The sub-activity of the menu selection (file browser / help
+                ; viewer) has returned - drop the gate-2 flag of
+                ; HANDLE_UNMOUNT_KEY so the SPACE eject works again. Reached on
+                ; every non-fatal path out of OPTM_CB_SEL (incl. the CLOSE
+                ; early-out via _OPTMCB_RET), so the flag can never stick at 1.
+                ; R8 (the selected group, used below) is untouched: R0 is
+                ; bank-local after the INCRB.
                 MOVE    OSM_SUB_ACTIVE, R0
                 MOVE    0, @R0
 
                 ; HDMI Filter selection changed: re-push the matching (H, V)
-                ; coefficient pair into the ascal polyphase RAM. NO core
+                ; coefficient pair into the ascal polyphase RAM. No core
                 ; reset -- only the coefficient RAM content changes; the
                 ; Amiga keeps running. The user sees the new filter from the
                 ; next frame.
@@ -341,15 +344,9 @@ OSM_SEL_POST    INCRB
                 RSUB    LOAD_HDMI_FILTER, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
-                ; "Reload Screen Config" pressed. This is a MOMENTARY action,
-                ; not an on/off toggle (issue #19): show <Loading Screen Config>
-                ; on the line of the item for the ~1-2 s the SD re-mount +
-                ; reload takes -- the OSM is frozen meanwhile because QNICE
-                ; serves the menu synchronously -- then repaint the original
-                ; label with no "=" checkmark left behind.
                 ; Drive Settings: keep the "Drives" count radio and the three
                 ; per-drive mode radios consistent. The HDL decode is defensive
-                ; about an inconsistent combination, but the MENU must not show
+                ; about an inconsistent combination, but the menu must not show
                 ; one: a drive beyond the count has to sit on its "Off" item,
                 ; because that item is what the count radio swaps in (menu
                 ; dependency), and it is also what hides the two lines of that drive
@@ -379,6 +376,12 @@ _OSM_SP_DRVS    RSUB    DRV_STEAL_HW, 1
                 RSUB    DRV_EJECT_GONE, 1
                 RBRA    _OSM_SEL_POST_R, 1
 
+                ; "Reload Screen Config" pressed. This is a momentary action,
+                ; not an on/off toggle: show <Loading Screen Config> on the line
+                ; of the item for the ~1-2 s the SD re-mount + reload takes --
+                ; the OSM is frozen meanwhile because QNICE serves the menu
+                ; synchronously -- then repaint the original label with no "="
+                ; checkmark left behind (GitHub #19).
 _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 RBRA    _OSM_SEL_POST_R, !Z
 
@@ -406,9 +409,9 @@ _OSM_SP_SCR     CMP     AEXP_OPTM_G_SCRRELOAD, R8
                 ; The user may have pulled the SD card to write a new file with
                 ; the python tool; the shared SD controller is then de-negotiated
                 ; until a re-mount runs SD$RESET (and a same-slot tray swap does
-                ; NOT reliably raise SD_CHANGED on R3, so we cannot gate on it).
+                ; not reliably raise SD_CHANGED on R3, so we cannot gate on it).
                 ; Re-mount CONFIG_DEVH here, mirroring the remount of the file
-                ; browser, so the reload reads the CURRENT card and not the
+                ; browser, so the reload reads the current card and not the
                 ; stale boot mount. Safe for config-save: write-back is gated on
                 ; CONFIG_FILE (untouched), and re-mounting keeps the bookkeeping
                 ; of CONFIG_DEVH consistent with the freshly reset controller.
@@ -424,7 +427,7 @@ _OSP_SCR_LOAD   RSUB    LOAD_SCREEN_OFFSETS, 1
 
                 ; Momentary reset: clear the single-select state everywhere so
                 ; no "=" ever sticks. M2M$FORCE_MENU clears the QNICE setting
-                ; register bit AND the in-memory selection of the menu (and
+                ; register bit and the in-memory selection of the menu (and
                 ; erases the on-screen marker); OPTM_SHOW then repaints every
                 ; label (ours reverts to "Reload Screen Config", markerless) and
                 ; OPTM_SELECT restores the cursor highlight. OPTM_CUR_SEL is
@@ -452,14 +455,14 @@ _OSM_SEL_POST_R XOR     R8, R8
 ; menu item has been handled by the framework.
 OSM_SEL_PRE     INCRB
 
-                ; issue #16: a sub-activity of a menu selection is about to run
-                ; (the file browser, its SD-mount retry / "press Space"
-                ; acknowledgments, or the WHS help viewer) and it polls
-                ; HANDLE_IO. Raise the gate-4 flag so HANDLE_UNMOUNT_KEY does
-                ; not mistake a SPACE inside one of those sub-screens - e.g.
-                ; Return-to-replace on the still-mounted ' ADF:' line - for an
-                ; unmount request. Cleared again in OSM_SEL_POST, which brackets
-                ; the whole select-callback body (options.asm OPTM_CB_SEL).
+                ; A sub-activity of a menu selection is about to run (the file
+                ; browser, its SD-mount retry / "press Space" acknowledgments,
+                ; or the WHS help viewer) and it polls HANDLE_IO. Raise the
+                ; gate-2 flag so HANDLE_UNMOUNT_KEY does not mistake a SPACE
+                ; inside one of those sub-screens - e.g. Return-to-replace on a
+                ; still-mounted drive line - for an unmount request. Cleared
+                ; again in OSM_SEL_POST, which brackets the whole select-callback
+                ; body (options.asm OPTM_CB_SEL).
                 MOVE    OSM_SUB_ACTIVE, R0
                 MOVE    1, @R0
 
@@ -492,28 +495,27 @@ CUSTOM_MSG      XOR     R8, R8
 ; The track engine (CORE/vhdl/adf_track_engine.vhd) MFM-decodes Amiga writes
 ; and commits verified sectors into the ADF image in HyperRAM; the mount
 ; wrapper (CORE/vhdl/adf_mount_wrapper.vhd) collects the affected tracks in
-; a dirty bitmap behind window ADF_WBC_4KWIN of device AEXP_DEV_ADF0 and runs
-; the vdrives-style anti-thrashing countdown. The firmware side below mirrors
-; the proven C64MEGA65 vdrives discipline (background flushing driven from
-; HANDLE_IO, chunked to stay responsive, still-open FAT32 handle, errors are
-; fatal) against our non-vdrives device. Full design:
-; doc/developers/floppy-adf.md
+; a dirty bitmap behind window ADF_WBC_4KWIN of its own device (one per drive,
+; see ADF_DEV_TAB) and runs the vdrives-style anti-thrashing countdown. The
+; firmware side below mirrors the proven C64MEGA65 vdrives discipline
+; (background flushing driven from HANDLE_IO, chunked to stay responsive,
+; still-open FAT32 handle, errors are fatal) against our non-vdrives device.
+; Full design: doc/developers/floppy-adf.md, sections 8 and 9.
 ;
-; SCOPE: every one of the three simulated drives has its own write-back. The
-; hardware is already per drive - each adf_mount_wrapper instance carries its
+; Scope: every one of the three simulated drives has its own write-back. The
+; hardware is per drive - each adf_mount_wrapper instance carries its
 ; own WBC (WR_EN, dirty bitmap, anti-thrash countdown) behind its own device id
 ; - so the firmware only has to address the right device and keep its own state
 ; per drive. All of it is therefore an array indexed by the Amiga drive unit
 ; 0..2, which is also the manual CRT/ROM id and thus the index into the
-; HANDLE_RM_FILE handles of the Shell: drive n loads through HNDL_RM_FILES[n].
+; HNDL_RM_FILES handles of the Shell: drive n loads through HNDL_RM_FILES[n].
 ; The three tables ADF_DEV_TAB / ADF_FDH_TAB / ADF_GRP_TAB are the only place
 ; that knows how a drive maps to a device, a handle snapshot and a menu group.
 ;
-; The three consequences that make this safe (see also the section 5a arm-state
-; invariant of .research/INTEGRATION-SPEC-floppy-adf-write.md, which now has to
-; hold PER DRIVE):
+; The three consequences that make this safe (see also the arm-state invariant
+; in doc/developers/floppy-adf.md, section 9, which holds per drive):
 ;
-;   * Each drive keeps its OWN FDH snapshot. A flush of drive n can only ever
+;   * Each drive keeps its own FDH snapshot. A flush of drive n can only ever
 ;     reach the file that was mounted into drive n - this is what stops the
 ;     cross-drive corruption of one drive being written into the file of
 ;     another, which a single shared handle would produce the moment a second
@@ -525,8 +527,8 @@ CUSTOM_MSG      XOR     R8, R8
 ;     would silently overwrite what the other wrote. PREP_LOAD_IMAGE rejects
 ;     the second mount (see ADF_DUP_CHECK).
 ;
-; The background flush serves ONE drive per time slice, round-robin, so three
-; armed drives cost exactly as much main-loop time as one did.
+; The background flush serves one drive per time slice, round-robin, so three
+; armed drives cost exactly as much main-loop time as one.
 ; ----------------------------------------------------------------------------
 
 ; ADF_SEL_WBC: point the RAMROM window at the write-back CSR of one drive.
@@ -548,7 +550,7 @@ ADF_SEL_WBC     INCRB
 ;
 ; Used whenever the retained file handle of that drive became unusable: the
 ; tracks can no longer be written anywhere sensible, and leaving the bits set
-; would make a LATER mount flush them into a different file.
+; would make a later mount flush them into a different file.
 ;
 ; Input:  R8: drive 0..2
 ; Output: none; all registers preserved
@@ -566,7 +568,7 @@ _AWD_L          MOVE    0xFFFF, @R0++
 ;
 ; Invalidates the handle snapshot, aborts a running flush session, re-opens the
 ; arming edge for the next mount and takes WR_EN away so the track engine
-; announces that unit write-protected again. Does NOT touch the dirty bitmap -
+; announces that unit write-protected again. Does not touch the dirty bitmap -
 ; the callers decide whether the pending tracks are still flushable (mount and
 ; eject flush first) or have to be dropped (ADF_WIPE_DIRTY).
 ;
@@ -589,13 +591,13 @@ ADF_DISARM      INCRB
                 RET
 
 ; ADF_DUP_CHECK: is the file behind a fresh file handle already mounted into
-; ANOTHER drive?
+; another drive?
 ;
 ; Two drives holding the same image file is a silent data-loss trap: each drive
-; streams its OWN copy into its OWN HyperRAM pool, both collect Amiga writes
+; streams its own copy into its own HyperRAM pool, both collect Amiga writes
 ; independently, and whichever drive flushes last overwrites what the other one
 ; saved. The file is identified by its FAT32 start cluster, which is unique per
-; file on a card. Comparing that alone is enough because every ARMED drive was
+; file on a card. Comparing that alone is enough because every armed drive was
 ; verified to sit on the currently active SD slot by the guards of
 ; HANDLE_CORE_IO, and the fresh handle was just opened on that same slot. A
 ; drive whose write-back is not armed cannot write and is therefore skipped -
@@ -694,8 +696,8 @@ _AWBI_D         MOVE    ADF_FDH_VALID, R3
                 MOVE    ADF_FL_RR, R0           ; round-robin flush pointer
                 MOVE    0, @R0
 
-                ; issue #16 unmount state: no SPACE seen yet and no menu
-                ; sub-activity running. Seeded here (like the rest of the ADF
+                ; Unmount state: no SPACE seen yet and no menu sub-activity
+                ; running. Seeded here (like the rest of the ADF
                 ; state) because HANDLE_IO can poll HANDLE_UNMOUNT_KEY during
                 ; boot wait loops, before RAM is otherwise written.
                 MOVE    ADF_UNMNT_PREV, R0
@@ -707,7 +709,7 @@ _AWBI_D         MOVE    ADF_FDH_VALID, R3
                 RET
 
 ; SCR_INIT: called once from START_FIRMWARE, before the Shell starts. Puts the
-; screen-centering runtime state (issue #5) into a safe boot state, so a
+; screen-adjustment runtime state into a safe boot state, so a
 ; DETECT_SCREEN_MODE poll from a boot-time wait loop (HANDLE_IO is polled before
 ; PREP_START runs LOAD_SCREEN_OFFSETS, and RAM is undefined at power-on) can never
 ; act on undefined state: the debounce latch says "nothing applied", and the table
@@ -738,7 +740,7 @@ RTC_INIT        INCRB
                 DECRB
                 RET
 
-; RTC_STEP: one non-blocking step of the battery-RTC reseed (issue #13).
+; RTC_STEP: one non-blocking step of the battery-RTC reseed.
 ;
 ; The Minimig $DC0000 clock (minimig.v) advances minutes/hours/date only when the
 ; framework flips the RTC "new value" toggle, which it does when an external I2C
@@ -748,9 +750,9 @@ RTC_INIT        INCRB
 ; re-issues the read once per real minute - aligned to the :00 boundary by
 ; edge-detecting the free-running internal-minute register - which reseeds
 ; minimig with fresh time and restarts its in-FPGA seconds counter from 0. This
-; is the MiSTer "HPS resend once per minute" cadence.
+; is the MiSTer "HPS resend once per minute" cadence (GitHub #13).
 ;
-; The minute register is read WITHOUT flipping the toggle (only a command-byte
+; The minute register is read without flipping the toggle (only a command-byte
 ; write does), so the common path is just a couple of cheap device reads. The
 ; command byte is accepted only while I2C is idle, so a still-running read (e.g.
 ; the boot read) simply defers to the next call.
@@ -795,26 +797,26 @@ _RTC_RET        DECRB
 ;      - disable those drives and discard their dirty state (the
 ;      ROSM_INTEGRITY precedent: never write to a card we did not open on).
 ;   2. Mount tracking: when a mount of drive n reaches PARSEST=READY, snapshot
-;      the Shell handle HNDL_RM_FILES[n] into that drive OWN FDH (the Shell
-;      re-opens that struct for the NEXT load before PREP_LOAD_IMAGE even
-;      runs!) and arm the write-back of that drive: WBC WR_EN=1 makes the track
+;      the Shell handle HNDL_RM_FILES[n] into the own FDH of that drive (the
+;      Shell re-opens that struct for the next load before PREP_LOAD_IMAGE even
+;      runs) and arm the write-back of that drive: WBC WR_EN=1 makes the track
 ;      engine announce that unit as writable to the Amiga.
 ;   3. One background flush step (respects the anti-thrashing gate), handed to
-;      ONE drive per poll in round-robin order.
+;      one drive per poll in round-robin order.
 ;
 ; Input/Output: none; all registers are preserved
 HANDLE_CORE_IO  SYSCALL(enter, 1)
 
-                ; ADF unmount with SPACE (issue #16): must run FIRST and on
-                ; EVERY poll. HANDLE_IO calls us at the top of every OSM
-                ; key-wait iteration, before the KEYB$SCAN of that loop - the
-                ; ordering that lets us both suppress the SPACE of the menu (so
-                ; it never becomes a mount) and, on a fresh press over the
-                ; highlighted ' ADF:' line, eject the disk. Cheap in the common
-                ; path (OSM closed) and RAMROM-transparent.
+                ; ADF unmount with SPACE: must run first and on every poll.
+                ; HANDLE_IO calls us at the top of every OSM key-wait
+                ; iteration, before the KEYB$SCAN of that loop - the ordering
+                ; that lets us both suppress the SPACE of the menu (so it never
+                ; becomes a mount) and, on a fresh press over a highlighted
+                ; mount line, eject the disk. Cheap in the common path (OSM
+                ; closed) and RAMROM-transparent.
                 RSUB    HANDLE_UNMOUNT_KEY, 1
 
-                ; screen centering (issue #5): throttle the mode detector. A mode
+                ; screen adjustment: throttle the mode detector. A mode
                 ; change only needs to be reacted to within a few ms, so run
                 ; DETECT_SCREEN_MODE once every SCR_TICK_MASK+1 poll-loop
                 ; iterations instead of every one -- the detector is ~80 instr
@@ -836,11 +838,11 @@ _HCIO_NODET     MOVE    M2M$RAMROM_DEV, R0
                 MOVE    @R2, R3
 
                 ; --- 1. SD guards, per drive. A shell-detected card change
-                ;        tears EVERY drive down. An active-slot switch tears
+                ;        tears every drive down. An active-slot switch tears
                 ;        down exactly the drives whose handle was snapshotted
                 ;        on the other slot: the file browser F1/F3 switch
-                ;        updates SD_ACTIVE WITHOUT raising SD_CHANGED, and
-                ;        every FDH points at the ONE shared device handle,
+                ;        updates SD_ACTIVE without raising SD_CHANGED, and
+                ;        every FDH points at the one shared device handle,
                 ;        which after the switch describes the other card - so a
                 ;        flush through it would write into whatever file
                 ;        happens to live at those clusters over there.
@@ -869,8 +871,8 @@ _HCIO_SDD       MOVE    ADF_FDH_VALID, R7
 _HCIO_SDK       MOVE    R5, R8                  ; the retained handle is dead:
                 RSUB    ADF_WIPE_DIRTY, 1       ; the dirty tracks can no
                 RSUB    ADF_DISARM, 1           ; longer be written anywhere
-                MOVE    ADF_MOUNT_SEEN, R7      ; 1: BLOCK re-arming from the
-                ADD     R5, R7                  ; STALE PARSEST=READY of the
+                MOVE    ADF_MOUNT_SEEN, R7      ; 1: block re-arming from the
+                ADD     R5, R7                  ; stale PARSEST=READY of the
                 MOVE    1, @R7                  ; old mount - only the next
                                                 ; real ADF load, through
                                                 ; PREP_LOAD_IMAGE, opens the
@@ -881,7 +883,7 @@ _HCIO_SDN       ADD     1, R5
                 CMP     1, R6                   ; on a card change, skip the
                 RBRA    _HCIO_RTC, Z            ; ADF work for this poll - but
                                                 ; only the ADF work. SD_CHANGED
-                                                ; is a LATCH, cleared only by
+                                                ; is a latch, cleared only by
                                                 ; the mount/browse flow, so
                                                 ; returning outright here would
                                                 ; starve the battery-clock
@@ -904,7 +906,7 @@ _HCIO_MD        MOVE    ADF_DEV_TAB, R6
                 RBRA    _HCIO_MN, Z             ; this mount is already armed
                 MOVE    1, @R7
                 MOVE    HNDL_RM_FILES, R8       ; snapshot the Shell handle of
-                ADD     R5, R8                  ; THIS drive: manual CRT/ROM id
+                ADD     R5, R8                  ; this drive: manual CRT/ROM id
                 MOVE    @R8, R8                 ; n is drive n (the mount lines
                 MOVE    ADF_FDH_TAB, R9         ; sit in that order in the
                 ADD     R5, R9                  ; static config array)
@@ -912,9 +914,9 @@ _HCIO_MD        MOVE    ADF_DEV_TAB, R6
                 MOVE    FAT32$FDH_STRUCT_SIZE, R10
                 SYSCALL(memcpy, 1)
                 ADD     FAT32$FDH_FLAGS, R9     ; the snapshot must never start
-                MOVE    0, @R9                  ; out DIRTY: the ONE hardware
+                MOVE    0, @R9                  ; out dirty: the one hardware
                                                 ; sector buffer is tracked by
-                                                ; the ADDRESS of the handle
+                                                ; the address of the handle
                                                 ; that filled it, so a copy
                                                 ; that claims to be dirty while
                                                 ; not owning the buffer would
@@ -937,7 +939,7 @@ _HCIO_MD        MOVE    ADF_DEV_TAB, R6
                 ADD     R5, R7
                 MOVE    R6, @R7
                 MOVE    R5, R8                  ; WR_EN := 1: the track engine
-                RSUB    ADF_SEL_WBC, 1          ; announces THIS unit writable
+                RSUB    ADF_SEL_WBC, 1          ; announces this unit writable
                 MOVE    ADF_WBC_CTRL, R6
                 MOVE    1, @R6
                 RBRA    _HCIO_MN, 1
@@ -949,8 +951,8 @@ _HCIO_MN        ADD     1, R5
                 RBRA    _HCIO_MD, !Z
 
                 ; --- 3. one background flush step, round-robin over the
-                ;        drives. At most ONE drive does I/O per poll, so three
-                ;        armed drives cost the main loop exactly what one did,
+                ;        drives. At most one drive does I/O per poll, so three
+                ;        armed drives cost the main loop exactly what one does,
                 ;        and handing the next slice to the next drive keeps a
                 ;        continuously re-dirtied drive from starving the others.
                 ;        A drive that is idle or sitting behind its
@@ -974,11 +976,11 @@ _HCIO_FLR       CMP     ADF_FL_DID, R8          ; slice consumed?
                 RBRA    _HCIO_FL, !Z
                 RBRA    _HCIO_RTC, 1            ; nothing to flush at all
 
-                ; The drive that was served keeps the slice until its TRACK is
+                ; The drive that was served keeps the slice until its track is
                 ; finished, and only then does the rotation move on. Rotating
                 ; after every chunk would flip the owner of the one shared FAT32
                 ; sector buffer on every poll, and FAT32$READ_FDH answers an
-                ; owner change with a full 512-byte READ of the sector it is
+                ; owner change with a full 512-byte read of the sector it is
                 ; about to overwrite completely - a wasted SD read per chunk.
                 ; Per track instead of per chunk makes that at most one per 11.
                 ; Fairness stays bounded: a drive can hold the slice for one
@@ -992,7 +994,7 @@ _HCIO_FLD       MOVE    ADF_FL_STATE, R6
                 RBRA    _HCIO_RTC, 1
 _HCIO_FLK       MOVE    R5, @R4
 
-                ; keep the Amiga battery clock live (issue #13): re-issue the
+                ; keep the Amiga battery clock live: re-issue the
                 ; framework RTC read once per minute so the Minimig $DC0000 clock
                 ; advances instead of freezing after the boot seed
 _HCIO_RTC       RSUB    RTC_STEP, 1
@@ -1011,8 +1013,8 @@ _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
 ;
 ; Cooperative multitasking, mirroring the vdrives FLUSH_CACHE discipline
 ; (M2M/rom/shell.asm): one call does at most one of
-;   * idle, dirty tracks pending, gate open (or forced): pick the LOWEST
-;     dirty track, clear its bit FIRST (write-1-to-clear; a concurrent
+;   * idle, dirty tracks pending, gate open (or forced): pick the lowest
+;     dirty track, clear its bit first (write-1-to-clear; a concurrent
 ;     re-write by the Amiga re-sets it, so the track is re-flushed - torn
 ;     reads self-heal), f32_fseek the retained handle to track * 5632
 ;   * active session: stream ADF_FLUSH_CHUNK bytes from the ADF byte window
@@ -1020,12 +1022,12 @@ _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
 ;
 ; The chunk is 512 bytes and every track start is 512-aligned, so chunks
 ; never cross a 4k device window and cover exactly one FAT32 sector - and
-; each chunk is EXPLICITLY flushed before returning: the SD controller has a
+; each chunk is explicitly flushed before returning: the SD controller has a
 ; single hardware sector buffer shared with every other SD user (the OSM
-; settings save runs from the very wait loops that also poll us!), so no
+; settings save runs from the very wait loops that also poll us), so no
 ; dirty buffered sector may ever survive across time slices. The explicit
 ; flush costs nothing: the sector is written exactly once either way.
-; With three drives that same per-chunk flush is what makes INTERLEAVED
+; With three drives that same per-chunk flush is what makes interleaved
 ; sessions safe: drive 0 and drive 1 can each have an open track session, and
 ; the poll that serves one of them always finds the shared sector buffer clean.
 ; FAT32 errors are fatal - the C64MEGA65 FLUSH_CACHE policy; SD removal is
@@ -1038,7 +1040,7 @@ _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
 ;   R9: drive 0..2
 ; Output:
 ;   R8: ADF_FL_IDLE  = clean and idle, nothing left to do
-;       ADF_FL_DID   = work remains AND this call consumed a time slice
+;       ADF_FL_DID   = work remains and this call consumed a time slice
 ;       ADF_FL_GATED = work remains but the anti-thrashing gate is closed,
 ;                      so nothing was done (cannot happen when forced)
 ;   R9: clobbered; R10..R12 preserved
@@ -1050,7 +1052,7 @@ FLUSH_ADF_STEP  INCRB
                 MOVE    R9, R0                  ; R0: drive, live to the end
 
                 MOVE    R0, R8                  ; select the WBC window of
-                RSUB    ADF_SEL_WBC, 1          ; THIS drive
+                RSUB    ADF_SEL_WBC, 1          ; this drive
 
                 MOVE    ADF_FL_STATE, R8        ; session active?
                 ADD     R0, R8
@@ -1098,7 +1100,7 @@ _FADF_FBIT1     MOVE    R7, R10
                 ADD     1, R9
                 RBRA    _FADF_FBIT1, 1
 
-_FADF_FOUND     MOVE    R8, @R5                 ; W1C the bit FIRST
+_FADF_FOUND     MOVE    R8, @R5                 ; W1C the bit first
                 MOVE    R6, R10                 ; track = word * 16 + bit
                 AND     0xFFFD, SR
                 SHL     4, R10
@@ -1123,7 +1125,7 @@ _FADF_SEEK      MOVE    ADF_FL_BADDR_LO, R8     ; open the session
                 ADD     R0, R8
                 MOVE    ADF_TRACK_BYTES, @R8
                 MOVE    ADF_FDH_TAB, R8         ; seek to the track start, in
-                ADD     R0, R8                  ; the file of THIS drive
+                ADD     R0, R8                  ; the file of this drive
                 MOVE    @R8, R8                 ; (file offset = image offset)
                 MOVE    R11, R9
                 MOVE    R12, R10
@@ -1154,7 +1156,7 @@ _FADF_CHUNK     MOVE    ADF_FL_BADDR_HI, R8
                 MOVE    R6, R7
                 AND     0x0FFF, R7
                 ADD     M2M$RAMROM_DATA, R7     ; R7: source pointer
-                MOVE    ADF_FDH_TAB, R6         ; R6: the FDH of THIS drive,
+                MOVE    ADF_FDH_TAB, R6         ; R6: the FDH of this drive,
                 ADD     R0, R6                  ; hoisted out of the byte loop
                 MOVE    @R6, R6
                 MOVE    ADF_FLUSH_CHUNK, R5     ; R5: byte countdown
@@ -1166,7 +1168,7 @@ _FADF_WLOOP     MOVE    R6, R8
                 SUB     1, R5
                 RBRA    _FADF_WLOOP, !Z
 
-                ; persist the chunk NOW: the FAT32 hardware sector buffer is
+                ; persist the chunk now: the FAT32 hardware sector buffer is
                 ; shared with every other SD user (e.g. the OSM settings
                 ; save, and the track session of another drive) - a dirty
                 ; buffered sector left across time slices would be clobbered
@@ -1179,7 +1181,7 @@ _FADF_WLOOP     MOVE    R6, R8
                 RBRA    _FADF_FATAL, !Z
 
                 ; Advance the 32-bit byte address. Both variable addresses are
-                ; resolved FIRST: the per-drive indexing is itself an ADD, and
+                ; resolved first: the per-drive indexing is itself an ADD, and
                 ; an ADD between the low-word addition and the ADDC that
                 ; consumes its carry would overwrite that carry - the high word
                 ; would then never increment and every chunk past a 64 KB
@@ -1195,7 +1197,7 @@ _FADF_WLOOP     MOVE    R6, R8
                 SUB     ADF_FLUSH_CHUNK, @R8
                 RBRA    _FADF_RET1, !Z          ; track not finished yet
 
-                ; Track done: close the session and report that this call DID
+                ; Track done: close the session and report that this call did
                 ; consume its time slice - it just wrote and flushed a full
                 ; 512-byte sector. Reporting "clean and idle" here instead
                 ; would be read by the round-robin scan of HANDLE_CORE_IO as
@@ -1233,36 +1235,38 @@ _FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
                 RBRA    FATAL, 1
 
 ; ----------------------------------------------------------------------------
-; ADF unmount with SPACE (issue #16)
+; ADF unmount with SPACE (GitHub #16)
 ;
-; Mirrors the C64 gesture: with the OSM open and the cursor on the ' ADF:'
-; line, SPACE ejects the disk (df0 goes empty, the menu label reverts to
-; "<Load>"). The framework has NO unmount path for CRT/ROM devices
-; (HANDLE_MOUNTING always opens the browser for CRT/ROM mode, shell.asm) and
-; M2M must not be modified, so we intercept the key core-side. HANDLE_IO calls
-; HANDLE_CORE_IO - and thus HANDLE_UNMOUNT_KEY - at the TOP of every OSM
-; key-wait iteration, BEFORE the KEYB$SCAN of that loop (options.asm). That
+; Mirrors the C64 gesture: with the OSM open and the cursor on the mount line
+; of a drive that holds a disk, SPACE ejects it (the drive goes empty, the menu
+; label reverts to "<Load>"). The framework has no unmount path for CRT/ROM
+; devices (HANDLE_MOUNTING always opens the browser for CRT/ROM mode,
+; shell.asm), so the key is intercepted core-side. HANDLE_IO calls
+; HANDLE_CORE_IO - and thus HANDLE_UNMOUNT_KEY - at the top of every OSM
+; key-wait iteration, before the KEYB$SCAN of that loop (options.asm). That
 ; ordering lets us both suppress the SPACE of the menu (so it never becomes a
-; mount) and fire the eject ourselves. Full design + adversarial review:
-; .research/INTEGRATION-SPEC-adf-unmount.md
+; mount) and fire the eject ourselves. See doc/developers/floppy-adf.md,
+; section 7.1 (Mount: getting an ADF into HyperRAM), paragraph Ejecting.
 ;
-; Five gates must all hold to act:
+; Five gates, in the order they are tested, must all hold to act:
 ;   1  OSM open            M2M$CSR bit M2M$CSR_OSM (else SPACE is for the Amiga)
-;   4  not a sub-activity  OSM_SUB_ACTIVE == 0 (the browser/help set it; this
+;   2  not a sub-activity  OSM_SUB_ACTIVE == 0 (the browser/help set it; this
 ;                          is what keeps a SPACE on a browser "press Space"
 ;                          screen reached via Return-to-replace from ejecting)
-;   2  ' ADF:' highlighted OPTM_CUR_SEL == the flat menu index of the ADF item
-;   3  ADF mounted         PARSEST == PT_OK (else let SPACE fall through and
-;                          mount, matching the SPACE-on-empty-drive of the C64)
+;   3  mount line          OPTM_CUR_SEL == the flat menu index of one of the
+;      highlighted         three mount lines (ADF_MNT_LN_TAB)
+;   4  disk mounted        PARSEST == PT_OK in that drive (else let SPACE fall
+;                          through and mount, matching the SPACE-on-empty-drive
+;                          of the C64)
 ;   5  fresh SPACE edge    via the ADF_UNMNT_PREV latch (one act per press)
 ;
-; Gates 1+4 read only absolute MMIO / RAM (no device window), so the common path
-; (OSM closed) is cheap and leaves the RAMROM selection untouched. Only once we
-; pass gate 4 do we snapshot RAMROM (R6/R7) and switch devices for gates 2/3 and
-; the eject; _HUK_RET restores it so HANDLE_CORE_IO stays transparent to its
-; caller. While gates 1-4 hold we suppress the SPACE of the menu EVERY iteration
-; (race-free vs. the edge detector of KEYB$SCAN) and eject only on the gate-5
-; rising edge.
+; Gates 1 and 2 read only absolute MMIO / RAM (no device window), so the common
+; path (OSM closed) is cheap and leaves the RAMROM selection untouched. Only
+; once we pass gate 2 do we snapshot RAMROM (R6/R7) and switch devices for
+; gates 3 and 4 and the eject; _HUK_RET restores it so HANDLE_CORE_IO stays
+; transparent to its caller. While gates 1-4 hold we suppress the SPACE of the
+; menu every iteration (race-free vs. the edge detector of KEYB$SCAN) and eject
+; only on the gate-5 rising edge.
 ;
 ; Input/Output: none. Bank-local R0-R7; clobbers global R8-R10 (HANDLE_CORE_IO
 ; has no live upper registers at its top and reloads them at first use).
@@ -1270,7 +1274,7 @@ _FADF_FATAL     MOVE    ERR_ADF_FLUSH, R8       ; R9 holds the FAT32 error
 HANDLE_UNMOUNT_KEY INCRB
 
                 ; read current SPACE state (M2M$KEYBOARD is low-active) and
-                ; update the edge latch UNCONDITIONALLY every call (OSM open or
+                ; update the edge latch unconditionally every call (OSM open or
                 ; closed), so opening the OSM with SPACE held cannot fake an edge
                 MOVE    M2M$KEYBOARD, R0
                 MOVE    @R0, R0
@@ -1287,7 +1291,7 @@ HANDLE_UNMOUNT_KEY INCRB
                 AND     M2M$CSR_OSM, R0
                 RBRA    _HUK_RET_NS, Z
 
-                ; --- gate 4: inside a menu-item sub-activity (browser/help)? ---
+                ; --- gate 2: inside a menu-item sub-activity (browser/help)? ---
                 MOVE    OSM_SUB_ACTIVE, R0
                 CMP     0, @R0
                 RBRA    _HUK_RET_NS, !Z
@@ -1299,14 +1303,15 @@ HANDLE_UNMOUNT_KEY INCRB
                 MOVE    M2M$RAMROM_4KWIN, R0
                 MOVE    @R0, R7
 
-                ; --- gate 2: is one of the three mount lines highlighted? ---
-                ; The flat menu index of each mount line is a BUILD-TIME
+                ; --- gate 3 (loop label _HUK_G2): is one of the three mount
+                ; lines highlighted? ---
+                ; The flat menu index of each mount line is a build-time
                 ; constant (AEXP_OSM_DF*_MOUNT_LN, scraped from mega65.vhd by
                 ; make_rom.sh and cross-checked against the text of that line
-                ; by .research/check_osm_menu.py), and OPTM_CUR_SEL is the live
+                ; by tools/check_osm_menu.py), and OPTM_CUR_SEL is the live
                 ; highlight in the same flat coordinate - so this gate is three
                 ; compares. Asking CRTROM_M_GI once per drive instead would
-                ; rescan the whole 148-line menu three times on EVERY key-wait
+                ; rescan the whole 148-line menu three times on every key-wait
                 ; poll. The scan needs no visibility test of its own: a mount
                 ; line hidden by a menu dependency can never carry the cursor.
                 MOVE    OPTM_CUR_SEL, R0
@@ -1320,7 +1325,8 @@ _HUK_G2         CMP     @R1++, R0
                 RBRA    _HUK_G2, !Z
                 RBRA    _HUK_RET, 1             ; some other line -> bail
 
-                ; --- gate 3: is a disk in THAT drive? PARSEST == PT_OK ---
+                ; --- gate 4 (label _HUK_G3): is a disk in that drive?
+                ; PARSEST == PT_OK ---
 _HUK_G3         MOVE    ADF_DEV_TAB, R8
                 ADD     R2, R8
                 MOVE    @R8, R8
@@ -1330,7 +1336,7 @@ _HUK_G3         MOVE    ADF_DEV_TAB, R8
                 RBRA    _HUK_RET, !Z            ; empty drive -> let SPACE mount
 
                 ; in context: suppress the SPACE of the menu this iteration,
-                ; BEFORE KEYB$SCAN runs. The rising edge of KEYB$SCAN is
+                ; before KEYB$SCAN runs. The rising edge of KEYB$SCAN is
                 ; (pressed AND NOT KEYB_PRESSED), so pre-setting the SPACE bit
                 ; kills the edge -> KEYB$GETKEY never returns SPACE ->
                 ; OPTM_CB_SEL / HANDLE_MOUNTING never fire for it. Done on every
@@ -1344,7 +1350,7 @@ _HUK_G3         MOVE    ADF_DEV_TAB, R8
                 RBRA    _HUK_RET, Z
                 CMP     0, R5                   ; ..released last poll?
                 RBRA    _HUK_RET, !Z            ; still held -> already handled
-                MOVE    R2, R8                  ; eject + flush + disarm THAT
+                MOVE    R2, R8                  ; eject + flush + disarm that
                 RSUB    ADF_UNMOUNT, 1          ; drive
 
 _HUK_RET        MOVE    M2M$RAMROM_DEV, R0      ; restore the RAMROM selection
@@ -1354,12 +1360,12 @@ _HUK_RET        MOVE    M2M$RAMROM_DEV, R0      ; restore the RAMROM selection
 _HUK_RET_NS     DECRB
                 RET
 
-; ADF_UNMOUNT: eject the ADF of ONE drive, then flush + disarm its write-back.
+; ADF_UNMOUNT: eject the ADF of one drive, then flush + disarm its write-back.
 ;
-; Order matters: eject FIRST so the Amiga sees that unit vanish and stops
-; writing to it, THEN flush the already-committed dirty tracks (the eject
-; leaves the HyperRAM image intact), THEN disarm. This mirrors the flush +
-; disarm of PREP_LOAD_IMAGE and now shares ADF_DISARM with it. Only the drive
+; Order matters: eject first so the Amiga sees that unit vanish and stops
+; writing to it, then flush the already-committed dirty tracks (the eject
+; leaves the HyperRAM image intact), then disarm. This mirrors the flush +
+; disarm of PREP_LOAD_IMAGE and shares ADF_DISARM with it. Only the drive
 ; that is passed in is touched: a session or dirty bitmap of another drive
 ; keeps running untouched. Switches the RAMROM device; the caller
 ; (HANDLE_UNMOUNT_KEY) restores it.
@@ -1392,14 +1398,14 @@ ADF_UNMOUNT     INCRB
                 ;    armed and let the background flush finish later (benign:
                 ;    the drive already shows empty).
                 ;
-                ; First apply the SAME card-change guard that the SD guard of
+                ; First apply the same card-change guard that the SD guard of
                 ; HANDLE_CORE_IO uses (SD_CHANGED, or an active-slot switch
                 ; while armed): a swapped/pulled card makes the retained FDH
                 ; stale, and flushing to it would write the old disk into the
                 ; new card (the ROSM_INTEGRITY rule) - and the FAT32 errors of
-                ; FLUSH_ADF_STEP are FATAL. We run BEFORE that SD guard (RSUB-ed
+                ; FLUSH_ADF_STEP are fatal. We run before that SD guard (RSUB-ed
                 ; first in HANDLE_CORE_IO), so an eject in the card-change
-                ; window would otherwise crash. On a change, DISCARD the dirty
+                ; window would otherwise crash. On a change, discard the dirty
                 ; bitmap (mirrors _HCIO_SDK) instead of flushing, then disarm.
                 MOVE    SD_CHANGED, R0
                 CMP     1, @R0
@@ -1447,14 +1453,14 @@ _ADF_UM_RET     DECRB
 ; Live Hardware Floppy status in the main menu
 ;
 ; Every drive owns a twin pair of main-menu lines: the mount line, shown while
-; that drive is a Disk Image, and a fixed-width TEXT line
+; that drive is a Disk Image, and a fixed-width text line
 ; " dfN:Hardware Floppy   " shown while it is the Hardware Floppy (the menu
-; dependency layer swaps them). That TEXT line is exactly OPTM_DX characters:
+; dependency layer swaps them). That text line is exactly OPTM_DX characters:
 ; one selection-marker column plus a HWF_LABEL_LEN-wide field, so the field can
 ; be patched in place while the menu is on screen. This is the C64MEGA65
 ; "8:Internal 1581" pattern, and it uses the same framework helper
 ; (OPTM_LIVE_TEXT, M2M-UPSTREAM live-text), which updates the writable menu-heap
-; copy of the item string AND repaints just those characters.
+; copy of the item string and repaints just those characters.
 ;
 ; Three coarse states are shown. The idle label is byte-identical to the static
 ; config.vhd text, so painting it is a visual no-op:
@@ -1465,7 +1471,7 @@ _ADF_UM_RET     DECRB
 ;
 ; The classification needs no new hardware: bit 2 of the front-end status word
 ; is the motor line, and diag register 0x1B counts the data words the track
-; engine served into Paula, so a moving counter IS a running read.
+; engine served into Paula, so a moving counter means a running read.
 ;
 ; Cost discipline, in the order the gates are applied: the whole routine is
 ; four RAM reads while the menu is closed - which is most of the time, and it
@@ -1504,24 +1510,24 @@ HWF_STATUS_STEP INCRB
                 ; --- gate 2: is a sub-activity showing instead? ---
                 ; The file browser and the help viewer own the screen while
                 ; they run, and they poll HANDLE_IO. OSM_SUB_ACTIVE is the flag
-                ; that OSM_SEL_PRE/OSM_SEL_POST bracket them with (issue #16),
-                ; and it is what stands in for the OPTM_FOREGROUND of the
+                ; that OSM_SEL_PRE/OSM_SEL_POST bracket them with, and it is
+                ; what stands in for the OPTM_FOREGROUND of the
                 ; C64MEGA65 framework - see the contract of OPTM_LIVE_TEXT.
                 MOVE    OSM_SUB_ACTIVE, R0
                 CMP     0, @R0
                 RBRA    _HWF_HIDE, !Z
 
-                ; --- gate 3: the twin lines live in the MAIN menu ---
+                ; --- gate 3: the twin lines live in the main menu ---
                 MOVE    OPTM_MENULEVEL, R0
                 CMP     0, @R0
                 RBRA    _HWF_HIDE, !Z
 
-                ; --- gate 4: which drive IS the Hardware Floppy? ---
+                ; --- gate 4: which drive is the Hardware Floppy? ---
                 ; The selected-state array of the menu is plain QNICE RAM and
                 ; therefore much cheaper than M2M$GET_SETTING, which would have
                 ; to select the config device. Only one drive can claim the
                 ; single mechanism (DRV_STEAL_HW enforces it), so the first hit
-                ; wins; if nobody claims it, all three TEXT lines are hidden by
+                ; wins; if nobody claims it, all three text lines are hidden by
                 ; their dependencies and there is nothing to show.
                 MOVE    OPTM_DATA, R0
                 MOVE    @R0, R0
@@ -1545,7 +1551,7 @@ _HWF_D          MOVE    @R1, R3
                 RBRA    _HWF_HIDE, 1            ; nobody claims the mechanism
 
                 ; The drive that owns the mechanism changed: the cached state
-                ; belongs to the line of the OTHER drive, so invalidate it and
+                ; belongs to the line of the other drive, so invalidate it and
                 ; let the new line repaint at once.
 _HWF_FOUND      MOVE    HWF_OSM_LDRV, R0
                 CMP     @R0, R2
@@ -1579,7 +1585,7 @@ _HWF_POLL       MOVE    IO$CYC_MID, R0
                 MOVE    M2M$RAMROM_DEV, R0
                 MOVE    AEXP_DEV_FDD, @R0
                 MOVE    M2M$RAMROM_4KWIN, R0
-                MOVE    0, @R0                  ; the bank decodes addr[5:0]
+                MOVE    0, @R0                  ; the bank decodes addr[6:0]
                 MOVE    HWF_DIAG_STAT, R0
                 MOVE    @R0, R3                 ; R3: front-end status word
                 MOVE    HWF_DIAG_SERVED, R0
@@ -1616,7 +1622,7 @@ _HWF_CLS        MOVE    HWF_OSM_LAST, R0        ; coarse state unchanged?
                 ADD     HWF_ASCII_ZERO, R1
                 MOVE    R1, @R0
 
-                MOVE    ADF_HW_LN_TAB, R0       ; the TEXT twin of that drive
+                MOVE    ADF_HW_LN_TAB, R0       ; the text twin of that drive
                 ADD     R2, R0
                 MOVE    @R0, R8
                 MOVE    1, R9                   ; skip the selection marker
@@ -1646,7 +1652,7 @@ _HWF_RET        DECRB
 ; IS_ADF_GROUP: is this menu group id one of the three ADF mount items?
 ;
 ; The Shell hands the plain group id to FILTER_FILES and PREP_LOAD_IMAGE, and
-; every drive needs its OWN mount group (a manual CRT/ROM line is bound to its
+; every drive needs its own mount group (a manual CRT/ROM line is bound to its
 ; id by its position in the static array). Both callbacks have to accept all
 ; three, otherwise the extension filter and the file-size guard silently apply
 ; to df0 only - and an oversized file streamed into df1 would run past the
@@ -1684,7 +1690,7 @@ DRV_MODE_TAB    .DW AEXP_OSM_DF0_IMG, AEXP_OSM_DF0_HW, 0xFFFF
 ; drive that just came back must leave it. The Off item is the one the count
 ; radio swaps in through the menu dependency, so this is what makes the drive
 ; appear in and disappear from the main menu. Note that we cannot simply hide
-; the mode radio instead: the main-menu twin lines depend on the MODE, not on
+; the mode radio instead: the main-menu twin lines depend on the mode, not on
 ; the count, and a dependent line may name only one mother group.
 ;
 ; Input:  none    Output: none    All registers preserved.
@@ -1731,8 +1737,8 @@ _DRVEC_D        CMP     3, R1                   ; all drives done?
                 RBRA    _DRVEC_N, 1
 
                 ; the drive does not exist any more: force it to Off - but only
-                ; if it is not already there. OPTM_SET goes FATAL when it is
-                ; asked to select the item of a menu group that is ALREADY the
+                ; if it is not already there. OPTM_SET goes fatal when it is
+                ; asked to select the item of a menu group that is already the
                 ; selected one: its "unselect the other member" scan then finds
                 ; nothing and falls through into OPTM_F_MENUGRP.
 _DRVEC_OFF      MOVE    R2, R4
@@ -1953,9 +1959,9 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
                 .DW AEXP_OSM_FLT_CRT_COMPOSITE, M2M$ASCAL_POLYPHASE, CRT_SIM_COMPOSITE_H, SCAN_BR_110_80
 
 ; ----------------------------------------------------------------------------
-; LOAD_SCREEN_OFFSETS: screen adjustment (issue #5). Reads the per-Amiga-mode
+; LOAD_SCREEN_OFFSETS: screen adjustment (GitHub #5). Reads the per-Amiga-mode
 ; table of signed screen offsets (HDMI crop, analog overscan, analog pan) from
-; /amiga/aexp_screen.cfg into RAM (SCR_TABLE). It does NOT push anything
+; /amiga/aexp_screen.cfg into RAM (SCR_TABLE). It does not push anything
 ; itself; DETECT_SCREEN_MODE (called from HANDLE_CORE_IO) watches the
 ; ascal-measured geometry + interlace flag, picks the matching row, and pushes
 ; it into the CFD gp_reg: HDMI crop to words 4..7 (ascal input crop
@@ -1964,7 +1970,7 @@ HDMI_FLT_TABLE  .DW AEXP_OSM_FLT_NO_FILTER,     M2M$ASCAL_NEAREST,   0,         
 ; On a missing/invalid file the table is zeroed (all 0 = no adjustment).
 ; Loading (re)arms the detector so the row of the current mode is re-pushed.
 ; Called from PREP_START (boot, before the core un-resets) and from
-; OSM_SEL_POST on the "Reload screen cfg" item (live, no core reset / no
+; OSM_SEL_POST on the "Reload Screen Config" item (live, no core reset / no
 ; re-synth -- the point of the SD-file tuning loop).
 ;
 ; File /amiga/aexp_screen.cfg (big-endian 16-bit words): "A","X", ver, count=4,
@@ -2094,11 +2100,11 @@ _LSO_CFDW       INCRB
                 RET
 
 ; ----------------------------------------------------------------------------
-; DETECT_SCREEN_MODE: screen adjustment (issue #5), the runtime half. Called
+; DETECT_SCREEN_MODE: screen adjustment, the runtime half. Called
 ; from HANDLE_CORE_IO every main-loop / wait-loop iteration. Reads the
 ; ascal-measured input geometry (SYS_CORE_X/Y) and the interlace flag
 ; (SYS_CORE_FLAGS bit 0, M2M-UPSTREAM screen-center), classifies the Amiga
-; graphics mode, debounces it, and on a stable CHANGE pushes the matching
+; graphics mode, debounces it, and on a stable change pushes the matching
 ; SCR_TABLE row into CFD gp_reg: HDMI crop into words 4..7, analog overscan
 ; into words 0..3, analog pan into words 8..9, and logs a MiSTer-style
 ; two-line (HDMI + Analog) trace to the serial UART. A mode outside the table
@@ -2335,17 +2341,15 @@ _SLS_MAG        RSUB    _SCR_LOGDEC, 1
 ;                    through QNICE device M2M$ASCAL_PPHASE.
 ;
 ;                    Safe to call at boot or at runtime from a core OSM
-;                    callback. Does NOT touch ascal mode bits, does NOT reset
+;                    callback. Does not touch ascal mode bits, does not reset
 ;                    the core.
 ;
-;                    BACKPORT from M2M V2.1 (M2M/rom/tools.asm): our M2M
-;                    V2.0.1 framework does not ship this routine and M2M/rom
-;                    firmware stays unmodified in this repo, so it lives here
-;                    (the only sanctioned M2M/ change is the VHDL interlace
-;                    feature, tagged M2M-UPSTREAM interlace). When the
-;                    framework is upgraded to V2.1+, delete this copy -- the
-;                    assembler will flag the duplicate label -- and re-apply
-;                    or upstream the M2M-UPSTREAM interlace patch.
+;                    Copy of the routine from the M2M V2.1.0 development
+;                    line (the framework copy in C64MEGA65, M2M/rom/tools.asm
+;                    there): M2M V2.0.1 lacks it. Delete this copy when AExp
+;                    moves to M2M V2.1.0; the assembler then reports the
+;                    duplicate label. See doc/developers/architecture.md,
+;                    section 8.10 (Other differences to V2.0.1).
 ;
 ; Input:  R8 = pointer to a 256-word horizontal coefficient table
 ;         R9 = pointer to a 256-word vertical   coefficient table
@@ -2401,7 +2405,7 @@ ADF_FILE_EXT    .ASCII_W ".ADF"
 ; ADF write-back CSR (WBC): one instance per simulated drive, behind the device
 ; of that drive (AEXP_DEV_ADF0/1/2, autogenerated into osm_const.asm from
 ; globals.vhd), 4k window 0xFFFE - register map defined in
-; CORE/vhdl/adf_mount_wrapper.vhd (keep in sync!). The register OFFSETS are the
+; CORE/vhdl/adf_mount_wrapper.vhd (keep in sync!). The register offsets are the
 ; same for every drive; only the device id differs, which is what ADF_SEL_WBC
 ; encapsulates.
 ADF_WBC_4KWIN   .EQU    0xFFFE              ; the write-back CSR window
@@ -2419,7 +2423,7 @@ ADF_FLUSH_CHUNK .EQU    512                 ; bytes per background time slice
 ; This identity is what the whole per-drive write-back rests on; it holds
 ; because the three OPTM_G_LOAD_ROM mount lines sit in that order in the static
 ; OPTM_GROUPS array of config.vhd (a manual CRT/ROM line is bound to its id by
-; POSITION, and hiding a line through a menu dependency does not renumber the
+; position, and hiding a line through a menu dependency does not renumber the
 ; others).
 ADF_DRIVES      .EQU    3
 
@@ -2437,13 +2441,13 @@ ADF_GRP_TAB     .DW AEXP_OPTM_G_ADF0, AEXP_OPTM_G_ADF1, AEXP_OPTM_G_ADF2
 
 ; Flat main-menu indexes of the twin lines of each drive, scraped from the
 ; C_MENU_*_LN constants of mega65.vhd - the mount line and its Hardware Floppy
-; TEXT twin. Cross-checked against the item text by check_osm_menu.py.
+; text twin. Cross-checked against the item text by tools/check_osm_menu.py.
 ADF_MNT_LN_TAB  .DW AEXP_OSM_DF0_MOUNT_LN, AEXP_OSM_DF1_MOUNT_LN, AEXP_OSM_DF2_MOUNT_LN
 ADF_HW_LN_TAB   .DW AEXP_OSM_DF0_HW_LN, AEXP_OSM_DF1_HW_LN, AEXP_OSM_DF2_HW_LN
 
 ; Hardware Floppy diagnostics: device C_DEV_AMIGA_FDD (globals.vhd), a read-only
 ; register bank in CORE/vhdl/physical_fdd/physical_fdd_diag.vhd. It decodes
-; addr[5:0] only, so the 4k window is irrelevant and the register number is the
+; addr[6:0] only, so the 4k window is irrelevant and the register number is the
 ; offset into the data window. Only the two registers the status line needs are
 ; named here; the full map lives in the header of that file (keep in sync!).
 AEXP_DEV_FDD    .EQU    0x0104              ; the diagnostics bank
@@ -2463,7 +2467,7 @@ HWF_LABEL_LEN   .EQU    22                  ; characters after the marker
 HWF_LABEL_DIGIT .EQU    2                   ; the N of "dfN:" in the label
 HWF_ASCII_ZERO  .EQU    0x0030
 
-; The three status labels, each EXACTLY HWF_LABEL_LEN characters so that the
+; The three status labels, each exactly HWF_LABEL_LEN characters so that the
 ; previous text is always fully erased. The idle label is byte-identical to the
 ; static line in config.vhd, which makes painting it a visual no-op. The drive
 ; digit is patched in at runtime (HWF_LABEL_DIGIT), so one set covers all three
@@ -2473,7 +2477,7 @@ HWF_OSM_IDLE    .ASCII_W "df0:Hardware Floppy   "
 HWF_OSM_MOTOR   .ASCII_W "df0:HW Floppy: Motor  "
 HWF_OSM_READ    .ASCII_W "df0:HW Floppy: Reading"
 
-; MEGA65 battery RTC (issue #13): framework device C_DEV_RTC (qnice_wrapper.vhd)
+; MEGA65 battery RTC: framework device C_DEV_RTC (qnice_wrapper.vhd)
 ; exposing the QNICE date/time interface of M2M/vhdl/i2c/rtc_controller.vhd. The
 ; core reads the same time at $DC0000 (Minimig MSM6242B). The window offset
 ; equals the register address (keep in sync with rtc_controller.vhd).
@@ -2512,13 +2516,13 @@ WRN_ADF_DUP     .ASCII_P "\n\nThis disk image is already in another\n"
 ; Fatal: SD card write failed during the ADF write-back
 ERR_ADF_FLUSH   .ASCII_W "ADF write-back: writing to the SD card failed.\n"
 
-; Screen centering (issue #5): per-Amiga-mode HDMI input-crop + VGA soft-blank table.
-; File name, table geometry, mode indices and the serial-log strings. The four
-; rows (lores-prog, hires-prog, lores-lace, hires-lace) default to all zeros
-; (no centering) until /amiga/aexp_screen.cfg provides tuned values.
+; Screen adjustment: per-Amiga-mode table of HDMI input crop, analog overscan
+; and analog pan. File name, table geometry, mode indices and the serial-log
+; strings. The four rows (lores-prog, hires-prog, lores-lace, hires-lace) default
+; to all zeros (no adjustment) until /amiga/aexp_screen.cfg provides tuned values.
 SCR_FILE_NAME     .ASCII_W "/amiga/aexp_screen.cfg"
 
-; Momentary "Reload Screen Config" busy label (issue #19). SCR$PRINTSTR renders
+; Momentary "Reload Screen Config" busy label. SCR$PRINTSTR renders
 ; the < > as the arrow glyphs of the framework (same look as <Mount>/<Load>). It
 ; is exactly OPTM_DX (23) characters, so printed at the left edge of the content
 ; it fills the whole width; it is shown while the SD re-mount + reload runs and
@@ -2596,15 +2600,15 @@ END_OF_ROM      .DW 0
 ;
 
 ; ADF write-back state (see HANDLE_CORE_IO / FLUSH_ADF_STEP). Everything here
-; is PER DRIVE: the scalars are three-word arrays indexed by the drive 0..2,
-; and each drive owns a full file-handle snapshot of its own. That per-drive
-; handle is the whole point - a single shared handle plus a second armed drive
-; would flush the tracks of one drive into the file of another.
+; is per drive: the scalars are three-word arrays indexed by the drive 0..2,
+; and each drive owns a full file-handle snapshot of its own. A single shared
+; handle plus a second armed drive would flush the tracks of one drive into the
+; file of another.
 ADF_FDH0        .BLOCK FAT32$FDH_STRUCT_SIZE    ; our own snapshot of the file
 ADF_FDH1        .BLOCK FAT32$FDH_STRUCT_SIZE    ; handle mounted into each
 ADF_FDH2        .BLOCK FAT32$FDH_STRUCT_SIZE    ; drive: HNDL_RM_FILES[n] is
                                                 ; re-opened by the Shell for
-                                                ; the NEXT load, our snapshot
+                                                ; the next load, our snapshot
                                                 ; stays valid until the card
                                                 ; or the SD slot changes
                                                 ; (reached via ADF_FDH_TAB)
@@ -2620,13 +2624,13 @@ ADF_FL_BADDR_HI .BLOCK ADF_DRIVES               ; image and file (32 bit)
 ADF_FL_RR       .BLOCK 1                        ; drive that gets the next
                                                 ; background flush time slice
 
-; ADF unmount-with-SPACE state (issue #16, see HANDLE_UNMOUNT_KEY)
+; ADF unmount-with-SPACE state (see HANDLE_UNMOUNT_KEY)
 ADF_UNMNT_PREV  .BLOCK 1                        ; SPACE state last poll (edge)
 OSM_SUB_ACTIVE  .BLOCK 1                        ; 1 while the sub-activity of a
                                                 ; menu selection (browser/help)
-                                                ; runs: gate 4 for the unmount
+                                                ; runs: gate 2 for the unmount
 
-; Screen adjustment (issue #5): file handle for /amiga/aexp_screen.cfg
+; Screen adjustment: file handle for /amiga/aexp_screen.cfg
 SCR_FDH    .BLOCK FAT32$FDH_STRUCT_SIZE
 ; per-Amiga-mode table (loaded by LOAD_SCREEN_OFFSETS, applied by
 ; DETECT_SCREEN_MODE): 4 rows x 10 signed words = HDMI crop
@@ -2648,7 +2652,7 @@ HWF_LAST_CNT    .BLOCK 1                        ; served-word count last poll
 HWF_LABEL       .BLOCK 23                       ; the built label: 22 chars
                                                 ; plus the terminator
 
-; Battery-RTC reseed state (see HANDLE_CORE_IO / RTC_STEP, issue #13)
+; Battery-RTC reseed state (see HANDLE_CORE_IO / RTC_STEP)
 RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
                                                 ; RTC_STEP; 0xFFFF = none yet
 
@@ -2662,12 +2666,12 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; The On-Screen-Menu uses the heap for several data structures. This heap
 ; is located before the main system heap in memory.
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
-; Example: If your HEAP_SIZE would be 30208, then you write 30208-1920=28288
-; instead, but when doing the sanity check calculations, you use 30208
+; Example: the combined release heap is 30080 words, so the release HEAP_SIZE
+; below is 30080-2336=27744, but the sanity check calculations use 30080.
 ;
 ; Budget (HELP_MENU in M2M/rom/options.asm, checked at runtime by LOG_HEAP1/
 ; LOG_HEAP2): the 148 menu items are a 1411-character string plus the 20-word
-; menu structure plus FOUR per-item arrays = 20 + 1411 + 1 + 4 x 148 + 1 =
+; menu structure plus four per-item arrays = 20 + 1411 + 1 + 4 x 148 + 1 =
 ; 2025 words; on top of that, OPTM_HEAP needs one (OPTM_DX + 2)-wide buffer
 ; per submenu (8), manual ROM (3) and vdrive (0) plus one scratch buffer =
 ; 12 x 25 = 300 words. Total demand is 2325 words, rounded up to the next
@@ -2675,23 +2679,24 @@ RTC_LAST_MIN    .BLOCK 1                        ; last internal minute seen by
 ; further. Every word reserved here is taken directly from the file browser -
 ; FB_HEAP starts at HEAP + MENU_HEAP_SIZE (M2M/rom/shell.asm) - and a small
 ; quantum still absorbs the usual menu-text tweak without an edit. Allocating
-; tight is safe because a shortfall is LOUD, never silent: HELP_MENU checks
-; the permanent structure against MENU_HEAP_SIZE (ERR_FATAL_HEAP1) and the
+; tight is safe because a shortfall is never silent: HELP_MENU checks the
+; permanent structure against MENU_HEAP_SIZE (ERR_FATAL_HEAP1) and the
 ; OPTM_HEAP demand against whatever is left over (ERR_FATAL_HEAP2), so the
 ; core stops with a fatal screen at boot and on every menu open - and
-; .research/check_osm_menu.py catches it statically long before that.
+; tools/check_osm_menu.py, which recomputes all of this from config.vhd,
+; catches it statically long before that.
 ; Whenever OPTM_SIZE, OPTM_ITEMS, OPTM_DX, or the submenu/drive/
 ; manual-ROM counts grow, recalculate both budgets and rebalance the
-; HEAP_SIZE constants below by the same delta.
-; .research/check_osm_menu.py recomputes all of this from config.vhd.
+; HEAP_SIZE constants below by the same delta (see
+; doc/developers/architecture.md, section 7.5).
 ;
 ; HELP_MENU_INIT additionally borrows 20 + 3 x 148 = 464 words of this region
 ; as transient scratch for the boot-time dependency validation (_HLP_DEPVAL in
 ; M2M/rom/options.asm) - far below the permanent demand, so it never binds.
 ;
-; The fourth per-item array and the 19th->20th structure word are the menu
-; dependency feature (M2M-UPSTREAM osm-deps); the manual-ROM count grew from
-; 1 to 3 with the second and third simulated floppy drive.
+; The fourth per-item array and the 20th structure word belong to the menu
+; dependencies (M2M-UPSTREAM osm-deps); the three manual ROMs are the mount
+; lines of the three simulated floppy drives.
 MENU_HEAP_SIZE  .EQU 2336
 
 #ifndef RELEASE
@@ -2700,15 +2705,8 @@ MENU_HEAP_SIZE  .EQU 2336
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-; The combined total (HEAP_SIZE + MENU_HEAP_SIZE) was lowered from the C64
-; figure of 30208 to 30080 words when the per-drive write-back and the live
-; Hardware Floppy status line added 66 words of firmware VARIABLES: those sit
-; below the heap, so they push HEAP up and eat directly into the space that is
-; left for the stack between the end of the heap and VAR$STACK_START. Check it
-; the way hard rule 11 of AGENTS.md describes, in the assembled m2m-rom.lis:
-; HEAP 0x8280 + 30080 = 0xF800, VAR$STACK_START 0xFEE0, so 1760 words remain
-; for a STACK_SIZE of 1536 - a 224-word margin, slightly better than the 1728
-; words the 30208 total used to leave.
+; The debug build uses a combined heap (HEAP_SIZE + MENU_HEAP_SIZE) of 7040
+; words; the stack check of the release layout is explained further below.
 HEAP_SIZE       .EQU 4704                       ; 7040 - 2336 = 4704
 HEAP            .BLOCK 1
 
@@ -2721,12 +2719,14 @@ HEAP            .BLOCK 1
 ; The monitor variables use 22 words, round to 32 for being safe and subtract
 ; it from FF00 because this is at the moment the highest address that we
 ; can use as RAM: 0xFEE0
-; The stack starts at 0xFEE0 (search var VAR$STACK_START in osm_rom.lis to
+; The stack starts at 0xFEE0 (search var VAR$STACK_START in m2m-rom.lis to
 ; calculate the address). To see, if there is enough room for the stack
 ; given the HEAP_SIZE do this calculation: Add 30080 words to HEAP which
 ; is currently 0x8280 and subtract the result from 0xFEE0. This yields
-; 1760 stack words, 224 more than STACK_SIZE. Recheck the HEAP and
-; VAR$STACK_START addresses in m2m-rom.lis whenever variables are added.
+; 1760 stack words, 224 more than STACK_SIZE. Firmware variables sit below
+; the heap, so every variable word moves HEAP up and is taken from this stack
+; space: recheck the HEAP and VAR$STACK_START addresses in m2m-rom.lis
+; whenever variables are added (doc/developers/architecture.md, section 7.5).
 
                 .ORG    0xFEE0                  ; TODO: automate calculation
 #endif

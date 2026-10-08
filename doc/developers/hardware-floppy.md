@@ -381,10 +381,11 @@ correctly framed words, which the served stream deliberately is not once it
 has free-run across a splice. So the stage carries a second framing counter
 over the same shift register that *always* realigns on a sync match, exposed
 as `dword_valid_o/dword_o`, and the capture path consumes that stream. The
-two counters are cleared together by reset, loss of lock and every sync match
-taken outside the hold, so they coincide whenever the hold has not engaged
-since; in the realign-always arm they are identical by construction, and the
-served stream into Paula is untouched in every mode.
+two counters are cleared together by reset, a loss of lock in legacy mode
+(the DPLL never resyncs; in DPLL mode a loss of lock is only counted) and
+every sync match taken outside the hold, so they coincide whenever the hold
+has not engaged since; in the realign-always arm they are identical by
+construction, and the served stream into Paula is untouched in every mode.
 
 ### 4.5 The word FIFO and the chain reset
 
@@ -581,8 +582,8 @@ not when the flux is on the disk. Every word still in our pipe at that moment
 is flux the Amiga already believes written. A real Paula owes exactly one
 word at that instant, its own output shifter; ours owes the word just popped
 plus whatever the CDC FIFO and the shift register hold. Keeping the CDC FIFO
-at 4 words and the occupancy at 1 to 2 bounds that residue to 3 word times,
-about 104 µs. Shallowness is the whole mechanism; there is no timer and no
+at 4 words and the occupancy at 1 to 2 bounds that residue to 3 words (3 word
+times plus the 3-cell precomp window, about 104 µs). Shallowness is the whole mechanism; there is no timer and no
 withheld-pop heuristic. It is necessary and, as section
 [6.5](#65-the-post-dskblk-drain-hold) explains, not sufficient.
 
@@ -755,13 +756,17 @@ track without stepping. A real Amiga has no such interlock either.
 
 **The abort latch.** While streaming, any of deselect, motor off, enable off,
 the qualified protected level, the qualified change edge, a step pulse edge, a
-side-line change, an underrun or the engine's abort level closes WGATE in the
-same cycle and latches the abort for the rest of the episode. A returning
-term, a re-opened drain or a re-select cannot re-open the gate until the
-episode has ended and a new one arms. The underrun is detected at the cell
-boundary where it happens, not when the whole precomp window has emptied: a
-dry spell of one to six cells would otherwise pass as a WGATE deassert and
-re-assert in mid-track, an erased hole with no abort and no reason code.
+side-line change, an underrun or the engine's abort level ends the stream and
+latches the abort for the rest of the episode. Deselect, motor and enable are
+terms of the gate conjunction itself, so WGATE closes on the very clock edge
+that sees them. The others reach the gate through registers, the abort latch
+and, for the tab and the change edge, the revoked `wr_ok`, so WGATE closes one
+20 ns clock later. A returning term, a re-opened drain or a re-select cannot
+re-open the gate until the episode has ended and a new one arms. The underrun
+is detected at the cell boundary where it happens, not when the whole precomp
+window has emptied: a dry spell of one to six cells would otherwise pass as a
+WGATE deassert and re-assert in mid-track, an erased hole with no abort and no
+reason code.
 
 **The read chain is held in reset for the whole episode**, and through the
 writer's tail: `chain_rst` includes the synchronized episode level and the
@@ -775,38 +780,60 @@ words.
 
 ### 6.5 The post-DSKBLK drain hold
 
-This is the one place where the shallow pipe is not enough on its own, and it
-was found on the bench rather than in simulation. X-Copy's DOS engine writes
-`[500 x $AAAA][11 sectors][1 x $AAAA]`, 6485 words: its whole post-DSKBLK
-margin is one padding word, sized for a real Paula that owes one word. It
-then toggles the side line about 30 µs after DSKBLK. Our writer still owed
-about 100 µs of flux at that point, treated the side change as a gate term,
-and cut the tail, which destroyed the last word of sector 10 on every
-upper-side track: 85 bytes of 901,120, all sector 10, all head 1, all at
-offset 510/511.
+This is the one place where the shallow pipe is not enough on its own.
+X-Copy's DOS engine writes `[500 x $AAAA][11 sectors][1 x $AAAA]`, 6485 words:
+its whole post-DSKBLK margin is one padding word, sized for a real Paula that
+owes one word. It toggles the side line about 30 µs after DSKBLK. At DSKBLK
+the writer still owes up to about 100 µs of flux, so a writer that treated
+that side change as an abort term would cut the tail and lose the last word of
+sector 10 on every upper-side track: 85 bytes of 901,120, all sector 10, all
+head 1, all at offset 510/511.
 
 Once the episode level has fallen the host has already been told the write
 completed, and the flux still owed is flux the Amiga believes is on the disk.
-Cutting it is strictly worse than writing it. So a **pair** of changes, which
-must never ship apart:
+Cutting it is strictly worse than writing it. The hold is therefore a **pair**
+of mechanisms that must never ship apart:
 
 * `mega65.vhd` holds `f_selecta_o` and `f_side1_o` at their episode values
   while the writer is busy **and** the episode has fallen **and** the held
   select is the asserted one. The window is the drain only, the pipe depth,
   at most about 104 µs, far inside X-Copy's own 253 µs post-side settle and
-  trackdisk's 2 ms wait. Keying on busy alone would freeze the pins for a
-  whole 207 ms track, for the rest of a blocked or aborted episode, and
-  across a reset (a held reset leaves the episode latched), right where
-  trackdisk recalibrates with a burst of steps. Holding a *deselected* value
-  would protect nothing and could make the drive ignore a step that reaches
-  its pin while it is pinned deselected.
+  trackdisk's 2 ms wait. The episode level falls when the engine's next poll
+  sees `trackwr` low. Minimig drops `trackwr` in the same state in which it
+  fires DSKBLK, and the engine polls every few microseconds during a write,
+  so the episode level falls a few microseconds after DSKBLK and the guard
+  band against X-Copy's side toggle is that much shorter than the full 30 µs.
+
+    Keying the hold on the drain rather than on busy alone matters. Busy alone
+    would freeze the pins for a whole 207 ms track, for the rest of a blocked
+    or aborted episode, and across a reset (a held reset leaves the episode
+    latched), right where trackdisk recalibrates with a burst of steps. Keyed
+    on the drain, none of that can happen: a stuck episode keeps the episode
+    level high, so the hold never engages.
+
+    Only an asserted select is held. A *deselected* value would protect
+    nothing, because every path that reaches the hold deselected already has
+    the gate shut: a tab-blocked discard, an episode aborted mid-stream, or a
+    deselect between DSKBLK and the engine observing the end of the DMA. It
+    could only do harm: a mechanism qualifies STEP by its select line, so a
+    drive pinned deselected ignores a step pulse that reaches its pin, and the
+    head silently stays behind the host's cylinder counter.
+
 * `physical_fdd_writer` stops treating a select or side change as an abort
   term once the episode has fallen (`v_hold`). Every other term stays live:
   motor and enable, because a stopped spindle or disabled unit means the flux
   would land nowhere or in the wrong place; the tab and change revokes; and
   **STEP, deliberately**. A seek moves the head, and writing across it smears
-  the data over two cylinders, so the step edge still closes WGATE in the
-  same cycle.
+  the data over two cylinders, so the step edge still closes WGATE, one clock
+  after the edge.
+
+    The tab and change revokes have one blind spot here. Their filters
+    sample only while the host's select is asserted and settled, so when the
+    host deselects during the drain they pause, and the settle counter
+    restarts, so the rest of the drain runs without them. That is acceptable:
+    the window is bounded by the drain, the mechanism is still selected
+    through the held pin, the tab was qualified when the episode armed, and
+    the medium cannot change under a head that is in the middle of writing.
 
 **STEP and DIR are not held.** STEP is a pulse, and nothing in the hold logic
 latches or replays one; a pulse that began and ended inside a hold would be
@@ -822,17 +849,18 @@ surface. A mechanism gates its write circuitry on `/SELn`, so without the
 select hold a deselected drive ignores WGATE and the tail is lost silently,
 with no abort and no tail-cut count. Holding select asserted past a host
 deselect is safe on this board because there is exactly one drive on the
-cable. Only the pins are held; the engine's bind qualifier and the
-diagnostics keep following the live Amiga values. The mega65-side window is a
-strict superset of the writer's own `v_hold`, because the episode level is
-native to the core domain and falls first while busy returns through a
-`cdc_stable` and falls last. This extends the framework's `floppy-pins` exception and the writer's abort
-contract.
+cable: `f_selectb` and `f_motorb` stay tied inactive, so no second mechanism
+can contend for the shared open-collector status lines. Only the pins are
+held; the engine's bind qualifier and the diagnostics keep following the live
+Amiga values. The mega65-side window is a strict superset of the writer's own
+`v_hold`, because the episode level is native to the core domain and falls
+first while busy returns through a `cdc_stable` and falls last. This extends
+the framework's `floppy-pins` exception and the writer's abort contract.
 
-After the fix X-Copy copied all 160 tracks with verify on, byte-identical to a
-proven reference, and the flux dumps of three X-Copy-written disks show every
-write ending 15 cells after sector 10's last data bit, the end of the pad
-word, on both heads.
+With the hold, X-Copy copies all 160 tracks with verify on, byte-identical to
+a proven reference, and flux dumps of X-Copy-written disks show every write
+ending 15 cells after sector 10's last data bit, the end of the pad word, on
+both heads.
 
 ---
 
@@ -886,11 +914,16 @@ registers.
 The whole feature was brought up without a scope or a logic analyzer; the
 only on-hardware instrument is `physical_fdd_diag`, a read-only register bank
 at QNICE device `0x0104` (`C_DEV_AMIGA_FDD`), decoding 128 word addresses.
-Every tap comes from `physical_fdd_top` in the same 50 MHz domain, so nothing
-tears. The readout is registered on the falling clock edge (the M2M device
-convention), so the CPU-facing data path is a plain flip-flop bank rather than
-a 128-word mux cloud, with zero wait states; this mattered because one build
-grazed the kick-ROM half-period path through the shared device-data cone.
+Every tap is in the 50 MHz domain by the time it reaches the bank. Most come
+from `physical_fdd_top`; the drive map, the dump nonce and the readbacks of
+`0x1F` and `0x35` come from `mega65.vhd`, which also crosses the core-clock
+values (`0x1B`, the store signatures `0x20..0x2F`, the track in `0x79`), and
+`0x7D` is crossed in `physical_fdd_top`. The bank itself needs no crossing,
+and nothing tears. The readout is registered on the falling clock edge (the
+M2M device convention), so the CPU-facing data path is a plain flip-flop bank
+rather than a 128-word mux cloud, with zero wait states; a combinational mux
+would sit in the shared device-data cone, which also carries the kick-ROM
+half-period path.
 Three registers are writable; they are decoded in `mega65.vhd`.
 
 ### 8.1 Reading it from the QNICE monitor
@@ -959,8 +992,13 @@ The registers that answer the questions that actually come up:
   uses the same register for the `Reading` status.
 * **Is the channel word-exact?** The store-signature pair `0x20` (engine side)
   and `0x22` (Paula side) XOR the first 1024 words of the last session on both
-  sides of the host channel and must be equal; the checkpoints at `0x24..0x27`
-  bracket the first diverging word if they are not.
+  sides of the host channel. With WORDSYNC off, which is how trackdisk reads
+  (`0x23` bit 8 shows the live WORDSYNC level, so it reads 0 when the dump is
+  taken right after such a read), Paula stores every served word from the
+  sync word on, the two windows are the same, and the pair must be equal; the
+  checkpoints at `0x24..0x27` bracket the first diverging word if it is not.
+  With WORDSYNC on, Paula swallows the sync word the engine's window starts
+  with, the windows are one word apart, and the pair does not compare.
 * **What did the disk look like?** `0x13..0x1A` are the eight words after the
   last sync hit, decoding to the sector header's info long (format `$FF`,
   track, sector, sectors-to-gap); `0x1C` is the sector mask of the last full
@@ -971,11 +1009,12 @@ The registers that answer the questions that actually come up:
   directly), `0x62..0x69` hold the eight words before the last one, `0x6E` is
   the live framing status.
 * **What did the last write do?** `0x70` episodes bound, `0x7A` episodes in
-  which WGATE opened, `0x76` tab-blocked episodes, `0x79` the last episode's
-  track and flags, `0x7B` the last abort reason, `0x73/0x74` the WGATE window
-  in cycles (a full trackdisk write is exactly `6815 x 16 x 100` =
-  10,904,000), `0x77` the in-flight residue at DSKBLK (expected 3 or less) and
-  the tail-cut count, `0x7D` refused pushes (must be 0).
+  which WGATE opened, `0x76` episodes that discarded at arm time (in practice
+  a write to a write-protected disk), `0x79` the last episode's track and
+  flags, `0x7B` the last abort reason, `0x73/0x74` the WGATE window in cycles
+  (a full trackdisk write is exactly `6815 x 16 x 100` = 10,904,000), `0x77`
+  the last episode's in-flight residue at DSKBLK (expected 3 or less) and its
+  tail-cut count, `0x7D` refused pushes (must be 0).
 
 A decoder script, `tools/decode_fdd_dump.py`, turns a pasted dump into prose,
 flags stale instruments and duplicated captures, and knows every map version.
@@ -1063,9 +1102,9 @@ Then:
 4. For a disk that comes back virgin, have the tester repeat the recipe and
    dump `M D 7000 707D` **before any reset**. `0x70` and `0x7A` both up by the
    number of tracks: the core wrote, look at the drive and the disk. `0x70` up
-   but `0x7A` flat, with `0x76` counting: the core discarded, look at the tab
-   qualifier. `0x70` flat: the write never reached the physical unit; X-Copy
-   was aimed at another drive.
+   but `0x7A` flat, with `0x76` counting: the core discarded at arm time, look
+   at the tab qualifier first, then at select and motor. `0x70` flat: the
+   write never reached the physical unit; X-Copy was aimed at another drive.
 5. Before blaming a single track, fingerprint which drive wrote it
    (`tools/flux/writer_fingerprint.py`): the cells per revolution reveal the
    writing spindle's speed, and a track rewritten by the tester's own Amiga
@@ -1302,7 +1341,7 @@ dumps. "Since clear" means since the last `0x35` bit-15 strobe.
 | `0x11` | capture flags: bit 0 valid, 1 SIDE at the sync hit, 2 `/TRK0` at the hit, 3 live SIDE, 4 side-invert in force |
 | `0x12` | completed sector-header captures |
 | `0x13..0x1A` | capture words 0..7: the eight words after the last sync of the double `$4489` (info long odd, even, then label); info = ((odd and `$55555555`) shl 1) or (even and `$55555555`) |
-| `0x1B` | physical words served into Paula by the engine |
+| `0x1B` | physical words served into Paula by the engine (a trackdisk read is 7358) |
 | `0x1C` | sector-seen mask of the last full revolution, bits 10:0 |
 | `0x1D` | last full revolution: captures (15:8), losses of lock (7:0) |
 | `0x1E` | captures whose format byte was not `$FF` |
@@ -1322,24 +1361,24 @@ dumps. "Since clear" means since the last `0x35` bit-15 strobe.
 | `0x37` | estimate at the minimum-margin gap |
 | `0x38` | raw length of that gap (cycles) |
 | `0x39` | margin status: bits 1:0 class of the minimum-margin gap, 2 armed window open, 3 serving, 4 gate open |
-| `0x3A` | armed-sector window openings since clear |
+| `0x3A` | armed-sector window openings since clear (saturating) |
 | `0x3B` | gaps histogrammed since clear (saturating) |
 | `0x3C` | rejected gaps while gated, since clear (saturating) |
-| `0x3D` | sync hits while gated, since clear |
+| `0x3D` | sync hits while gated, since clear (saturating) |
 | `0x3E/0x3F` | estimate minimum / maximum since clear |
 | `0x40..0x47` | short-class histogram, 8 saturating bins of the signed error over [-tol, +tol) |
 | `0x48..0x4F` | medium-class histogram |
 | `0x50..0x57` | long-class histogram |
 | `0x58..0x5D` | per-sector miss profile, two 8-bit saturating counters per word (`0x58` = sectors 1,0 ... `0x5D` = sector 10) |
-| `0x5E` | qualified read revolutions since clear (the profile's denominator) |
+| `0x5E` | qualified read revolutions since clear, the profile's denominator (saturating) |
 | `0x5F` | DPLL cell period, Q8.4 (nominal `0x640`) |
 | `0x60` | mid-serve realign events since clear (counted whether taken or suppressed) |
-| `0x61` | realign context: 15:8 events with an odd bit-phase remainder, 3:0 the last event's remainder |
+| `0x61` | realign context: 15:8 events with an odd bit-phase remainder (saturating), 3:0 the last event's remainder |
 | `0x62..0x69` | the eight words emitted before the last mid-serve realign event |
 | `0x6A` | 15:8 serving-session count, 7:0 serve-start sector of the last session (`0xFF` = none) |
 | `0x6B` | losses of lock while streaming, since clear |
 | `0x6C` | losses of lock while not streaming, since clear |
-| `0x6D` | index windows excluded from the miss profile because the chain was lost mid-window |
+| `0x6D` | index windows excluded from the miss profile because the chain was lost mid-window (saturating) |
 | `0x6E` | framing status: bit 3 realign-always in force, 2 serving data, 1 WORDSYNC, 0 hold in force |
 | `0x6F` | unmapped (reads `0xEEEE`) |
 | `0x70` | write episodes bound |
@@ -1347,8 +1386,8 @@ dumps. "Since clear" means since the last `0x35` bit-15 strobe.
 | `0x72` | words consumed, running total |
 | `0x73/0x74` | WGATE window of the last episode, low/high (cycles) |
 | `0x75` | underrun aborts |
-| `0x76` | tab-blocked (discard) episodes |
-| `0x77` | 15:8 maximum in-flight words at the DSKBLK moment (FIFO plus shift register), 7:0 tail-cut count |
+| `0x76` | episodes that discarded at arm time because streaming was not allowed: tab qualifier not met, Hardware Floppy disabled, drive deselected, motor off, select settle not complete, or the live tab reading protected; in practice a write to a write-protected disk. trackdisk refuses such a write before it starts the DMA, so only copiers such as X-Copy tick it |
+| `0x77` | 15:8 in-flight words (FIFO plus shift register), sampled once, when the episode level falls just after DSKBLK; 7:0 tail cuts; both for the last episode |
 | `0x78` | precompensated pulses, last episode |
 | `0x79` | 7:0 the last episode's track; bit 8 completed, 9 aborted, 10 discard, 11 underrun, 12 tail cut |
 | `0x7A` | episodes in which WGATE opened |

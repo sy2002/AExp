@@ -465,13 +465,14 @@ begin
    eth_reset_o   <= '1';
    eth_txd_o     <= (others => '0');
    eth_txen_o    <= '0';
-   -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): the read-path floppy pins
-   -- (f_density/f_motora/f_selecta/f_side1/f_stepdir/f_step + the five
-   -- inputs) are routed into MEGA65_Core (Hardware Floppy feature).
-   -- WIP-V2-A9 extends the exception by the two WRITE pins f_wdata/f_wgate,
-   -- driven by physical_fdd_writer (both idle high = inactive; WGATE is
-   -- hard-gated on the conditioned write-protect tab in the core). Drive B
-   -- stays tied inactive - this core uses drive A only.
+   -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): the drive A pins of the
+   -- internal floppy connector are routed into MEGA65_Core for the Hardware
+   -- Floppy: f_density/f_motora/f_selecta/f_side1/f_stepdir/f_step, the write
+   -- pins f_wdata/f_wgate and the five inputs. The core drives f_wdata and
+   -- f_wgate from physical_fdd_writer; both idle high (inactive), and WGATE
+   -- opens only while, among other conditions, the write-protect tab of the
+   -- disk reads writable. Drive B stays tied inactive: the core uses drive A
+   -- only.
    f_motorb_o    <= '1';
    f_selectb_o   <= '1';
    led_o         <= '0'; -- Off
@@ -836,7 +837,7 @@ begin
          iec_srq_n_o       => iec_srq_n_o,
 
          -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): MEGA65 internal
-         -- floppy drive (Hardware Floppy feature, read path)
+         -- floppy drive (Hardware Floppy, read and write)
          f_wdata_o         => f_wdata_o,
          f_wgate_o         => f_wgate_o,
          f_motora_o        => f_motora_o,

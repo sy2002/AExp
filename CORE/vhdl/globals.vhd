@@ -62,12 +62,12 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 --            CHARS_DX x CHARS_DY = VGA_DX/FONT_DX x VGA_DY/FONT_DY = 45 x 36
 --            (with the 16x16 font) that the firmware lays all OSM content
 --            (menu, file browser, help) into. This is the overlay canvas,
---            NOT the measured video active.
+--            not the measured video active.
 -- 720x576 equals the HDMI PAL 576p frame (C_HDMI_576p_50, H_PIXELS=720) so the
 -- overlay maps 1:1 on HDMI with hdmi_shift = H_PIXELS - VGA_DX = 0. VGA_DX is
 -- therefore pinned to 720: a larger value makes hdmi_shift negative into the
 -- 'natural' vga_cfg_shift_i port (video_overlay) and breaks the HDMI OSM. This
--- single global feeds BOTH the analog and the digital pipeline (framework.vhd),
+-- single global feeds both the analog and the digital pipeline (framework.vhd),
 -- so do not retarget it to the analog width. The analog post-scandoubler active
 -- is actually ~754x574 (ASCAL-measured); analog OSM/frame placement is handled
 -- on the analog path, not by changing this constant.
@@ -89,8 +89,8 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 -- HyperRAM memory map (in units of one 4 kW window = 4096 x 16 bit = 8 kB)
 ----------------------------------------------------------------------------------------------------------
 
--- GUARD DOCTRINE, adopted from C64MEGA65 (its globals.vhd; research issue #218 is still
--- open, the theory lives in C64MEGA65/doc/issue_214_simreu_hyperram.md): every region is
+-- Guard windows, adopted from C64MEGA65 (its globals.vhd; the analysis is in
+-- doc/issue_214_simreu_hyperram.md of the C64MEGA65 repository): every region is
 -- followed by an explicit one-window (8 kB) guard - or by enough unused space - so that a
 -- burst starting at the last legal word of a region can never reach the next region.
 --
@@ -113,7 +113,7 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 --
 -- The ascal framebuffer sits at RAMBASE 0 and is hardware-masked to
 -- 2**ceil(log2(VGA_DX*VGA_DY*3)) = 2 MB (ascal.vhd: avl_wadrs <= i_wadrs AND (RAMSIZE-1)),
--- so it cannot grow into the disk images - UNLESS triple buffering is switched on, which
+-- so it cannot grow into the disk images - unless triple buffering is switched on, which
 -- would make it 6 MB and swallow all three pools. mega65.vhd ties qnice_ascal_triplebuf_o
 -- to '0'; keep it that way. mega65.vhd asserts the size relation at elaboration time.
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- M2M framework, 512 windows = 4 MB, ends x"01FF"
@@ -129,8 +129,8 @@ constant C_HMAP_TOP_GUARD     : std_logic_vector(15 downto 0) := x"03FF";     --
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- total HyperRAM = 1024 windows = 8 MB
 
 -- Each drive owns a 128-window (1 MB) slot: 115 windows of image pool, one guard window,
--- and 12 windows of reserved slack. The slack is deliberately kept inside the owning
--- drive's slot so that any future maintenance probe address stays in its own region.
+-- and 12 windows of reserved slack. The slack stays inside the owning drive's slot, so a
+-- maintenance probe address beyond the pool can never land in another drive's region.
 constant C_HMAP_ADF_SLOT      : natural := 128;                               -- windows per drive slot
 
 -- The three pool bases indexed by Amiga unit, for the generate loops in mega65.vhd
@@ -139,7 +139,7 @@ constant C_HMAP_ADF_POOLS     : hmap_pool_array := (C_HMAP_ADF_DF0, C_HMAP_ADF_D
 
 -- ADF geometry: the single source of truth for hardware AND firmware. make_rom.sh scrapes
 -- these into globals.asm so the firmware size gate can never drift from the map.
--- Keep each of them on ONE line - the awk scraper is line-based.
+-- Keep each of them on one line: the awk scraper is line-based.
 constant C_ADF_TRACK_BYTES    : natural := 5632;                              -- 11 sectors x 512 bytes
 constant C_ADF_MIN_TRACKS     : natural := 160;                               -- 80 cylinders, both heads
 constant C_ADF_MAX_TRACKS     : natural := 166;                               -- 83 cylinders (Paula's step clamp)
@@ -156,10 +156,10 @@ constant C_ADF_POOL_BYTES     : natural :=
 -- into this device at startup, while the core is still held in reset.
 constant C_DEV_AMIGA_KICK     : std_logic_vector(15 downto 0) := x"0100";
 
--- Chip RAM (512 KB) and Slow RAM (512 KB): RESERVED, not wired. The QNICE
--- debug access had to be removed for timing closure: the QNICE address bus
--- could not reach all 256 spread-out BRAM tiles within the falling-edge
--- half-period (see mega65.vhd). Kept here so the IDs are not reused.
+-- Chip RAM (512 KB) and Slow RAM (512 KB): reserved, not wired. The QNICE address
+-- bus cannot reach all 256 spread-out BRAM tiles within the falling-edge half-period
+-- (see doc/developers/architecture.md, section 7.2, No QNICE ports on spread-out
+-- block RAM). Kept here so the IDs are not reused.
 constant C_DEV_AMIGA_CHIP     : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 
@@ -168,21 +168,22 @@ constant C_DEV_AMIGA_SLOW     : std_logic_vector(15 downto 0) := x"0102";
 -- " df0:%s" / " df1:%s" / " df2:%s" mount items stream the disk images here (three
 -- instances of adf_mount_wrapper.vhd, one per C_HMAP_ADF_DF* pool).
 --
--- There are three of them even though at most two drives can be ADF drives at any one
--- time: an OPTM_G_LOAD_ROM menu line is bound to its manual-CRT/ROM index by its position
--- in the STATIC config array (M2M/rom/crts-and-roms.asm CRTROM_M_GI counts occurrences in
--- M2M$CFG_OPTM_CRTROM and is blind to menu-dependency visibility). So every unit that can
--- ever be an ADF drive needs its own permanently-bound mount line, hence its own device.
--- Keep each constant on ONE line - make_rom.sh scrapes them.
+-- Every unit can be a Disk Image drive, and an OPTM_G_LOAD_ROM menu line is bound to its
+-- manual-CRT/ROM index by its position in the static config array (CRTROM_M_GI in
+-- M2M/rom/crts-and-roms.asm counts occurrences in M2M$CFG_OPTM_CRTROM and ignores
+-- menu-dependency visibility). So each unit needs its own permanently bound mount line,
+-- and with it its own device, even while the drive is off or the Hardware Floppy.
+-- Keep each constant on one line: make_rom.sh scrapes them.
 constant C_DEV_AMIGA_ADF0     : std_logic_vector(15 downto 0) := x"0103";
 constant C_DEV_AMIGA_ADF1     : std_logic_vector(15 downto 0) := x"0105";
 constant C_DEV_AMIGA_ADF2     : std_logic_vector(15 downto 0) := x"0106";
 
--- Physical floppy diagnostics: read-only register bank of the Hardware Floppy
--- front-end (physical_fdd_diag.vhd) - the on-hardware bring-up instrument.
--- Note that this sits BETWEEN the ADF devices: 0x0104 predates the second and third
--- ADF drive and is not moved, because the diag register map is documented by number
--- in .research/HANDOVER-hardware-floppy-round2.md.
+-- Hardware Floppy diagnostics: the register bank of physical_fdd_diag.vhd, plus the
+-- writable control registers decoded in mega65.vhd. The map is in
+-- doc/developers/hardware-floppy.md, section 12.2 (Diagnostics register map).
+-- The id sits between the ADF devices because it is older than the second and third
+-- drive; it keeps its number because the monitor instructions for taking a dump select
+-- the device by it (same doc, section 8.1, Reading it from the QNICE monitor).
 constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 
 ----------------------------------------------------------------------------------------------------------
@@ -190,7 +191,7 @@ constant C_DEV_AMIGA_FDD      : std_logic_vector(15 downto 0) := x"0104";
 ----------------------------------------------------------------------------------------------------------
 
 -- Virtual drive management system (handled by vdrives.vhd and the firmware)
--- Permanently OFF for this core: Minimig's floppy does not speak the
+-- Permanently off for this core: Minimig's floppy does not speak the
 -- sd_*/img_mounted protocol that vdrives implements - ADF images are mounted
 -- via the manual CRT/ROM loader below (C_DEV_AMIGA_ADF*) and served to Paula
 -- by adf_track_engine.vhd over the IO_FPGA host channel instead.
@@ -220,14 +221,15 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- Manually loadable ROMs and cartridges as defined in config.vhd
 -- Entry 0/1/2: the ADF disk images for df0/df1/df2, loaded via the OSM " df0:%s" /
 -- " df1:%s" / " df2:%s" mount items into the C_DEV_AMIGA_ADF0/1/2 devices (DEVICE type:
--- the device itself bridges to HyperRAM and answers the CSR handshake - do NOT use
+-- the device itself bridges to HyperRAM and answers the CSR handshake - do not use
 -- C_CRTROMTYPE_HYPERRAM, whose manual-load CSR handshake has no responder and hangs
 -- the Shell).
 --
--- THE ORDER IS LOAD-BEARING and must stay in sync across all five layers: the OSM
--- OPTM_G_LOAD_ROM occurrence order in config.vhd, the manual id used here, the QNICE
--- device, the generated HANDLE_RM_FILE<n> / HNDL_RM_FILES table, the firmware drive
--- index, and the Paula unit. Occurrence 0 = df0, 1 = df1, 2 = df2 everywhere.
+-- The order must match across all five layers: the OSM OPTM_G_LOAD_ROM occurrence order
+-- in config.vhd, the manual id used here, the QNICE device, the generated
+-- HANDLE_RM_FILE<n> / HNDL_RM_FILES table, the firmware drive index, and the Paula unit.
+-- Occurrence 0 = df0, 1 = df1, 2 = df2 everywhere; if one layer disagrees, a mount line
+-- loads into, or is flushed from, a different drive than its label says.
 --
 -- This count must never exceed the number of OPTM_G_LOAD_ROM lines in config.vhd -
 -- the Shell resolves a manual id to a menu line via CRTROM_M_GI and goes fatal if
@@ -242,7 +244,7 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts
 --
 -- The Amiga 500 cannot work without its Kickstart ROM, therefore it is
--- MANDATORY: if the file is missing on the SD card, the firmware shows a
+-- mandatory: if the file is missing on the SD card, the firmware shows a
 -- fatal error (including the file name) and the core does not start.
 --
 -- File format: raw 256 KB dump of Kickstart 1.3 (rev 34.5, A500/A1000/A2000),
@@ -267,8 +269,10 @@ constant C_CRTROMS_AUTO          : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_
 -- MiSTer sys_top.v default audio filter (also what MiSTer Minimig uses at this
 -- pipeline stage). Note: cx1=3 per MiSTer sys_top (binomial 1,3,3,1); the M2M
 -- template and C64MEGA65 carry cx1=2, which appears to be a template typo.
--- The Amiga-specific A500 RC / LED filters (Minimig.sv IIR_filter pair) are a
--- separate stage and a later milestone - see .research/INTEGRATION-SPEC-video-audio.md.
+-- This generic filter is off: mega65.vhd ties qnice_audio_filter_o to '0'. The
+-- Amiga-specific A500 and LED filters (the Minimig.sv IIR_filter pair) are a separate
+-- stage in audio_filters.vhd. See doc/developers/audio.md, section 4 (The generic M2M
+-- "audio improvements" filter stays off).
 constant audio_flt_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(7056000, 32));
 constant audio_cx       : std_logic_vector(39 downto 0) := std_logic_vector(to_signed(4258969, 40));
 constant audio_cx0      : std_logic_vector( 7 downto 0) := std_logic_vector(to_signed(3, 8));

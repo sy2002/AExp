@@ -6,35 +6,42 @@
 --   "00" = short  (2 channel cells)   "01" = medium (3 channel cells)
 --   "10" = long   (4 channel cells)   "11" = invalid / loss-of-lock
 --
--- ADAPTIVE quantiser (C64MEGA65 issue #90 round 12, kept bit-for-bit). Fixed
--- windows had hard dead-bands between the classes; on real DD media the inner
--- cylinders (60+) show enough peak shift that gaps landed in a dead-band for
--- revolutions at a time -> class-11 loss of lock (hardware evidence there,
--- 2026-07-14). This stage:
+-- Adaptive quantiser, unchanged from the C64MEGA65 physical-1581 decoder.
+-- Fixed windows have hard dead-bands between the classes, and on real DD
+-- media the inner cylinders (60+) show enough peak shift that gaps land in a
+-- dead-band for revolutions at a time, each one a class-11 loss of lock
+-- (measured on this mechanism in the C64MEGA65 bring-up). This stage:
 --
 --   * tracks the live half-cell length as a fixed-point estimate est
 --     (C_QUANT_FRAC = 4 fraction bits; unit 50 MHz cycles; nominal 100.0),
---     seeded to nominal on reset AND on every loss of lock (a rejected gap);
---   * classifies each gap G to the NEAREST class n in {2,3,4} half-cells by
+--     seeded to nominal on reset and on every loss of lock (a rejected gap);
+--   * classifies each gap G to the nearest class n in {2,3,4} half-cells by
 --     comparing G against the midpoints 2.5*est and 3.5*est;
 --   * accepts the class iff |G - n*est| is at most est/2 - the acceptance
 --     windows touch at the midpoints: every gap in [1.5*est .. 4.5*est]
---     classifies, there are NO dead-bands, and only gaps outside that span
+--     classifies, there are no dead-bands, and only gaps outside that span
 --     are class "11" (loss of lock);
---   * adapts est on every ACCEPTED gap by a FIXED step of C_QUANT_STEP_Q
---     (1/8 cycle) toward the gap: est += step * sign(G - n*est). Sign-based
---     (median-seeking) because a proportional IIR has a BIASED equilibrium
---     under peak shift (ISI lengthens short gaps and shrinks long gaps
---     systematically) - proven by the C64MEGA65 A/B margin harness;
+--   * adapts est on every accepted gap by a fixed step of C_QUANT_STEP_Q
+--     (1/8 cycle) toward the gap: est += step * sign(G - n*est). The step is
+--     sign-based (median-seeking) because a proportional IIR settles to a
+--     biased estimate under peak shift, where intersymbol interference
+--     lengthens short gaps and shortens long gaps systematically (measured
+--     with the margin harness of the C64MEGA65 bring-up);
 --   * hard-clamps est to [90 .. 110] cycles (+/-10% of nominal), bounding
 --     any runaway adaptation (real drive speed tolerance is ~+/-3%).
 --
--- For the Amiga the adaptivity additionally absorbs "long track" protections
--- (2..5% denser than nominal). The C64 decoder's field-phase tolerance tiers
--- and A1-train qualifier are not needed here: this front-end reconstructs the
--- RAW channel-bit stream and word alignment is a full 16-bit DSKSYNC compare
--- in physical_fdd_bits - structurally far stronger than any per-gap gate,
--- and self-healing (Paula word-compares the stream again downstream).
+-- For the Amiga the adaptivity also absorbs "long track" protections (2..5%
+-- denser than nominal). The field-phase tolerance tiers and the A1-train
+-- qualifier of the C64 decoder are not needed here: this front end
+-- reconstructs the raw channel-bit stream, word alignment is a full 16-bit
+-- DSKSYNC compare in physical_fdd_bits (structurally stronger than any
+-- per-gap gate), and the sectors are decoded in Amiga software.
+--
+-- The classes drive the bits of the legacy bit source in physical_fdd_bits.
+-- With the DPLL separator selected (the default) the quantiser runs as an
+-- observer only: its classes and error taps feed the loss-of-lock counter
+-- and the margin instruments, which therefore measure the same way in
+-- either mode.
 --
 -- est_o exposes the estimate (Q8.4) as a read-only diagnostic tap.
 --
@@ -61,11 +68,11 @@ entity physical_fdd_mfm_quantise is
     -- read-only diagnostic tap: live half-cell estimate, Q8.4 fixed point
     -- (bits 11:4 = integer cycles, bits 3:0 = sixteenths). Never read back.
     est_o       : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12);
-    -- read-only diagnostic taps for the margin engine (diag map v7), valid
-    -- with gap_valid_o: the signed classification error e = G - n*est of
-    -- the NEAREST class, the acceptance tolerance and the estimate the gap
-    -- was CLASSIFIED with (pre-adaptation), all Q4 (sixteenths of a
-    -- cycle). Purely additive - never fed back into the decision.
+    -- read-only diagnostic taps for the margin engine, valid with
+    -- gap_valid_o: the signed classification error e = G - n*est of the
+    -- nearest class, the acceptance tolerance and the estimate the gap was
+    -- classified with (before adaptation), all Q4 (sixteenths of a cycle).
+    -- Never fed back into the decision.
     gap_e_o     : out signed(15 downto 0) := (others => '0');
     gap_tol_o   : out unsigned(14 downto 0) := (others => '0');
     gap_est_o   : out unsigned(11 downto 0) := to_unsigned(C_QUANT_EST_NOM_Q, 12)

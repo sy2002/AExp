@@ -126,7 +126,7 @@ _HLP_SSIC1      SUB     1, R4                   ; one less menu item to go
                 ADD     OPTM_IR_LINES, R8
                 MOVE    R9, @R8
 
-                ; M2M-UPSTREAM osm-deps
+                ; M2M-UPSTREAM osm-deps (AExp 2026-08-02)
                 ; Copy the per-line dependency array to the heap and resolve it
                 ; in place, so that OPTM_DEP_OK can evaluate it cheaply while
                 ; the menu structure is built (see _OPTM_STRUCT in menu.asm).
@@ -585,9 +585,9 @@ _HLP_S_RET      MOVE    OPTM_SCOUNT, R0         ; store in variable
                 ; transient MENU_HEAP scratch behind the init record - HELP_MENU
                 ; rebuilds that area on every menu open, so this costs no
                 ; permanent heap, only OPTM_STRUCTSIZE + 3 * OPTM_ICOUNT words at
-                ; boot. Mount-drive, cursor-start and LOAD_ROM lines are NOT
-                ; special: the per-drive mount lines of this core are exactly the
-                ; lines that have to be dependent.
+                ; boot. Mount-drive, cursor-start and LOAD_ROM lines are not
+                ; special, because the per-drive mount lines of this core are
+                ; the lines that have to be dependent.
                 RSUB    OPTM_DEPS_PROBE, 1      ; does config.vhd support it?
                 RBRA    _HLP_DEPS_RET, !C       ; no: nothing to validate
 
@@ -658,7 +658,7 @@ _HLP_DEPS_RET   SYSCALL(leave, 1)
 ;
 ; Reads the magic word at the out-of-band address 0xFFF of the SEL_OPTM_DEPS
 ; window. A config.vhd that knows the feature returns 0x2DEF (dependency
-; format 2: 4-bit item MASK); an older one hits the unknown-selector default
+; format 2: 4-bit item mask); an older one hits the unknown-selector default
 ; and returns 0xEEEE, and a format-1 config.vhd (single item index) returns
 ; 0x1DEF - both are treated as feature-off, because this firmware interprets
 ; bits 11-8 as a mask. Lives here rather than in optm_deps.asm so that file

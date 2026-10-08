@@ -7,10 +7,11 @@
 -- VRAM attribute memory.
 --
 -- The standard 16x16 OSM cell is backed by the native 8x8 Anikki strike.
--- At 100% every native pixel is expanded to the exact legacy 2x2 block.  The
--- smaller integer cell sizes (15 down to 8 pixels) use sharpened bilinear
--- coverage.  In raw 15 kHz mode the vertical kernel widens towards a two-row
--- box at 50%, because the output visits only every second logical OSM row.
+-- At 100% every native pixel is expanded to a 2x2 block, which reproduces the
+-- 16x16 Anikki font bit for bit.  The smaller integer cell sizes (15 down to 8
+-- pixels) use sharpened bilinear coverage.  In raw 15 kHz mode the vertical
+-- kernel widens towards a two-row box at 50%, because the output visits only
+-- every second logical OSM row.
 --
 -- The signals vga_osm_on_o and vga_osm_rgb_o are delayed nine clock cycles
 -- after vga_col_i and vga_row_i.
@@ -513,7 +514,7 @@ begin
 
    -----------
    -- Stage 8: Select the four native samples and calculate exact coverage.
-   -- The 100% case remains an explicit legacy nearest-neighbour bypass.
+   -- The 100% case is an explicit nearest-neighbour bypass (vga_legacy_ink).
    -----------
 
    p_stage8 : process (clk_i)
@@ -559,8 +560,8 @@ begin
          stage8.vga_alpha      <= 0;
          stage8.vga_legacy_ink <= '0';
          if stage7.vga_osm_cfg_scaling = 0 then
-            -- The generator proves that this native bit is identical to all
-            -- four bits of the former 2x2 source block.
+            -- The font generator verifies that this native bit equals all
+            -- four bits of its 2x2 block in the 16x16 source font.
             if pixel_00 = not stage7.vga_osm_vram_attr(7) then
                stage8.vga_legacy_ink <= '1';
             end if;
@@ -618,8 +619,9 @@ begin
          stage9 <= stage8;
 
          if stage8.vga_osm_cfg_scaling = 0 then
-            -- Keep the legacy color selection separate from the filtered
-            -- path so 100% has no interpolation or coverage dependency.
+            -- Keep the nearest-neighbour color selection separate from the
+            -- filtered path so 100% has no interpolation or coverage
+            -- dependency.
             if stage8.vga_legacy_ink = '1' then
                stage9.vga_osm_rgb <=
                   attr2rgb(stage8.vga_osm_vram_attr(6) & stage8.vga_osm_vram_attr(2 downto 0));

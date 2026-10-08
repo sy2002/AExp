@@ -5,29 +5,34 @@
 ;
 ; A menu line can be tagged in config.vhd with OPTM_DEP(mother, item) or
 ; OPTM_DEP2(mother, item_a, item_b) so that it is only visible while one of
-; the items in a 4-bit item MASK of a specific "mother" group is selected
+; the items in a 4-bit item mask of a specific "mother" group is selected
 ; (dependency format 2, config.vhd magic 0x2DEF). This is a pure visibility
 ; layer: dependent lines keep their own osm_control bit, their saved
 ; config-file byte and their default state; the VHDL side multiplexes the
-; active variant explicitly. See doc/path-to-OSM-dependencies.md for the
-; complete design.
+; active variant explicitly. The core declares the dependencies with the
+; OPTM_DEP / OPTM_DEP2 functions of its config.vhd, whose comment block
+; documents the encoding from the core side.
 ;
-; M2M-UPSTREAM osm-deps
+; M2M-UPSTREAM osm-deps (AExp 2026-08-02)
 ; Ported into this M2M V2.0.1 instance from C64MEGA65, where the feature was
-; introduced as its issue #229. The port is deliberately minimal: the four
-; routines below are byte-for-byte the C64 originals. Two things differ from
-; the C64 tree:
+; introduced (C64MEGA65 GitHub #229). The code of OPTM_DEP_OK,
+; OPTM_DEPS_AFFECTS and OPTM_DEPS_RESOLVE is identical to the C64 original.
+; Three things differ from the C64 tree:
 ;   * OPTM_DEPS_MINHID is dropped. It only feeds a boot-time menu-height
 ;     warning that this M2M instance does not have.
-;   * OPTM_G_LOAD_ROM lines MAY be dependent here. The restriction is not
+;   * OPTM_DEPS_VAL is less strict in its classes 2 and 3; its header below
+;     explains why.
+;   * OPTM_G_LOAD_ROM lines may be dependent here. The restriction is not
 ;     implemented in OPTM_DEPS_VAL below but in the "special line" array that
-;     the caller builds (see _HLP_DEP_OR in options.asm), so allowing it needs
-;     no change to the validator. It is safe because a CRT/ROM line is bound to
-;     its manual id by its position in the STATIC config array, not by what is
-;     on screen: CRTROM_M_GI / CRTROM_M_NO count occurrences in
-;     M2M$CFG_OPTM_CRTROM and are blind to dependency visibility. AExp needs
-;     this because its ADF drives are mounted through the manual CRT/ROM
-;     loader, and each drive line has a mount/hardware twin pair.
+;     the caller builds; in this instance the validation at the end of
+;     HELP_MENU_INIT (options.asm) fills that array with the help lines only,
+;     so allowing it needs no change to the validator. It is safe because a
+;     CRT/ROM line is bound to its manual id by its position in the static
+;     config array, not by what is on screen: CRTROM_M_GI / CRTROM_M_NO count
+;     occurrences in M2M$CFG_OPTM_CRTROM and are blind to dependency
+;     visibility. AExp needs this because its ADF drives are mounted through
+;     the manual CRT/ROM loader, and each drive line has a mount/hardware twin
+;     pair.
 ;
 ; This file is included at the end of menu.asm. The routines that operate on
 ; plain arrays (OPTM_DEPS_RESOLVE, OPTM_DEPS_VAL) are pure and directly
@@ -45,7 +50,7 @@
 ; The resolved per-line dependency word (produced by OPTM_DEPS_RESOLVE):
 ;   bit 15    : valid (1 = this line is dependent)
 ;   bits 11-8 : mother item mask (copied through from the raw word)
-;   bits  7-0 : flat index of the FIRST member of the mother group
+;   bits  7-0 : flat index of the first member of the mother group
 ;
 ; done by sy2002 in 2026 and licensed under GPL v3
 ; ****************************************************************************
@@ -222,7 +227,7 @@ _ODA_NO         AND     0xFFFB, SR              ; clear Carry: no effect
 ; Run once per menu open (see HELP_MENU). Rewrites every raw dependency word
 ; into the resolved form expected by OPTM_DEP_OK: the item mask is copied
 ; through (bits 11-8) and the controlling-line field (bits 7-0) receives the
-; flat index of the FIRST member of the mother group -- for both mother types;
+; flat index of the first member of the mother group -- for both mother types;
 ; OPTM_DEP_OK branches on the single-select flag of that line at runtime.
 ; Lines that carry no dependency become 0. Assumes the structure was validated
 ; at boot by OPTM_DEPS_VAL; a mother with no members is defensively treated as
@@ -313,7 +318,7 @@ _RES_DONE       MOVE    R0, R8                  ; restore R8 (array base)
 ; OPTM_DEPS_VAL: Validate the dependency declarations at boot time
 ;
 ; Run once at boot (see HELP_MENU_INIT). All failures are authoring errors in
-; config.vhd, hence fatals. The step-1 restrictions checked here are:
+; config.vhd, hence fatals. The restrictions checked here are:
 ;
 ;   class 0  ERR_F_DEPMOTHER  : mother group id is 0 or 255, or has no members
 ;   class 1  ERR_F_DEPIDX     : item mask is empty, or contains a bit at or
@@ -321,14 +326,15 @@ _RES_DONE       MOVE    R0, R8                  ; restore R8 (array base)
 ;                               bit 1 (single-select mother)
 ;   class 2  ERR_F_DEPMIX     : members of one group reference different mother
 ;                               groups, or some are tagged and some are not
-;   class 3  ERR_F_DEPCHAIN   : a line depends on its OWN group
+;   class 3  ERR_F_DEPCHAIN   : a line depends on its own group
 ;   class 4  ERR_F_DEPSPECIAL : a dependent line is a submenu opener/closer or
-;                               is flagged special by the caller (since
+;                               is flagged special by the caller (in
 ;                               dependency format 2, MOUNT_DRV and START lines
-;                               MAY be dependent: the mount lines of C64MEGA65
-;                               issue #93 rely on it; in this instance
-;                               LOAD_ROM lines may be dependent as well, see
-;                               the M2M-UPSTREAM note in the file header)
+;                               may be dependent, which the mount lines of
+;                               C64MEGA65 rely on, C64MEGA65 GitHub #93; in
+;                               this instance LOAD_ROM lines may be dependent
+;                               as well, see the M2M-UPSTREAM note in the file
+;                               header)
 ;
 ; SUBMENU and CLOSE lines are recognized from the groups array (bit 14); the
 ; remaining special flags are stripped from the masked groups window and are
@@ -336,18 +342,19 @@ _RES_DONE       MOVE    R0, R8                  ; restore R8 (array base)
 ; (nonzero = special line). Which flags the caller folds into that array is
 ; the caller policy, not a property of this routine.
 ;
-; M2M-UPSTREAM osm-deps: classes 2 and 3 are deliberately WEAKER here than in
-; the C64MEGA65 original, because this core needs two constructs the original
-; does not have (see the OPTM_DEP comment in CORE/vhdl/config.vhd):
-;   * PARTIALLY VISIBLE groups - the members of one radio may carry different
-;     item masks of the SAME mother, so that the mother swaps one set of items
+; M2M-UPSTREAM osm-deps: classes 2 and 3 are less strict here than in the
+; C64MEGA65 original, because AExp needs two constructs the original does not
+; have (see the OPTM_DEP comment in CORE/vhdl/config.vhd):
+;   * partially visible groups - the members of one radio may carry different
+;     item masks of the same mother, so that the mother swaps one set of items
 ;     against another. Class 2 therefore compares only the dependent flag and
 ;     the mother id, not the mask. That the masks together cover every mother
-;     state is checked statically by .research/check_osm_menu.py, not here.
-;   * two-level CHAINS - a mode radio may be dependent itself AND be the mother
-;     of other lines. That is sound because visibility is derived from the
-;     SELECTED item alone, never from the visibility of another line, so no
-;     evaluation order exists that could be wrong. Class 3 therefore only
+;     state is not checked at boot; AExp checks it statically with its menu
+;     checker, tools/check_osm_menu.py.
+;   * two-level chains - a mode radio may be dependent itself and also be the
+;     mother of other lines. That is sound because visibility is derived from
+;     the selected item alone, never from the visibility of another line, so
+;     no evaluation order exists that could be wrong. Class 3 therefore only
 ;     rejects a line that depends on its own group, which is nonsense in any
 ;     reading.
 ;
@@ -393,8 +400,9 @@ _VAL_A          CMP     R1, R4                  ; all lines checked?
                 RBRA    _VAL_A_NEXT, Z          ; no: skip
 
                 ; class 4: dependent special line (submenu opener/closer,
-                ; bare close, load_rom or help; mount-drive and cursor-start
-                ; lines MAY be dependent since dependency format 2)
+                ; bare close, or a line the caller flags as special, in this
+                ; instance a help line; mount-drive, cursor-start and load_rom
+                ; lines may be dependent)
                 MOVE    R0, R6                  ; GROUPS[i]
                 ADD     R4, R6
                 MOVE    @R6, R6

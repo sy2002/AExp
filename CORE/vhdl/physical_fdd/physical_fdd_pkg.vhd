@@ -2,14 +2,17 @@
 -- Amiga 500 for MEGA65 (AExp)
 --
 -- physical_fdd_pkg: constants for the MEGA65 internal floppy drive used as a
--- real Amiga drive (df0:/df1:), read milestone.
+-- real Amiga drive (the Hardware Floppy, which can be df0:, df1: or df2:).
+-- The read front end takes its constants from here; the write constants
+-- live in physical_fdd_writer, which takes only its cell length from this
+-- package (C_CELL := C_HALF_CELL_CYC).
 --
 -- All magnetic timing derives from a single front-end clock frequency
--- C_FDD_HZ = 50 MHz (the exact QNICE-domain clock). The values are the ones
--- proven on real R3 hardware by the C64MEGA65 physical-1581 bring-up (issue
--- #90 there): Amiga DD MFM uses the same 2 us channel cell / 4-6-8 us flux
--- gaps at 300 RPM as 1581/PC DD media, so the gap quantisation and index
--- qualification transfer unchanged.
+-- C_FDD_HZ = 50 MHz (the exact QNICE-domain clock). The read values are the
+-- ones proven on real R3 hardware by the C64MEGA65 physical-1581 bring-up
+-- (C64MEGA65 GitHub #90): Amiga DD MFM uses the same 2 us channel cell and
+-- 4/6/8 us flux gaps at 300 RPM as 1581 and PC DD media, so the gap
+-- quantisation and the index qualification transfer unchanged.
 --
 -- Adapted from C64MEGA65 CORE/vhdl/physical_1581/physical_1581_pkg.vhd
 -- (sy2002 2026, GPLv3; magnetic constants in turn rooted in mega65-core,
@@ -40,22 +43,23 @@ package physical_fdd_pkg is
   constant C_GAP_LONG_CYC  : natural := 400;   -- 8 us
 
   -----------------------------------------------------------------------------
-  -- Adaptive gap quantiser (C64MEGA65 issue #90 round 12, verbatim)
+  -- Adaptive gap quantiser (unchanged from the C64MEGA65 physical-1581
+  -- decoder)
   --
   -- The quantiser tracks the live half-cell length as a fixed-point estimate
   -- est with C_QUANT_FRAC fraction bits (unit: 50 MHz cycles; nominal 100.0).
   -- Each gap G is classified to the nearest class n in {2,3,4} half-cells via
-  -- the midpoints 2.5*est / 3.5*est and ACCEPTED iff
+  -- the midpoints 2.5*est / 3.5*est and accepted iff
   --     |G - n*est| is at most est / 2**C_QUANT_TOL_SHR
   -- With C_QUANT_TOL_SHR = 1 the acceptance windows touch at the midpoints:
-  -- every gap in [1.5*est .. 4.5*est] gets a class, there are NO dead-bands,
+  -- every gap in [1.5*est .. 4.5*est] gets a class, there are no dead-bands,
   -- and everything outside is class "11" (loss of lock), which also re-seeds
-  -- est to nominal. On every accepted gap est adapts by a FIXED step of
-  -- C_QUANT_STEP_Q toward the gap (sign-based / median-seeking), hard-clamped
-  -- to +/-10% of nominal. See the C64MEGA65 pkg for the full A/B-harness
-  -- rationale (why sign-based beats a proportional IIR under peak shift).
-  -- The adaptivity is a genuine win for the Amiga: "long track" protections
-  -- write 2..5% denser than nominal and stay inside the tracked window.
+  -- est to nominal. On every accepted gap est adapts by a fixed step of
+  -- C_QUANT_STEP_Q toward the gap (sign-based, median-seeking), hard-clamped
+  -- to +/-10% of nominal. physical_fdd_mfm_quantise explains why a
+  -- sign-based step beats a proportional IIR under peak shift.
+  -- The adaptivity also helps the Amiga: "long track" protections write
+  -- 2..5% denser than nominal and stay inside the tracked window.
   -----------------------------------------------------------------------------
   constant C_QUANT_FRAC      : natural := 4;   -- fraction bits of est (1/16 cycle)
   constant C_QUANT_EST_MIN   : natural := 90;  -- clamp, integer cycles (-10%)
@@ -67,18 +71,18 @@ package physical_fdd_pkg is
   constant C_QUANT_EST_MAX_Q : natural := C_QUANT_EST_MAX * 2**C_QUANT_FRAC;
 
   -----------------------------------------------------------------------------
-  -- Digital PLL data separator (WIP-V2-A5, physical_fdd_bits)
+  -- Digital PLL data separator (physical_fdd_bits, the default bit source)
   --
-  -- The 2026-08-08 field margin measurements (deft, log03) showed the old-
-  -- media failures are RARE single-transition events - intervals reading up
-  -- to +/-20% off (accepted extremes 162 and 438 cycles, margins down to
-  -- 0.19 cycles) plus ~40 outright rejects per error session - on top of a
-  -- clean, est-tracked body. Interval classification amplifies every such
-  -- event: the displaced edge distorts TWO adjacent intervals, a class flip
-  -- inserts/deletes channel bits (a slip corrupts everything to the next
-  -- sync), and a reject triggers the loud resync. The DPLL instead assigns
-  -- each flux edge to a cell of a continuously phase/frequency-tracked
-  -- grid, exactly like the separator in front of a real Paula:
+  -- Measured on old media, read failures are rare single-transition events
+  -- on top of a clean, est-tracked body: intervals up to about +/-20% off
+  -- nominal (accepted extremes of 162 and 438 cycles, margins down to 0.19
+  -- cycles) and about 40 outright rejects per failing read session.
+  -- Interval classification amplifies every such event: the displaced edge
+  -- distorts two adjacent intervals, a class flip inserts or deletes channel
+  -- bits (a slip that corrupts everything up to the next sync), and a reject
+  -- triggers the loud resync. The DPLL instead assigns each flux edge to a
+  -- cell of a continuously phase- and frequency-tracked grid, like the
+  -- separator in front of a real Paula:
   --
   --   every cycle:  phase += 1 cycle; at phase >= cell emit one channel bit
   --                 ('1' if an edge fell into the elapsed cell, else '0')
@@ -89,35 +93,37 @@ package physical_fdd_pkg is
   --                 err/2**C_DPLL_FGAIN (slow period tracking), hard-
   --                 clamped to the same +/-10% span as the quantiser
   --
-  -- Tolerance per event: +/- cell/2 (= +/-1 us) of PHASE error at the
-  -- decision point, errors stay LOCAL (one bit position - no slip, no
-  -- resync; droughts free-run '0's inherently), and the phase pull absorbs
-  -- systematic bias/drift continuously instead of at 1/8 cycle per gap.
-  -- The quantiser keeps running as a passive OBSERVER so the diag margin
-  -- instrumentation measures identically in both modes; diag control
-  -- 0x35 bit 6 selects the legacy path at runtime (A/B on real media).
+  -- Tolerance per event: +/- cell/2 (= +/-1 us) of phase error at the
+  -- decision point. Errors stay local (one bit position: no slip, no
+  -- resync; droughts free-run '0's by construction), and the phase pull
+  -- absorbs systematic bias and drift continuously instead of at 1/8 cycle
+  -- per gap. The quantiser keeps running as a passive observer, so the
+  -- margin instruments measure the same way in both modes; diagnostics
+  -- register 0x35 bit 6 selects the legacy path at run time.
   -----------------------------------------------------------------------------
   constant C_DPLL_PGAIN : natural := 1;   -- phase correction: err/2 per edge
   constant C_DPLL_FGAIN : natural := 6;   -- period correction: err/64 per edge
 
-  -- Runt-merge threshold for the gaps stage: only true electrical runts (the
-  -- C64MEGA65 GAP_MIN = 0x0001 hardware evidence: edges 20-40 ns apart) merge
-  -- into their successor; everything longer stays a loud out-of-window gap.
-  -- Deliberately FAR below the shortest valid window (a larger value turns
-  -- late-in-gap noise into a merge of the following REAL edge - the round-10
-  -- regression over there).
+  -- Runt-merge threshold for the gap stage: only true electrical runts
+  -- (measured on this mechanism in the C64MEGA65 bring-up: edges 20-40 ns
+  -- apart) merge into their successor; everything longer stays a loud
+  -- out-of-window gap. It must stay far below the shortest valid window: a
+  -- larger value turns late-in-gap noise into a merge of the following real
+  -- edge, a regression the C64MEGA65 bring-up hit.
   constant C_GAP_GLITCH   : natural := 16;     -- 320 ns; below: electrical glitch
 
   -----------------------------------------------------------------------------
-  -- Flux-drought zero synthesis (Amiga-specific, physical_fdd_bits)
+  -- Flux-drought zero synthesis (Amiga-specific, legacy bit source of
+  -- physical_fdd_bits; the DPLL free-runs through droughts)
   --
   -- A real data separator keeps emitting '0' channel bits at the nominal cell
-  -- rate when no transitions arrive (degaussed/unformatted regions). Without
-  -- this the reconstructed bitstream would stall and Paula's DMA would hang
-  -- harder than on real hardware. The filler arms beyond the longest legal
-  -- gap acceptance span (4.5 * est_max = 495 cycles) and then emits one '0'
-  -- per nominal cell. The next real edge produces an oversized gap = class
-  -- "11" = a loud resync, so filler bits never corrupt locked data.
+  -- rate when no transitions arrive (degaussed or unformatted regions).
+  -- Without this the reconstructed bitstream would stall and Paula's DMA
+  -- would hang where real hardware does not. The filler arms beyond the
+  -- longest legal gap acceptance span (4.5 * est_max = 495 cycles) and then
+  -- emits one '0' per nominal cell. The next real edge produces an
+  -- oversized gap = class "11" = a loud resync, so filler bits never corrupt
+  -- locked data.
   -----------------------------------------------------------------------------
   constant C_DROUGHT_ARM_CYC  : natural := 512;              -- > 4.5 * est_max
   constant C_DROUGHT_CELL_CYC : natural := C_HALF_CELL_CYC;  -- one '0' per 2 us
@@ -136,54 +142,57 @@ package physical_fdd_pkg is
   --
   -- The 34-pin PC interface has no READY output, so RDY towards CIA-A is
   -- synthesized (the C64MEGA65 model of the Chinon FB-354 line):
-  --   * motor OFF: ready is asserted while selected - this is what makes
-  --     AmigaOS's motor-off drive-ID shift protocol read 0xFFFFFFFF =
-  --     "3.5 inch DD drive present" for df1:.
-  --   * motor ON: ready after the spin-up gate = motor on for >= 505 ms AND
-  --     >= 2 qualified index edges since motor-on AND a fresh index edge -
-  --     then HELD while the motor stays on (the mechanism gates INDEX on
-  --     /SEL, so freshness starves across deselect gaps; eject detection is
-  --     /DSKCHG's job, hardware-proven).
+  --   * motor off: ready is asserted, which makes the motor-off drive-ID
+  --     shift protocol of AmigaOS read 0xFFFFFFFF = "3.5 inch DD drive
+  --     present" for an external unit (df1:, df2:).
+  --   * motor on: ready after the spin-up gate, i.e. motor on for >= 505 ms,
+  --     >= 2 qualified index edges since motor-on and a fresh index edge,
+  --     then held while the motor stays on. The mechanism gates INDEX on
+  --     /SEL, so freshness starves across deselect gaps; an eject is
+  --     detected through /DSKCHG instead.
   -----------------------------------------------------------------------------
   constant C_READY_MOTOR_CYC  : natural := 25_250_000;       -- 505 ms spin-up
   constant C_READY_MIN_EDGES  : natural := 2;                -- index edges gate
-  constant C_INDEX_STALE_CYC  : natural := 12_500_000;       -- 250 ms = no disk
+  constant C_INDEX_STALE_CYC  : natural := 12_500_000;       -- 250 ms: not fresh
 
   -----------------------------------------------------------------------------
   -- Sector-header capture (physical_fdd_top -> physical_fdd_diag)
   --
-  -- After every DSKSYNC alignment hit the front-end records the following
-  -- C_CAP_WORDS reconstructed words. An Amiga sector starts with the double
-  -- 0x4489; the words after the LAST sync of that pair are the MFM-encoded
-  -- info longword (2 odd + 2 even words: 0xFF, track, sector, sectors-to-gap)
-  -- followed by the label area - enough to read the track number the header
-  -- claims, the one observation that separates a side-select inversion from
-  -- every downstream suspect.
+  -- After every DSKSYNC match the front end records the following
+  -- C_CAP_WORDS words of the sync-anchored diagnostic word stream. An Amiga
+  -- sector starts with the double 0x4489; the words after the last sync of
+  -- that pair are the MFM-encoded info longword (2 odd + 2 even words: 0xFF,
+  -- track, sector, sectors-to-gap) followed by the label area. That is
+  -- enough to read the track and sector number the header claims, which
+  -- shows directly whether the head sits on the cylinder and side the Amiga
+  -- asked for.
   -----------------------------------------------------------------------------
   constant C_CAP_WORDS : natural := 8;
   type t_fdd_cap_words is array (0 to C_CAP_WORDS - 1) of
     std_logic_vector(15 downto 0);
 
   -----------------------------------------------------------------------------
-  -- Interval-domain margin instrumentation (diag map v7, physical_fdd_top)
+  -- Interval-domain margin instrumentation (physical_fdd_top)
   --
   -- The quantiser classifies each gap G to the nearest class n and accepts
   -- iff |G - n*est| <= tol (= est/2). The margin engine records, for every
-  -- ACCEPTED gap inside its gate, the SIGNED error e = G - n*est in a
+  -- accepted gap inside its gate, the signed error e = G - n*est in a
   -- per-class histogram of C_HIST_BINS bins spanning [-tol .. +tol) (bin
   -- width tol/4): a healthy channel concentrates every class around bin
   -- 3/4; a systematic short-gap read bias with the estimate dragged to
   -- compensate shows the short class centered and the medium/long classes
   -- complementarily offset; uniform speed error offsets all classes the
-  -- same way. Together with the tracked minimum of (tol - |e|) this is the
-  -- measured classification-margin profile the separator redesign needs.
-  -- Bins are 16-bit SATURATING.
+  -- same way. Together with the tracked minimum of (tol - |e|) this gives
+  -- the classification-margin profile of a disk. Bins are 16-bit
+  -- saturating.
   --
   -- The per-sector miss profile counts, per sector number, the qualified
-  -- read revolutions (>= C_MISS_QUAL_CAPS header captures) whose
-  -- revolution mask lacked that sector - the discriminator between "the
-  -- decode always fails at one physical spot" and "misses rove". 8-bit
-  -- saturating counters, packed two per diag word.
+  -- read revolutions whose revolution mask lacked that sector. A revolution
+  -- qualifies if it produced >= C_MISS_QUAL_CAPS header captures and the
+  -- decode chain ran for its whole index-to-index window (a deselect hole
+  -- would leave sectors uncaptured without any flux fault). The profile
+  -- tells "the decode always fails at one physical spot" from "misses
+  -- rove". 8-bit saturating counters, packed two per diag word.
   -----------------------------------------------------------------------------
   constant C_HIST_BINS      : natural := 8;
   type t_fdd_hist is array (0 to 3 * C_HIST_BINS - 1) of unsigned(15 downto 0);

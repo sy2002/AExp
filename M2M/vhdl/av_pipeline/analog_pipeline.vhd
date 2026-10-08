@@ -50,7 +50,7 @@ entity analog_pipeline is
       -- M2M-UPSTREAM screen-center (AExp 2026-07-13): analog picture position.
       -- Signed pan in source-raster units (pan_x: two source clocks = one AExp
       -- hires pixel, pan_y: one source line; positive = right/down), applied by
-      -- analog_positioner AFTER the OSM and BEFORE CSYNC generation, so core
+      -- analog_positioner after the OSM and before CSYNC generation, so core
       -- content and OSM move together in all three analog modes. 0 = inert
       -- combinational bypass, so cores that leave the defaults are unchanged.
       video_pan_x_i           : in  std_logic_vector(11 downto 0) := (others => '0');
@@ -239,7 +239,7 @@ begin
          vs_o      => vga_vs_pos
       ); -- i_analog_positioner
 
-   -- M2M-UPSTREAM screen-center: CSYNC is generated from the POSITIONED syncs
+   -- M2M-UPSTREAM screen-center: CSYNC is generated from the positioned syncs
    i_csync : entity work.csync
       port map (
          clk   => video_clk_i,

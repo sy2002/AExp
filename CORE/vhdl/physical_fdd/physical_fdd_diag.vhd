@@ -1,254 +1,252 @@
 -------------------------------------------------------------------------------
 -- Amiga 500 for MEGA65 (AExp)
 --
--- physical_fdd_diag: read-only QNICE diagnostic register bank for the
--- physical floppy front-end (device C_DEV_AMIGA_FDD = 0x0104). The only
--- on-hardware instrument for the bring-up (the C64MEGA65 issue-#90 pattern:
--- no scope, no logic analyzer - a register window into the live front-end).
+-- physical_fdd_diag: the diagnostics register bank of the Hardware Floppy
+-- (QNICE device C_DEV_AMIGA_FDD = 0x0104). It is the on-hardware instrument
+-- of the feature: a register window into the live front-end, the writer and
+-- the engine counters, read from the QNICE monitor without a scope or a logic
+-- analyzer. How to read it: doc/developers/hardware-floppy.md, section 8
+-- (The diagnostics device); section 12.2 carries the same register map.
 --
--- Every tap comes from physical_fdd_top, which runs in the same 50 MHz QNICE
--- clock domain: no CDC, no tearing. READS ARE REGISTERED on the falling
--- clock edge (the M2M device convention - the address is guaranteed stable
--- at the falling edge of a bus cycle, exactly what the kick ROM's
--- falling-edge BRAM port and every M2M write register already rely on),
--- so the CPU-facing data path is a plain 16-bit flip-flop instead of the
--- 96-word mux cloud: the mux gets its own half period into one local
--- register bank, and the shared qnice_dev_data_o cone stops carrying it
--- (an R6 build grazed the kick-ROM half-period path through that cone).
--- No wait state is needed - the data source is register-fast, so this is
--- the mount wrapper's WBC-CSR pattern ("plain FFs, no wait states"), not
--- its HyperRAM-window pattern (wait exists there because the data arrives
--- late, which is never the case here). Should the mux ever outgrow the
--- half period, the escalation path is a rising-edge pre-stage plus a
--- one-cycle wait - not needed today by a wide margin.
--- Writable registers (0x1F side-invert, 0x35 margin control) are decoded
--- in mega65.vhd; all other writes are ignored.
+-- Every tap is in the 50 MHz QNICE clock domain by the time it reaches this
+-- bank. Most come from physical_fdd_top; the drive map, the dump nonce and
+-- the readbacks of the writable registers 0x1F and 0x35 come from
+-- mega65.vhd. The core-clock values (0x1B, the store signatures
+-- 0x20..0x2F and the track in 0x79) are crossed in mega65.vhd, and 0x7D in
+-- physical_fdd_top. The bank itself therefore needs no CDC, and nothing
+-- tears. The readout is
+-- registered on the falling clock edge, the M2M device convention: the
+-- address is stable at the falling edge of a bus cycle, which the kick ROM's
+-- falling-edge BRAM port and every M2M write register rely on as well. The
+-- address mux thus gets its own half period into one local register, and the
+-- shared qnice_dev_data_o cone sees a plain 16-bit flip-flop. A
+-- combinational mux would sit inside that cone, which also carries the
+-- kick-ROM half-period path. No wait state is needed because the data source
+-- is register-fast: this is the WBC-CSR pattern of adf_mount_wrapper ("plain
+-- FFs, no wait states"), not its HyperRAM-window pattern, which waits because
+-- its data arrives late. Should the mux ever outgrow the half period, the
+-- next step is a rising-edge pre-stage plus a one-cycle wait.
 --
--- The bank decodes addr[6:0] = 128 words (map v6 decoded only addr[5:0], so
--- old dumps of 0x7040+ were ALIASED re-reads of 0x00+ - the v7 dump range
--- is 0x7000..0x705F with no alias inside it).
+-- The bank decodes addr[6:0] (128 words); unmapped addresses read 0xEEEE.
+-- The writable registers 0x1F (side invert), 0x35 (control) and 0x7C
+-- (precomp mode) are decoded in mega65.vhd; writes to any other address are
+-- ignored.
 --
--- Register map (word addresses), map version 0x000D (register CONTENT is
--- v10 plus the 0x70..0x7D WRITE block of WIP-V2-A9; earlier builds - the version only identifies the build in field dumps:
--- 0x0007 = A4, 0x0008 = A5 registered readout, 0x0009 = A5 with the DPLL
--- separator, 0x000A = the sync-seam fix + instruments, 0x000B = A7 hygiene:
--- the capture path follows the sync-anchored DIAGNOSTIC word stream, so
--- the capture-based instruments (0x11..0x1A, 0x1C..0x1E, 0x58..0x5E, the
--- armed-sector window) are trustworthy during framing-hold serves too -
--- the 0x000A builds decoded misframed words there once a serve had
--- crossed the write splice; 0x000C = A8, the Paula DSKBYTR observation
--- surface for Rob Northen Copylock protection tracks - that fix lives in
--- paula_floppy.v (clk_main domain) and is invisible to this diag bank
--- except for the new A/B control bit 0x35.8; the field proof is the boot
--- outcome, not a diag counter):
---   0x00  signature 0xFDD0
---   0x01  map version 0x000C
---   0x02  status: {0:enable 1:selected 2:motor 3:media_ready 4:spun_up
---                  5:index_fresh 6:index_active 7:track0_n 8:wprot_n
---                  9:change_n 10:rdata 11:fifo_full}
---   0x03  DSKSYNC value the bit-aligner uses (settled)
---   0x04  half-cell estimate, Q8.4 (nominal 0x640 = 100.0 cycles)
---   0x05  FIFO fill level (write side, conservative-high)
---   0x06  index period, low word   0x07  index period, high word
---   0x08  index width,  low word   0x09  index width,  high word
---   0x0A  count: accepted index edges
---   0x0B  count: DSKSYNC bit-alignment hits
---   0x0C  count: reconstructed words
---   0x0D  count: merged runt gaps
---   0x0E  count: loss-of-lock events (gap class "11")
---   0x0F  count: words dropped on full FIFO
---   0x10  drive map in force: {0:phys_en, 2:1:phys_unit}
---   0x11  capture flags: {0:valid 1:SIDE at the capture's sync hit ('1' =
---         lower head = even Amiga tracks expected) 2:/TRK0 at the hit
---         3:live SIDE line 4:side-invert in force (readback of 0x1F)}
---   0x12  count: completed sector-header captures
---   0x13..0x1A  capture words 0..7: the 8 reconstructed words following the
---         LAST sync of the double 0x4489 = the MFM-encoded sector info long
---         (words 0..1 odd bits, 2..3 even bits) + the first 4 label words.
+-- Register map, version 0x000D. Word addresses; the QNICE monitor sees
+-- register n at 0x7000 + n. All counters wrap at 16 bits unless marked
+-- saturating; rate them by diffing two dumps. "Since clear" means since the
+-- last write of 0x35 with bit 15 set. Recommended dump: 0x7000..0x707D.
+--
+-- Identity and front-end state
+--   0x00  signature 0xFDD0 (every read advances the dump nonce at 0x32)
+--   0x01  map version 0x000D
+--   0x02  status: {0 enable, 1 selected, 2 motor, 3 media_ready, 4 spun_up,
+--         5 index_fresh, 6 index_active, 7 /TRK0, 8 /WPROT, 9 /CHNG,
+--         10 RDATA, 11 read FIFO full}
+--   0x03  the settled DSKSYNC value the aligner uses
+--   0x04  quantiser half-cell estimate, Q8.4 (nominal 0x640 = 100.0 cycles)
+--   0x05  read FIFO fill level, seen from its write side (conservative-high)
+--   0x06  index period, low word     0x07  index period, high word (cycles)
+--   0x08  index low-pulse width, low word
+--   0x09  index low-pulse width, high word (cycles)
+--   0x0A  accepted index edges
+--   0x0B  DSKSYNC alignment hits
+--   0x0C  reconstructed words
+--   0x0D  merged runt gaps
+--   0x0E  losses of lock (gap class "11"; the quantiser reports them in both
+--         separator modes)
+--   0x0F  words dropped on a full read FIFO
+--   0x10  drive map in force: {0 a physical unit exists, 2:1 its unit number}
+--
+-- Sector-header capture and revolution scoreboard
+--   0x11  capture flags: {0 valid, 1 SIDE at the capture's sync hit ('1' =
+--         lower head = even Amiga tracks expected), 2 /TRK0 at the hit,
+--         3 live SIDE, 4 side invert in force (readback of 0x1F)}
+--   0x12  completed sector-header captures
+--   0x13..0x1A  capture words 0..7: the eight words that follow the last
+--         sync of the double 0x4489 in the sync-anchored diagnostic stream,
+--         i.e. the MFM-encoded info long (words 0..1 odd bits, 2..3 even
+--         bits) and the first four label words.
 --         Decode: odd = (W0<<16)|W1, even = (W2<<16)|W3,
 --         info = ((odd AND 0x55555555)<<1) OR (even AND 0x55555555)
---         = 0xFF track sector sectors-to-gap. Track parity vs. flag bit 1
---         is the side-inversion verdict. Dump only while the drive is idle
---         (an active read re-captures every sector).
---   0x1B  count: physical data words SERVED into Paula by the track engine
---         (ST_PHYS_DATA completions; Gray-crossed from the core clock).
---         THE go/no-go observable for the delivery path: the front-end
---         counters (0x0B..0x0C) tick whether or not Paula ever started its
---         DMA - this one only ticks when words actually entered Paula.
---         One trackdisk read = 6400 words; diff two dumps around a scan.
---   0x1C  sector-seen mask of the LAST full revolution (bits 10:0, one per
+--         = 0xFF, track, sector, sectors-to-gap. The parity of the track
+--         number against flag bit 1 shows whether the side polarity is
+--         right. Dump with the drive idle; an active read re-captures every
+--         sector.
+--   0x1B  physical data words the track engine served into Paula
+--         (ST_PHYS_DATA completions, Gray-crossed from the core clock).
+--         The front-end counters 0x0B/0x0C tick whether or not Paula ever
+--         started its DMA; this one ticks only for words that entered Paula.
+--         A Kickstart 1.3 trackdisk read is 7358 words; diff two dumps
+--         around a read.
+--   0x1C  sector-seen mask of the last full revolution (bits 10:0, one per
 --         sector number decoded from a clean 0xFF capture that revolution;
 --         0x07FF = all 11 sectors present)
---   0x1D  last full revolution: {captures[15:8], losses-of-lock[7:0]}
---         (healthy formatted track: 0x0B01..0x0B02 - 11 captures, splice)
---   0x1E  count: captures whose decoded format byte was not 0xFF (a slow
---         tick is splice noise; per-sector ticking = real corruption)
---   0x1F  WRITE bit 0: side-invert (XORed onto the f_side1 pin in
---         mega65.vhd; power-up/reset = 0). Reads back the bit.
---   0x20  store-signature, ENGINE side: XOR of the first 1024 data words
---         served after the first DSKSYNC word of the last stream session
---         (= the window Paula stores from, since WORDSYNC drops the
---         matching word and stores from the next)
---   0x21  {7'b0, engine-signature done flag, stream-session count[7:0]}
---   0x22  store-signature, PAULA side: XOR of the first 1024 words the
---         real paula_floppy.v wrote into its read FIFO in the last track-
---         read attempt. EQUAL to 0x20 (with 0x21/0x23 counters paired)
---         proves the io channel + store gating word-exact on hardware;
---         a difference is the corruption caught red-handed. Read idle.
---         NOTE: Paula has ONE disk-DMA channel, so the attempt counter
---         (and signature) also advance on ADF-unit reads - only the LAST
---         attempt before an idle dump is compared, and the 0x21/0x23
---         DELTAS across a physical-only workload pair 1:1.
---   0x23  {7'b0, live ADKCON WORDSYNC level, attempt count[7:0]} - the
---         window pairing assumes WORDSYNC=1 (trackdisk standard); bit 8
---         verifies that assumption empirically
---   0x24  engine-signature checkpoint after 64 words
---   0x25  engine-signature checkpoint after 256 words
---   0x26  Paula-signature checkpoint after 64 words
---   0x27  Paula-signature checkpoint after 256 words
---         (first differing pair 0x24/0x26 -> corruption in words 0..63;
---          else 0x25/0x27 -> 64..255; else 0x20/0x22 -> 256..1023)
---   0x28..0x2F  the first 8 words Paula STORED in the last attempt (with
---         WORDSYNC on, word 0 is the second 0x4489 and words 1..4 the
---         encoded info long - directly comparable to the front-end
---         capture at 0x13..0x1A)
+--   0x1D  last full revolution: {15:8 captures, 7:0 losses of lock}, both
+--         8-bit saturating (a healthy formatted track reads 0x0B01..0x0B02:
+--         eleven captures, plus the splice)
+--   0x1E  captures whose decoded format byte was not 0xFF (a slow tick is
+--         splice noise; a tick per sector is real corruption)
+--   0x1F  write: bit 0 side invert, XORed onto the f_side1 pin in
+--         mega65.vhd (reset 0, the correct polarity for this mechanism);
+--         reads back the bit
 --
--- Diag map v7 (2026-08-07 field falsification round - the interval-domain
--- margin instrumentation; design rationale in physical_fdd_top.vhd):
---   0x30  uptime since QNICE reset in MILLISECONDS, low word
---   0x31  uptime, high word. THE dump-freshness proof: two dumps taken at
---         different times can never show the same uptime pair; identical
---         values = the same capture pasted twice (the 2026-08-07 field
---         session delivered 7 byte-identical "dumps" = 2 observations).
---   0x32  dump nonce: increments on every QNICE READ of register 0x00,
---         i.e. once per dump of the bank (the firmware never reads 0x00).
---         Consecutive dumps must differ by exactly the number of dumps
---         taken in between.
---   0x33  count: STEP pulses towards the mechanism (select-gated, wraps)
---   0x34  current cylinder: stepdir-integrated head position, forced to 0
---         while /TRK0 asserts (mechanical ground truth). Together with
---         0x33 this separates seek phases from read phases and shows
---         WHERE the drive is grinding.
---   0x35  WRITE: margin-engine + separator control {15: writing 1 clears
---         every "since clear" statistic (self-clearing strobe; not
---         stored), 7: realign-ALWAYS word framing instead of the
---         WORDSYNC-conditional framing hold (reset default 0 = hold in
---         force; write 0x0080 for the on-hardware A/B against the
---         pre-v10 seam behavior), 6: LEGACY quantiser bit source instead
---         of the DPLL data separator (reset default 0 = DPLL; write
---         0x0040 for the on-hardware A/B against the A4 behavior), 5:
---         histogram ALL gaps (ignore the serve gate), 4: window mode -
---         only inside the armed-sector window, 3..0: armed sector K,
---         8: DISABLE the Paula DSKBYTR observation surface (reset default
---         0 = surface ON = Copylock reads work; write 0x0100 for the
---         on-hardware A/B that reverts to the A7 stub and reproduces the
---         Copylock hang - the fix lives in paula_floppy.v, clk_main
---         domain, so it is not otherwise visible in this bank}.
---         Default 0x0000 = framing hold + DPLL separator + histogram
---         during physical read sessions only + DSKBYTR surface ON. Reads
---         back the stored 8 low control bits (bit 8 is not read back).
---   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths
---         of a cycle); 0xFFFF = no gap measured yet. tol = est/2, so a
---         margin approaching 0 = a gap ON a classification boundary.
+-- Store signatures: is the io channel between engine and Paula word-exact?
+--   0x20  engine side: XOR of the first 1024 words served in the last
+--         physical stream session, starting with its first DSKSYNC word
+--   0x21  {8 engine signature done, 7:0 stream-session count}
+--   0x22  Paula side: XOR of the first 1024 words paula_floppy.v wrote into
+--         its read FIFO in the last track-read attempt
+--   0x23  {8 live ADKCON WORDSYNC, 7:0 track-read attempt count}
+--   0x24  engine signature after 64 words    0x25  after 256 words
+--   0x26  Paula signature after 64 words     0x27  after 256 words
+--   0x28..0x2F  the first eight words Paula stored in the last attempt
+--   With WORDSYNC off (0x23 bit 8 = 0, as under Kickstart 1.3 trackdisk)
+--   Paula stores from the first served word, which serve-from-sync makes the
+--   sync word, so both sides sign the same window: 0x20 equals 0x22 on an
+--   intact channel, and the first differing pair of 0x24/0x26, 0x25/0x27,
+--   0x20/0x22 brackets the first bad word in 0..63, 64..255 or 256..1023.
+--   With WORDSYNC on, Paula drops the matching word and stores from the
+--   next, so the two windows are one word apart and the pair does not
+--   compare; word 0 of the tap is then the second 0x4489 and words 1..4 hold
+--   the info long that 0x13..0x16 capture. Paula has one disk DMA channel,
+--   so ADF-unit reads also advance 0x22..0x2F: compare only the last attempt
+--   before an idle dump, and pair the 0x21/0x23 deltas only across a
+--   workload that reads the physical unit alone.
+--
+-- Freshness, head position and margin instruments (margin_proc in
+-- physical_fdd_top.vhd)
+--   0x30  uptime since the QNICE reset in milliseconds, low word
+--   0x31  uptime, high word. Two dumps taken at different times never show
+--         the same pair, so identical values mean one dump pasted twice.
+--   0x32  dump nonce: counts QNICE reads of register 0x00, i.e. one per dump
+--         of the bank (the firmware status poll reads only 0x02 and 0x1B).
+--         Consecutive dumps differ by the number of dumps taken in between.
+--   0x33  STEP pulses towards the mechanism (select-gated)
+--   0x34  current cylinder: the step pulses integrated by direction, zeroed
+--         on the /TRK0 assert edge. With 0x33 it separates seeks from reads
+--         and shows where the drive is working.
+--   0x35  write: control {15 clear every "since clear" statistic
+--         (self-clearing strobe, not stored), 8 disable the DSKBYTR
+--         observation surface in paula_floppy.v and fall back to the
+--         constant stub (Copylock titles then hang; the surface lives in the
+--         core clock domain and leaves no other trace in this bank),
+--         7 realign-always word framing instead of the WORDSYNC-conditional
+--         framing hold, 6 legacy quantiser bit source instead of the DPLL
+--         data separator, 5 histogram all gaps (ignore the serve gate),
+--         4 window mode (histogram only inside the armed-sector window),
+--         3..0 armed sector K}. Reset default 0x0000: framing hold, DPLL,
+--         histograms during physical read sessions only, surface on. Reads
+--         back bits 7:0; bit 8 is not read back.
+--   0x36  minimum acceptance margin tol - |e| since clear, Q4 (sixteenths of
+--         a cycle; 0xFFFF = no gap measured yet). tol = est/2, so a margin
+--         near 0 is a gap on a classification boundary.
 --   0x37  half-cell estimate (Q8.4) at the minimum-margin gap
 --   0x38  raw length (50 MHz cycles) of the minimum-margin gap
---   0x39  margin status: {1:0 class of the min-margin gap (0=short 1=medium
---         2=long 3=none yet), 2: armed window open, 3: serving (engine
---         phys_stream, synced), 4: gate currently open}
---   0x3A  count: armed-sector window openings since clear
---   0x3B  count: gaps histogrammed since clear (saturating)
---   0x3C  count: REJECTED gaps (class "11") while the gate was open, since
---         clear (saturating) - the would-be-LOL mass of the gated region
---   0x3D  count: sync hits while the gate was open, since clear
+--   0x39  margin status: {1:0 class of the minimum-margin gap (0 short,
+--         1 medium, 2 long, 3 none yet), 2 armed window open, 3 serving
+--         (engine phys_stream, synchronized), 4 gate open}
+--   0x3A  armed-sector window openings since clear (saturating)
+--   0x3B  gaps histogrammed since clear (saturating)
+--   0x3C  rejected gaps (class "11") while the gate was open, since clear
+--         (saturating): the loss-of-lock mass of the gated region
+--   0x3D  sync hits while the gate was open, since clear (saturating)
 --   0x3E  half-cell estimate minimum since clear (Q8.4)
---   0x3F  half-cell estimate maximum since clear (Q8.4) - 0x3E/0x3F show
---         the estimate excursion (drag) without sampling luck
---   0x40..0x47  SHORT-class histogram, 8 saturating bins of the SIGNED
+--   0x3F  half-cell estimate maximum since clear (Q8.4). With 0x3E it shows
+--         the estimate excursion (drag) independently of when the dump is
+--         taken.
+--   0x40..0x47  short-class histogram: 8 saturating bins of the signed
 --         classification error e = G - n*est over [-tol .. +tol), bin
---         width tol/4: bin 0 = e in [-tol,-0.75tol) ... bin 3 ends at 0,
+--         width tol/4: bin 0 = e in [-tol, -0.75tol) ... bin 3 ends at 0,
 --         bin 4 starts at 0 ... bin 7 = [0.75tol, tol]. A healthy channel
---         concentrates in bins 3/4; mass in 0/7 = gaps at the boundary;
---         a per-class OFFSET pattern is the bias signature (short class
---         centered but medium/long offset = estimate dragged by a
---         short-gap read bias; all classes offset the same way = speed).
---   0x48..0x4F  MEDIUM-class histogram, same binning
---   0x50..0x57  LONG-class histogram, same binning
+--         concentrates in bins 3/4; mass in 0/7 means gaps at the boundary.
+--         A per-class offset pattern is the bias signature: a centred short
+--         class with offset medium/long classes is an estimate dragged by a
+--         short-gap read bias; all classes offset the same way is speed.
+--   0x48..0x4F  medium-class histogram, same binning
+--   0x50..0x57  long-class histogram, same binning
 --   0x58..0x5D  per-sector miss profile: 8-bit saturating counters of
---         "qualified read revolution (>= 8 captures) whose mask lacked
---         sector s", packed two per word (0x58 = {s1,s0}, 0x59 = {s3,s2},
---         ... 0x5D = {0,s10}). THE discriminator between "the decode
---         always fails at one physical spot" and "misses rove".
---   0x5E  count: qualified read revolutions since clear (the miss
---         profile's denominator)
---   0x5F  DPLL cell period, Q8.4 (nominal 0x640 = 100.0 cycles; the
---         separator's tracked half-cell - the analog of the observer
---         quantiser's estimate at 0x04, clamped to the same +/-10%)
+--         "qualified read revolution whose mask lacked sector s", two per
+--         word (0x58 = {s1,s0}, 0x59 = {s3,s2}, ... 0x5D = {0,s10}). A
+--         qualified read revolution has at least 8 captures and kept the
+--         decode chain running for its whole index window. The profile tells
+--         "the decode always fails at one physical spot" from "misses rove".
+--   0x5E  qualified read revolutions since clear (saturating): the miss
+--         profile's denominator
+--   0x5F  DPLL cell period, Q8.4 (nominal 0x640 = 100.0 cycles): the
+--         separator's tracked half-cell, the counterpart of the quantiser
+--         estimate at 0x04 and clamped to the same +/-10%
 --
--- Diag map v10 (the sync-seam fix round - tb_fdd_splice/E2 proved the
--- per-sync realignment turns the write-splice slip into a seam KS1.3
--- trackdisk cannot decode; design rationale in physical_fdd_top.vhd at
--- seam_proc and in physical_fdd_bits.vhd at FRAMING HOLD):
---   0x60  count: mid-serve REALIGN events since clear - sync-window
---         matches landing mid-word (bit phase /= 15) while the engine
---         streams words = framing seams (taken when 0x35 bit 7 = 1,
---         suppressed by the framing hold when 0; counted either way, so
---         A/B dumps compare directly). On a spliced track expect ~1 per
---         gap crossing; 0 on working tracks.
---   0x61  realign context: {15:8 count of events with an ODD bit-phase
---         remainder (8-bit saturating), 3:0 the last event's bit phase}
---   0x62..0x69  pre-sync tap: the 8 words emitted BEFORE the last
---         mid-serve realign event = the [gap run][hybrid word] seam
---         fingerprint, live (compare tb_fdd_splice's seam reports)
+-- Sync-seam instruments (seam_proc in physical_fdd_top.vhd; background in
+-- doc/developers/hardware-floppy.md, section 4.4, The aligner and the
+-- framing hold)
+--   0x60  mid-serve realign events since clear: sync-window matches landing
+--         mid-word (bit phase /= 15) while the engine streams words, i.e.
+--         framing seams. Taken while the framing hold is off (0x35 bit 7
+--         set, or WORDSYNC on), suppressed while it is in force, and counted
+--         either way, so dumps of the two framing arms compare directly.
+--         Expect about one per splice crossing.
+--   0x61  realign context: {15:8 events with an odd bit-phase remainder
+--         (8-bit saturating), 3:0 the bit phase of the last event}
+--   0x62..0x69  the eight served-stream words emitted before the last
+--         mid-serve realign event: the [gap run][hybrid word] fingerprint
+--         of the seam
 --   0x6A  {15:8 serving-session count (wraps; freshness), 7:0 the sector
 --         number of the first clean header capture published after the
---         last session entered data streaming = the serve-start sector
---         (the escape-arc observable of audit residue r1; 0xFF = none)}
---   0x6B  count: losses of lock while streaming (serving-data) since clear
---   0x6C  count: losses of lock while NOT streaming since clear (the
---         0x6B/0x6C twins split cnt_lol by workload phase)
---   0x6D  count: index windows that met the miss-profile capture floor
---         but lost the decode chain mid-window (deselect hole) since
---         clear - these windows are EXCLUDED from 0x58..0x5E in v10 (the
---         v7..v9 profile counted them as phantom misses; 0x5E therefore
---         advances only on chain-continuous read revolutions now)
---   0x6E  live framing status: {3: 0x35 bit 7 readback, 2: serving-data
---         (synced), 1: WORDSYNC (synced), 0: framing hold in force}
+--         latest session entered data streaming, i.e. the serve-start
+--         sector (0xFF = none since reset or clear; a session without a
+--         clean capture leaves the previous value)}
+--   0x6B  losses of lock while streaming, since clear
+--   0x6C  losses of lock while not streaming, since clear (0x6B and 0x6C
+--         split the events of 0x0E by workload phase)
+--   0x6D  index windows that met the miss-profile capture floor but lost
+--         the decode chain mid-window (a deselect hole), since clear
+--         (saturating); these windows are excluded from 0x58..0x5E
+--   0x6E  live framing status: {3 0x35 bit 7 readback, 2 serving data
+--         (synchronized), 1 WORDSYNC (synchronized), 0 framing hold in force}
 --
--- Diag map 0x000D (WIP-V2-A9, the Hardware Floppy WRITE datapath). All in
--- the 50 MHz domain like the rest of this bank, taken from
--- physical_fdd_writer; the ONE exception is 0x7D, whose event lives on the
--- write FIFO's core-clock side and is Gray-crossed in physical_fdd_top:
+-- Write instruments (doc/developers/hardware-floppy.md, section 6, The write
+-- datapath). All come from physical_fdd_writer in this clock domain, with
+-- two exceptions: 0x7D, whose event exists only on the core-clock write
+-- side of the write FIFO and is Gray-crossed in physical_fdd_top, and 0x79
+-- bits 7:0, the episode track, which the engine latches in the core clock
+-- domain and mega65.vhd crosses with a cdc_stable. They count since the
+-- QNICE reset; the 0x35 clear does not touch them.
 --   0x70  write episodes bound (wraps; freshness)
---   0x71  words consumed by the serializer, LAST episode (latched when the
---         episode completes, i.e. after the post-DSKBLK tail - latching at
---         the trackwr fall would under-report by the in-flight residue)
---   0x72  words consumed, running total (wraps)
+--   0x71  words consumed by the serializer in the last episode, latched when
+--         the writer returns to idle so that the post-DSKBLK tail is
+--         included (latching at the trackwr fall would under-report by the
+--         in-flight residue)
+--   0x72  words consumed, running total
 --   0x73  WGATE window of the last episode, low word (50 MHz cycles)
---   0x74  WGATE window, high word. A full trackdisk write =
---         6815 x 16 x 100 = 10,904,000 cycles exactly, pin to pin.
---   0x75  underrun-abort count (since reset)
---   0x76  tab-blocked (DISCARD) episode count - a write attempted on a
---         write-protected disk. Trackdisk refuses in software before any
---         DMA, so this stays 0 there; X-Copy runs the DMA and ticks it.
---   0x77  tail profile: {15:8 max in-flight words at the DSKBLK moment
---         (FIFO + shift register; expected <= 3), 7:0 tail-cut count =
---         WGATE lost during the post-DSKBLK drain}
---   0x78  precompensated pulses of the last episode
---   0x79  {15:8 flags - 8 completed, 9 aborted, 10 discard, 11 underrun,
---         12 tail-cut; 7:0 the episode's Amiga track}
---   0x7A  count of episodes in which WGATE actually opened
---   0x7B  last-abort reason bitmask: 0 deselect, 1 unit context lost
---         (motor or enable), 2 wprot, 3 change, 4 step, 5 side,
---         6 underrun, 7 engine abort
---   0x7C  WRITE {1:0 precomp mode 00/11 = AUTO, 01 = ON, 10 = OFF};
---         reads back {1:0 mode, 2 precomp active now, 3 wr_ok (the tab
---         qualifier), 4 write episode open (synced)}
---   0x7D  CDC FIFO overflow: engine tap pushes refused by a full write
---         FIFO. MUST READ 0 FOREVER - the direct instrument for the
---         occupancy invariant of spec 2.2.
--- Recommended dump: 0x7000..0x707D.
--- All counters wrap at 16 bit unless marked saturating (diff two reads to
--- rate them).
+--   0x74  WGATE window, high word. A full trackdisk write is
+--         6815 x 16 x 100 = 10,904,000 cycles pin to pin.
+--   0x75  underrun aborts
+--   0x76  episodes that discarded at arm time because streaming was not
+--         allowed: tab qualifier not met, Hardware Floppy disabled, drive
+--         deselected, motor off, select settle not complete, or the live
+--         tab reading protected; in practice a write to a write-protected
+--         disk. trackdisk refuses in software before any DMA, so this stays
+--         0 there; X-Copy runs the DMA and ticks it.
+--   0x77  {15:8 in-flight words at the DSKBLK moment (FIFO plus shift
+--         register, expected <= 3), 7:0 tail cuts: WGATE closed by an abort
+--         term during the post-DSKBLK drain}, both for the last episode
+--   0x78  precompensated pulses in the last episode
+--   0x79  {15:8 flags of the last episode: 8 completed, 9 aborted,
+--         10 discarded, 11 underrun, 12 tail cut; 7:0 its Amiga track}
+--   0x7A  episodes in which WGATE opened
+--   0x7B  abort reason of the last episode, one bit each (0 = no abort):
+--         0 deselect, 1 motor or enable lost, 2 write protect, 3 disk
+--         change, 4 step, 5 side, 6 underrun, 7 engine abort
+--   0x7C  write: {1:0 precomp mode, 00/11 = AUTO (the Kickstart policy,
+--         tracks >= 81), 01 = on, 10 = off}; reads back {1:0 mode,
+--         2 precomp active now, 3 wr_ok (the tab qualifier), 4 write
+--         episode open (synchronized)}
+--   0x7D  write-FIFO overflow: engine pushes refused by a full write FIFO.
+--         Must read 0, because a refused push is a word missing from the
+--         written track; the occupancy bound that keeps it there is in
+--         doc/developers/hardware-floppy.md, section 6.1 (The structure,
+--         and the elastic-buffer argument).
 --
 -- Amiga 500 port (AExp) done by sy2002 in 2026 and licensed under GPL v3
 -------------------------------------------------------------------------------
@@ -301,7 +299,7 @@ entity physical_fdd_diag is
     diag_pau_ws_i       : in  std_logic;                      -- live WORDSYNC level
     sideinv_i           : in  std_logic;                      -- readback of the 0x1F bit
 
-    -- diag map v7 taps (margin instrumentation in physical_fdd_top)
+    -- freshness, head position and margin instrument taps (physical_fdd_top)
     diag_uptime_i       : in  unsigned(31 downto 0);
     diag_nonce_i        : in  unsigned(15 downto 0);          -- counted in mega65 (bus side)
     diag_cnt_step_i     : in  unsigned(15 downto 0);
@@ -322,7 +320,7 @@ entity physical_fdd_diag is
     diag_qual_revs_i    : in  unsigned(15 downto 0);
     diag_dpll_cell_i    : in  unsigned(11 downto 0);
 
-    -- diag map v10 taps (seam instruments in physical_fdd_top)
+    -- sync-seam instrument taps (physical_fdd_top)
     diag_realign_i      : in  unsigned(15 downto 0) := (others => '0');
     diag_realign_ctx_i  : in  std_logic_vector(15 downto 0) := (others => '0');
     diag_presync_i      : in  t_fdd_cap_words := (others => (others => '0'));
@@ -332,7 +330,7 @@ entity physical_fdd_diag is
     diag_chain_win_i    : in  unsigned(15 downto 0) := (others => '0');
     diag_frame_stat_i   : in  std_logic_vector(3 downto 0) := (others => '0');
 
-    -- diag map 0x000D taps: the WRITE instruments (WIP-V2-A9)
+    -- write instrument taps (physical_fdd_writer, via physical_fdd_top)
     dwr_epi_cnt_i       : in  unsigned(15 downto 0) := (others => '0');
     dwr_words_last_i    : in  unsigned(15 downto 0) := (others => '0');
     dwr_words_tot_i     : in  unsigned(15 downto 0) := (others => '0');
@@ -352,21 +350,21 @@ end entity physical_fdd_diag;
 
 architecture rtl of physical_fdd_diag is
 
-  -- the registered readout: qnice_data_o is this flip-flop bank, nothing
-  -- combinational ever reaches the shared device-data cone
+  -- the registered readout: qnice_data_o is this flip-flop bank, so nothing
+  -- combinational reaches the shared device-data cone
   signal data_q : std_logic_vector(15 downto 0) := x"EEEE";
 
 begin
 
   qnice_data_o <= data_q;
 
-  -- Latched UNCONDITIONALLY on every falling edge: within a read cycle the
+  -- Latched on every falling edge, unconditionally: within a read cycle the
   -- address is stable at the falling edge and the CPU consumes the data at
-  -- the rising edge that ends the cycle, so the register always holds the
-  -- addressed word exactly when it is sampled - the same zero-wait timing
-  -- as the kick ROM's falling-edge BRAM port, minus the BRAM clock-to-out
-  -- and the die-spread routing. Between accesses the register holds
-  -- whatever the floating address selects; nothing consumes it then.
+  -- the rising edge that ends the cycle, so the register holds the addressed
+  -- word whenever it is sampled. This is the zero-wait timing of the kick
+  -- ROM's falling-edge BRAM port, without the BRAM clock-to-out and the
+  -- die-spread routing. Between accesses the register holds whatever the
+  -- floating address selects; nothing consumes it then.
   read_mux : process (qnice_clk_i)
     variable v_addr : unsigned(6 downto 0);
     variable v_data : std_logic_vector(15 downto 0);
@@ -426,7 +424,7 @@ begin
       when 16#2D# => v_data := diag_pau_tap_i( 95 downto  80);
       when 16#2E# => v_data := diag_pau_tap_i(111 downto  96);
       when 16#2F# => v_data := diag_pau_tap_i(127 downto 112);
-      -- diag map v7
+      -- freshness, head position, margin instruments
       when 16#30# => v_data := std_logic_vector(diag_uptime_i(15 downto 0));
       when 16#31# => v_data := std_logic_vector(diag_uptime_i(31 downto 16));
       when 16#32# => v_data := std_logic_vector(diag_nonce_i);
@@ -449,7 +447,7 @@ begin
         v_data := diag_miss_i(to_integer(v_addr) - 16#58#);
       when 16#5E# => v_data := std_logic_vector(diag_qual_revs_i);
       when 16#5F# => v_data := x"0" & std_logic_vector(diag_dpll_cell_i);
-      -- diag map v10 (sync-seam instruments)
+      -- sync-seam instruments
       when 16#60# => v_data := std_logic_vector(diag_realign_i);
       when 16#61# => v_data := diag_realign_ctx_i;
       when 16#62# to 16#69# =>
@@ -459,7 +457,7 @@ begin
       when 16#6C# => v_data := std_logic_vector(diag_lol_idle_i);
       when 16#6D# => v_data := std_logic_vector(diag_chain_win_i);
       when 16#6E# => v_data := x"000" & diag_frame_stat_i;
-      -- diag map 0x000D: the WRITE instruments (WIP-V2-A9)
+      -- write instruments
       when 16#70# => v_data := std_logic_vector(dwr_epi_cnt_i);
       when 16#71# => v_data := std_logic_vector(dwr_words_last_i);
       when 16#72# => v_data := std_logic_vector(dwr_words_tot_i);

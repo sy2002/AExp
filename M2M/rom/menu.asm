@@ -169,8 +169,8 @@ OPTM_IR_STDSEL  .EQU 17
 ; array of 0s and 1s to define horizontal separator lines
 OPTM_IR_LINES   .EQU 18
 
-; M2M-UPSTREAM osm-deps
-; pointer to the RESOLVED per-line dependency array (see optm_deps.asm), or 0
+; M2M-UPSTREAM osm-deps (AExp 2026-08-02)
+; pointer to the resolved per-line dependency array (see optm_deps.asm), or 0
 ; when the dependency feature is switched off / not supported by config.vhd
 OPTM_IR_DEPS    .EQU 19
 
@@ -619,15 +619,15 @@ OPTM_RUN        SYSCALL(enter, 1)
                 MOVE    SP, @R7
 
                 ; M2M-UPSTREAM osm-deps
-                ; Normalize the entry cursor position. Since dependency format 2
+                ; Normalize the entry cursor position. In dependency format 2
                 ; a dependent line may be selectable and may even carry
                 ; OPTM_G_START (the per-drive mount lines), so the position we
                 ; are entered with - the remembered one, the start one, or the
                 ; one carried over a submenu switch or a dependency redraw - can
                 ; be hidden right now. The first thing the main loop does is a
-                ; screen-coordinate conversion, which goes FATAL on a line that
+                ; screen-coordinate conversion, which goes fatal on a line that
                 ; the current level does not show, so walk forward (with
-                ; wrap-around) to the next visible AND selectable line instead.
+                ; wrap-around) to the next visible and selectable line instead.
                 ; R0 = amount of menu items, R1 = groups array, R2 = cursor,
                 ; SP+3 = the structure array behind its size word.
                 MOVE    R0, R9                  ; R9: guard, at most N tries
@@ -912,8 +912,8 @@ _OPTM_RUN_7     CMP     R4, R0                  ; R4 < R0 (size of structure)
                 MOVE    0, @R12                 ; unselect in OPTM_IR_STDSEL
 
                 ; M2M-UPSTREAM osm-deps
-                ; Since dependency format 2 the members of one group may carry
-                ; different dependencies, so a group can be PARTIALLY visible
+                ; In dependency format 2 the members of one group may carry
+                ; different dependencies, so a group can be partially visible
                 ; (AExp swaps the "Off" item of a drive against its two normal
                 ; items). Deselecting such a member must still happen in the
                 ; model above - otherwise two members stay selected and
@@ -1121,7 +1121,7 @@ OPTM_SELECT     SYSCALL(enter, 1)
                 RSUB    _OPTM_R_F2M_O, 1        ; convert R8 to screen coord.
                 RBRA    _OPTM_SELECT_R, C       ; M2M-UPSTREAM osm-deps: the index
                                                 ; is not part of the currently
-                                                ; active (sub)menu - which since
+                                                ; active (sub)menu - which in
                                                 ; dependency format 2 also means
                                                 ; "hidden right now". Tolerate it
                                                 ; and draw nothing; without this
@@ -1459,16 +1459,16 @@ _OPTM_STRUCT_12 ADD     1, R7                   ; next list element
                 ; Third pass: hide every line whose menu dependency is not
                 ; satisfied (see optm_deps.asm).
                 ;
-                ; This MUST be a separate pass that runs AFTER the special-case
-                ; correction above - folding the test into _OPTM_STRUCT_5..8
-                ; silently does nothing on the main menu level. Reason: the
-                ; correction re-sets bit 15 on the first not-shown entry of a
-                ; region (_OPTM_STRUCT_10), and on the main-menu level
-                ; (R3 = 0) _OPTM_STRUCT_11 returns without ever clearing the
-                ; first-occurrence flag R5, so R5 stays 1 across main-menu
-                ; lines and a line hidden earlier would be made visible again
-                ; plus counted into R9. Clearing bit 15 here is safe because
-                ; nothing after this point re-derives it.
+                ; This has to be a separate pass that runs after the
+                ; special-case correction above - folding the test into
+                ; _OPTM_STRUCT_5..8 silently does nothing on the main menu
+                ; level. Reason: the correction re-sets bit 15 on the first
+                ; not-shown entry of a region (_OPTM_STRUCT_10), and on the
+                ; main-menu level (R3 = 0) _OPTM_STRUCT_11 returns without ever
+                ; clearing the first-occurrence flag R5, so R5 stays 1 across
+                ; main-menu lines and a line hidden earlier would be made
+                ; visible again plus counted into R9. Clearing bit 15 here is
+                ; safe because nothing after this point re-derives it.
                 ;
                 ; When config.vhd does not support the feature, OPTM_IR_DEPS is
                 ; 0 and the whole pass is skipped, so this is a no-op for every
@@ -1612,7 +1612,7 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
                 RET
 
 ; ----------------------------------------------------------------------------
-; M2M-UPSTREAM live-text
+; M2M-UPSTREAM live-text (AExp 2026-08-03)
 ;
 ; OPTM_LIVE_TEXT
 ;
@@ -1623,17 +1623,17 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
 ;
 ; Backported from C64MEGA65, where it drives the live status field of the
 ; "8:Internal 1581" line; AExp uses it for the three "dfN:Hardware Floppy"
-; lines. Purely ADDITIVE: nothing else in the framework calls it, so a core
+; lines. Purely additive: nothing else in the framework calls it, so a core
 ; that does not use it is bit-identical.
 ;
-; The one deliberate difference to the C64MEGA65 original: that framework has an
+; Difference to the C64MEGA65 original: that framework has an
 ; OPTM_FOREGROUND flag which this routine consults before painting. M2M V2.0.1
 ; has no such flag, and introducing one would mean touching OPTM_RUN and the
 ; selection callback path - so the "does the menu own the screen right now"
-; question is left to the CALLER (see the contract below). Everything the
+; question is left to the caller (see the contract below). Everything the
 ; routine can decide by itself - is there a menu structure at all, is the line
 ; visible at the current level, does the replacement fit inside the item - it
-; still decides, and it never invokes the fatal callback.
+; decides itself, and it never invokes the fatal callback.
 ;
 ; Input:
 ;   R8:  flat menu item index, counting every OPTM_ITEMS line from zero
@@ -1646,7 +1646,7 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
 ; Contract:
 ;   * OPTM_IR_ITEMS must point to a writable live copy, as it does in the M2M
 ;     Shell while the options menu is open.
-;   * THE CALLER must only ask for painting while the options menu owns the
+;   * The caller must only ask for painting while the options menu owns the
 ;     screen. Call it from a context that has already established that the OSM
 ;     is open and that no sub-activity (file browser, help viewer) is showing.
 ;     Getting this wrong is cosmetic, never fatal: the worst case is a few
@@ -1657,8 +1657,8 @@ _OPTM_R_F2M_O2  MOVE    R2, R7
 ;     terminator and may not contain a line separator. Pad shorter status text
 ;     with spaces so old characters are always erased.
 ;   * The backing copy is updated even when the item is hidden. A later
-;     OPTM_SHOW will therefore use the new text - which is exactly what keeps a
-;     live field coherent across a full menu redraw.
+;     OPTM_SHOW will therefore use the new text, which keeps a live field
+;     coherent across a full menu redraw.
 ;   * Invalid input is ignored. The routine never invokes the fatal callback.
 ; ----------------------------------------------------------------------------
 

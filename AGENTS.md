@@ -53,7 +53,7 @@ appear in issues, commits and comments.
 | `VERSIONS.md` | Release notes per version. Maintained by the project owner; change it only when asked |
 | `doc/inofficial.md` | List of WIP builds (name, date, commit, summary). Maintained by the project owner; change it only when asked |
 | `doc/developers.md` | Building from source, the settings file |
-| `doc/developers/architecture.md` | **Start here.** Layering, repository layout, clock domains and CDC, QNICE devices, HyperRAM map, firmware callbacks, the core rules, every modification of the M2M framework (section 8), the Minimig submodule, the MiSTer HPS code AExp replaces, local checks |
+| `doc/developers/architecture.md` | **Start here.** Layering, repository layout, clock domains and CDC, QNICE devices, HyperRAM map, firmware callbacks, the core rules, every modification of the M2M framework (section 8), the Minimig submodule, the MiSTer HPS code AExp replaces, mouse and joystick (POT-line buttons, presence latch), local checks |
 | `doc/developers/floppy-adf.md` | Simulated ADF drives: MFM, the engine, three drives, write-back, the arm-state invariant, verification |
 | `doc/developers/hardware-floppy.md` | The MEGA65's internal drive as a real Amiga drive: read chain, data separators, framing hold, Copylock/`DSKBYTR`, write datapath and its safety, diagnostics device `0x0104`, the field-report protocols |
 | `doc/developers/timing_closure.md` | The HyperRAM read-capture hold miss, why the IDELAY is fixed, the build re-roll |

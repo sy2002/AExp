@@ -58,8 +58,8 @@ awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""
 } >> osm_const.asm
 
 # One symbol per ADF mount device: AEXP_DEV_ADF0/1/2 from C_DEV_AMIGA_ADF0/1/2.
-# The name is derived from the constant, so the pattern must be an EXACT per-constant
-# match - a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
+# The name is derived from the constant, so the pattern must match each constant
+# exactly: a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
 # and the assembler would fail on the duplicate.
 awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
@@ -168,14 +168,14 @@ ASM_RC=$?
 # Trim the variables off the ROM image and guard the Shell-ROM budget.
 #
 # QNICE reserves 0x7000-0x7FFF for memory-mapped I/O, so the usable ROM is
-# 0x0000-0x6FFF = 28672 words. The assembler does NOT check this; an overflow
-# would otherwise fail obscurely later (in Vivado).
+# 0x0000-0x6FFF = 28672 words. The assembler does not check this; without the
+# check below an overflow would fail obscurely later, in Vivado.
 #
 # qasm2rom serializes every word of the .out file in source order and ignores
 # addresses, so the words that ".ORG 0x8000" and ".ORG 0xFEE0" reserve for the
 # variables get appended to the ROM image as zero words. They land at ROM
-# addresses the CPU can never read, but they inflate the image and made a plain
-# "wc -l" report a full ROM ~600 words too early.
+# addresses the CPU can never read, but they inflate the image, so a plain
+# "wc -l" would report a full ROM about 600 words too early.
 #
 # m2m-rom.rom line N holds the word of m2m-rom.out line N, and BROM (see
 # M2M/QNICE/vhdl/block_rom.vhd) loads file line N into ROM address N. So inside

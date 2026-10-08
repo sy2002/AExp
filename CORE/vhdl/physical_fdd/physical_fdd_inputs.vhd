@@ -2,8 +2,9 @@
 -- Amiga 500 for MEGA65 (AExp)
 --
 -- physical_fdd_inputs: asynchronous input conditioner for the MEGA65 internal
--- floppy drive (read milestone). Runs entirely on the 50 MHz front-end clock
--- (= QNICE clock).
+-- floppy drive. Its outputs feed the read chain, the drive status lines
+-- towards Paula and the write-protect qualifier of physical_fdd_writer. Runs
+-- entirely on the 50 MHz front-end clock (= QNICE clock).
 --
 -- All raw connector pins are asynchronous and active-low at the pin. This
 -- block:
@@ -11,11 +12,11 @@
 --     flop of each synchronizer carries the Xilinx `async_reg` attribute so
 --     the tool places the pair tightly and does not absorb it into SRLs.
 --   * passes the static status lines (track0/write-protect/disk-change)
---     through with their ACTIVE-LOW sense preserved - the Amiga CIA-A status
---     mux in paula_floppy.v wants the native open-collector polarity.
+--     through with their active-low sense preserved, because the CIA-A
+--     status mux in paula_floppy.v wants the native open-collector polarity.
 --   * qualifies the (active-low) INDEX pulse with a leading-edge glitch
 --     filter and measures its period and low-pulse width in clk_i cycles.
---   * passes RDATA through the 2-FF synchronizer with its ACTIVE-LOW sense
+--   * passes RDATA through the 2-FF synchronizer with its active-low sense
 --     preserved, because the downstream gap stage (physical_fdd_mfm_gaps)
 --     detects the falling edge of an active-low flux pulse.
 --
@@ -29,9 +30,9 @@
 -- latches the low-run length of the last accepted pulse (measured at
 -- return-high); index_active_o is the filtered low level.
 --
--- DSKCHG polarity: active-low (change asserted => f_diskchanged_i = '0') is
--- HARDWARE-PROVEN on the MEGA65 mechanism by the C64MEGA65 issue-#90 eject
--- test (raw pin low + change latched when ejected).
+-- DSKCHG polarity: active low (change asserted => f_diskchanged_i = '0'),
+-- verified on the MEGA65 mechanism in the C64MEGA65 physical-1581 bring-up:
+-- after an eject the raw pin reads low and the change stays latched.
 --
 -- Adapted from C64MEGA65 CORE/vhdl/physical_1581/physical_1581_inputs.vhd
 -- (sy2002 2026, GPLv3); changes: active-low pass-through of the status lines
