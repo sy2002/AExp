@@ -23,11 +23,16 @@ faithful and field-tested Amiga 500.
 * New option "DVI (no sound)" in the HDMI menu: sends a plain DVI signal
   instead of HDMI, for displays that stay black on an HDMI stream.
 
-* Authentic A500 sound: A500 Filter + LED Filter (both on by default)
+* Authentic A500 sound: the A500's fixed audio output filter and its
+  software-controlled "LED filter", which follows the power LED, are
+  simulated. Both are on by default and can be switched off in the Audio
+  menu.
 
-* Stereo Mix option
+* New option "Stereo Mix" in the Audio menu: it blends the hard-panned Amiga
+  channels for headphones (Full Stereo, Wide Stereo, Narrow Stereo, Mono).
 
-* Master volume control (perceptual loudness taper)
+* Master volume in 5% steps. The percentages follow perceived loudness, so
+  50% sounds half as loud as 100%.
 
 ## Improved Compatibility of the Core
 
