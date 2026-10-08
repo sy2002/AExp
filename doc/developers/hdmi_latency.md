@@ -10,13 +10,13 @@ delay to its actual sources.
 
 The short version:
 
-* The M2M HDMI pipeline is **not** a classic frame-buffered scaler. It
-  runs the ascal scaler in **single-framebuffer ("Direct") mode**: the
+* The M2M HDMI pipeline is not a classic frame-buffered scaler. It
+  runs the ascal scaler in single-framebuffer ("Direct") mode: the
   HDMI read beam races a few scanlines behind the core's write beam in
   one shared HyperRAM buffer.
-* With **HDMI: Flicker-free ON** (the default in both AExp and
+* With HDMI: Flicker-free ON (the default in both AExp and
   C64MEGA65), the core clock is servo-locked to the HDMI output and the
-  pipeline adds **≈0.3–1.3 ms** — under one tenth of a frame. The
+  pipeline adds ≈0.3–1.3 ms, under one tenth of a frame. The
   C64MEGA65 V5.1 release notes state this outright: flicker-free
   "reduces our output latency on HDMI to less than 1 ms".
 * With Flicker-free OFF, the beams drift through each other: latency
@@ -24,10 +24,10 @@ The short version:
   seam crawls through moving content once per beat period (every ~12.5 s
   on the Amiga, ~8 s on the C64). Even this worst case is bounded by
   ≈40 ms.
-* The lag measured in the test videos is **70–100 ms** — far more than
-  the pipeline can produce in any configuration. **The dominant share
-  sits inside the HDMI monitors**, not in our FPGA design. A
-  cross-check with the same core on a Samsung HDMI TV (2026-07-17)
+* The lag measured in the test videos is 70–100 ms, far more than
+  the pipeline can produce in any configuration. The dominant share
+  sits inside the HDMI monitors, not in the FPGA design. A
+  cross-check with the same core on a Samsung HDMI TV
   showed nearly no visible lag against the CRT, confirming the
   attribution.
 * Consequently there is no meaningful in-pipeline latency left to
@@ -43,11 +43,11 @@ Two videos, both 24 fps camera footage (41.7 ms per camera frame), each
 showing the analog output on a CRT (left) and the HDMI output on a flat
 panel (right), driven simultaneously by the same MEGA65:
 
-* `latency.mov` — AExp, Workbench 1.3. The user drags the Workbench
+* Video 1: AExp, Workbench 1.3. The user drags the Workbench
   screen title bar up and down; the CRT follows instantly, the HDMI
   panel (a Checkmate display, vendor-claimed "1 frame" latency)
   visibly trails.
-* `latency_c64.mov` — C64 core. A BASIC program blinks the border
+* Video 2: the C64 core. A BASIC program blinks the border
   (`POKE 53280,1` … `POKE 53280,0`), producing a sharp timing edge on
   both screens.
 
@@ -65,7 +65,7 @@ Results:
 | C64 border blink, black→white edges | ~29 / ~63 ms bimodal (n=6 usable) | panel response + short-flash sampling make rising edges unreliable |
 | Amiga title-bar drag, cross-correlation | **+98 ms** (peak at +2.35 camera frames, plateau 2.25–2.40) | onset inspection independently gives 2–3 camera frames |
 
-Honest error bars: the 24 fps camera quantizes to ±20 ms per single
+Error bars: the 24 fps camera quantizes to ±20 ms per single
 event, the CRT-vs-camera beat makes the CRT track noisy, and LCD panel
 response time (black↔white ≈ 5–15 ms) is folded into the numbers. Taking
 all of that into account, both setups show a total display-to-display lag
@@ -78,8 +78,8 @@ section 7 is for. What they *can* prove is a lower bound on the
 monitor's share, because our pipeline's worst case is known (section 4).
 
 The split was subsequently confirmed by a third data point: the same
-core driving a **Samsung HDMI TV shows nearly no visible lag** against
-the CRT (hardware test, 2026-07-17; visual result, not frame-scored).
+core driving a Samsung HDMI TV shows nearly no visible lag against
+the CRT (a visual result, not frame-scored).
 Same MEGA65, same pipeline, different display — so the 70–100 ms above
 belongs to the first two displays, not to the HDMI signal we produce.
 
@@ -246,15 +246,17 @@ classic 1–2 frames (20–40 ms sliding) *and* the flicker-free measurement
 would break outright: the monitor's "read address wrapped to 0" trigger
 assumes the single-buffer layout, and with rotating buffer bases the
 sampled write lead would be nonsense. Triple buffering and flicker-free
-are mutually exclusive by construction. This invariant is also recorded
-in `.research/INTEGRATION-SPEC-hdmi-flicker-free.md` §7; a future
-"triple buffering" OSM item would silently destroy both properties.
+are mutually exclusive by construction, and a future "triple buffering"
+OSM item would silently destroy both properties. There is a second reason
+to keep it off, recorded in `CORE/vhdl/globals.vhd`: a triple-buffered
+frame buffer grows to 6 MB and would overwrite the ADF disk images in
+HyperRAM.
 
 
 ## 5. So why does the HDMI picture lag by 70–100 ms?
 
-Adding up our side (Flicker-free ON, the shipped default in AExp since
-WIP-V1-A6 and in C64MEGA65 since V5.1):
+Adding up our side (Flicker-free ON, the default in AExp and in
+C64MEGA65):
 
 | Stage | Latency |
 |---|---|
@@ -311,7 +313,7 @@ total; on an ordinary office LCD it does not — and neither can we.
 M2M's `o_lltune` port is left open — nothing is lost by that, since the
 core-clock servo replaces the PLL-side mechanism entirely.
 
-One honest asymmetry: with the servo ON the emulated machine runs
+One asymmetry: with the servo ON the emulated machine runs
 0.16 % fast on average (+2.77 cents of pitch, a ~0.9 Hz inaudible
 dither); MiSTer's approach keeps the core cycle-exact and bends the
 display timing instead. Purists can switch Flicker-free OFF and get the
@@ -358,15 +360,15 @@ Expected outcomes:
 | any display, Flicker-free OFF instead of ON | + up to 40 ms, varying over ~12 s, seam visible |
 
 The first row is not just theory: a Samsung HDMI TV driven by the same
-core (2026-07-17) showed nearly no visible lag against the CRT, while
+core showed nearly no visible lag against the CRT, while
 the same signal measured 70–100 ms on the two displays of section 1.
 That closes the attribution — the pipeline is fine, and the display's
 choice and configuration decide the experience. Should a future
 display land near 70–100 ms even in its game mode, run the seam check
 of section 8 before suspecting the pipeline.
 
-Two further discriminating experiments, if the Checkmate is available
-for a second session:
+Two further discriminating experiments, if the Checkmate display is
+available:
 
 * Feed the **same monitor** on two inputs: MEGA65 VGA/RGB into its
   analog input vs. HDMI. Any lag difference is then pure monitor-side
@@ -379,14 +381,13 @@ for a second session:
 
 ## 8. Verifying the flicker-free servo end-to-end (AExp)
 
-The latency story above assumes the servo actually engages on hardware —
-and for AExp this is already verified, not assumed: on R3 (2026-07-09,
-TAS-IntroPack side-scroller, the dominant 49.92 Hz progressive case) the
-seam crawls with Flicker-free OFF, disappears completely with
-Flicker-free ON, and the live toggle switches cleanly; the accompanying
-synthesis passed the constraint gate (fast leg timed at 35.165 ns, no
-"no pins matched", global WNS positive). So on the hardware generation
-the latency video was shot with, the parked ≈1 ms regime is real.
+The latency story above assumes the servo actually engages on hardware,
+and for AExp that has been verified on R3 with a 49.92 Hz progressive
+side-scroller, the dominant case: the seam crawls with Flicker-free OFF,
+disappears completely with Flicker-free ON, and the live toggle switches
+cleanly, while the build passed the constraint gate (fast leg timed, no
+"no pins matched" warning, global WNS positive). So the parked ≈1 ms
+regime is real.
 
 The two checks remain the standing regression procedure for every
 future build and board:
@@ -415,7 +416,7 @@ purely additive M2M change, worth doing only if the seam test ever
 raises doubts.
 
 
-## 9. Could we do better than ≈1 ms? (assessed and answered)
+## 9. Could we do better than ≈1 ms?
 
 Ideas considered for reducing the HDMI-side latency further, and why
 none of them is worth pursuing:
@@ -443,11 +444,12 @@ none of them is worth pursuing:
   "compensation", vsync re-alignment) only adds frames. Rejected on
   principle.
 
-The honest conclusion: at ≈0.3–1.3 ms the M2M HDMI pipeline is within a
+The conclusion: at ≈0.3–1.3 ms the M2M HDMI pipeline is within a
 scanline-count of the theoretical minimum for a scaled output. The
 end-to-end experience on HDMI is decided by the display; the analog
 output remains the reference for latency-critical use, which is exactly
-what `doc/retrotubes.md` recommends to users for other reasons as well.
+what [retrotubes.md](../retrotubes.md) recommends to users for other
+reasons as well.
 
 
 ## 10. References
@@ -468,9 +470,6 @@ Repository:
   mirror-image implementation.
 * `CORE/m2m-rom/m2m-rom.asm` `HDMI_FLT_TABLE` — proof that
   `M2M$ASCAL_TRIPLEBUF` is never set.
-* `.research/INTEGRATION-SPEC-hdmi-flicker-free.md` — exact rate
-  derivations (49.920128 / 50.080128 / 50.000000 Hz), threshold and
-  dither analysis (local research note, not tracked).
 
 External:
 
@@ -485,7 +484,7 @@ External:
   (`vsync_adjust=2`, "around 4 to 30 lines of lag" per the scaler's
   author), plus the original sub-frame lag report at
   <https://retrorgb.com/mister-hdmi-core-now-sub-1-frame-of-lag.html>.
-* Measurement footage: `latency.mov` (AExp vs. Checkmate display),
-  `latency_c64.mov` (C64 core border blink), both 2026-07-17; plus the
-  Samsung HDMI TV cross-check of the same date (visual result: nearly
-  no lag vs. the CRT).
+* Measurement footage: two videos of July 2026 (AExp vs. a Checkmate
+  display; the C64 core border blink), plus the Samsung HDMI TV
+  cross-check of the same month (visual result: nearly no lag vs. the
+  CRT).

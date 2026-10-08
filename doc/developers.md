@@ -1,4 +1,3 @@
-
 Developers
 ----------
 
@@ -7,7 +6,9 @@ clone to a `*.cor` file. This core is built on the
 [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) (M2M) framework,
 whose [Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) is the
 authoritative reference for the build environment and its
-operating-system specific details.
+operating-system specific details. If you want to understand or change the
+core, start with the [developer documentation](#developer-documentation) at
+the end of this page.
 
 ### What you need
 
@@ -17,7 +18,8 @@ operating-system specific details.
 * A **`bash` shell with GCC, `make`, `awk` and `git`**, to build the QNICE
   helper CPU's tool chain and the on-screen-menu firmware.
 * A **MEGA65** (R3/R3A, R4, R5 or R6) and a legal **Kickstart 1.3 ROM**
-  (see the Kickstart ROM section above) to actually run the result.
+  (see [Kickstart ROM](../README.md#kickstart-rom) in the main README) to
+  actually run the result.
 
 Operating-system hints for the `bash` tool chain:
 
@@ -34,8 +36,8 @@ Operating-system hints for the `bash` tool chain:
 
 ### Build the core
 
-1. **Clone with all submodules** (the Minimig core, the M2M framework and
-   QNICE-FPGA):
+1. **Clone with all submodules** (the Minimig core and QNICE-FPGA; the M2M
+   framework is part of this repository):
 
    ```bash
    git clone --recursive https://github.com/sy2002/AExp.git
@@ -74,62 +76,74 @@ Operating-system hints for the `bash` tool chain:
    to prepare. The bitstream ends up in
    `CORE/CORE-R3.runs/impl_1/mega65_r3.bit` (substitute your board).
 
-   To rebuild all four boards in batch mode, source the Vivado environment
-   and run the overnight-build helper instead:
-
-   ```bash
-   cd CORE
-   source /tools/Xilinx/Vivado/2022.2/settings64.sh  # adjust this path
-   nohup ./build_all.sh > build_all.out 2>&1 &
-   ```
-
-   Pass board names to build only a subset (for example,
-   `./build_all.sh R3 R6`). Set `JOBS=<n>` to choose how many parallel
-   workers Vivado may use during synthesis and implementation of each board,
-   for example `JOBS=8 ./build_all.sh R3 R6`. The selected boards themselves
-   are built one after another. Each run writes `build_R<n>.log` and ends
-   with a compact timing and sign-off summary.
-
-   A board that only just misses timing is re-rolled automatically once all
-   boards are built: `build_all.sh` implements it again with other placer
-   and router settings until an attempt meets timing, and the winning
-   bitstream replaces the failed one in the usual place. The re-roll writes
-   `build_R<n>_reroll.log`, and the summary shows the first pass and every
-   attempt. `./build_all.sh --no-reroll` skips this, and
-   `./build_all.sh --help` lists all options. Why a build can need this at
-   all, and why a re-rolled bitstream is as good as any other, is explained
-   in `doc/developers/timing_closure.md`.
+   Check the timing summary of the implemented design: the worst negative
+   slack (WNS) and the worst hold slack (WHS) must both be 0 or positive.
 
 4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `coretool`, part of
    the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
 
    ```bash
    cd CORE/CORE-R3.runs/impl_1
-   coretool -B AExp-WIP-V1-A3-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V1-A3"
+   coretool -B AExp-WIP-V2-B1-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V2-B1"
    ```
 
    Use the target string that matches your board — `mega65r3`, `mega65r4`,
    `mega65r5` or `mega65r6` — and the version string from the `CORE_VERSION`
-   constant in `CORE/vhdl/config.vhd`. Unlike the C64 core, the Amiga core
-   registers no MEGA65 file type (ADFs are mounted from inside its own
-   menu), so no `--flags` or `--caps` arguments are needed. The
-   `make_release.py` packaging script runs this step for you and prefers
-   `coretool` when both it and `bit2core` are installed.
+   constant in `CORE/vhdl/config.vhd` (`WIP-V2-B1` in this example). Unlike
+   the C64 core, the Amiga core registers no MEGA65 file type (ADFs are
+   mounted from inside its own menu), so no `--flags` or `--caps` arguments
+   are needed.
 
 5. **Deploy and run.** Copy the `*.cor` to the MEGA65 (or, with a JTAG
    adaptor, flash the `*.bit` directly with `m65 -q mega65_r3.bit`) and
-   follow the Installation steps above. Remember that the Kickstart ROM at
-   `/amiga/kick.rom` is mandatory — without it the core stops at an error
-   screen.
+   follow the [installation steps](../README.md#installation) in the main
+   README. Remember that the Kickstart ROM at `/amiga/kick.rom` is
+   mandatory — without it the core stops at an error screen.
+
+### Build all boards in batch mode
+
+To build several boards without the Vivado GUI, source the Vivado environment
+and run the build script, which is made for overnight runs:
+
+```bash
+cd CORE
+source /tools/Xilinx/Vivado/2022.2/settings64.sh  # adjust this path
+nohup ./build_all.sh > build_all.out 2>&1 &
+```
+
+Without arguments it builds R3, R4, R5 and R6, one after another. Pass board
+names to build only a subset (for example `./build_all.sh R3 R6`), and set
+`JOBS=<n>` to choose how many parallel workers Vivado may use for each board
+(the default is 4), for example `JOBS=8 ./build_all.sh R3 R6`. Each board
+writes `build_R<n>.log`, and the run ends with a compact summary of the
+timing and sign-off result of every board. `./build_all.sh --help` lists all
+options.
+
+Now and then a board misses timing although the design is fine, usually by a
+few picoseconds of hold in the HyperRAM read capture of the framework. Whether
+it happens, and to which board, depends on where the placer happens to put
+things. `build_all.sh` handles this pragmatically: once all boards are built,
+it implements every board that missed by no more than 0.3 ns again, from the
+same synthesized netlist but with other placer and router directives, until
+one attempt meets timing. The winning bitstream replaces the failed one in the
+usual place, `build_R<n>_reroll.log` records the attempts, and the summary
+shows the first pass and every attempt. `./build_all.sh --no-reroll` skips
+this pass.
+
+The obvious fix, changing the delay value of the HyperRAM read strobe, is not
+an option: that value is calibrated on many MEGA65 machines in the field.
+[`timing_closure.md`](developers/timing_closure.md) explains the failing path,
+why the delay must stay as it is, and why a re-rolled bitstream passes the
+same sign-off and is exactly as valid as a first-pass one.
 
 ### Settings file
 
 For the core to remember your menu settings, the SD card needs an
-`aexp-<version>.cfg` file in `/amiga` (see Installation). Release
-packages made with `make_release.py` already contain the matching file.
-If you build from source yourself, create one with default settings
-using the M2M helper; the `auto` argument reads the required size
-straight from `config.vhd`:
+`aexp-<version>.cfg` file in `/amiga` (see the
+[installation steps](../README.md#installation)). Release packages made with
+`make_release.py` already contain the matching file. If you build from source
+yourself, create one with default settings using the M2M helper; the `auto`
+argument reads the required size straight from `config.vhd`:
 
 ```bash
 cd M2M/tools
@@ -148,11 +162,43 @@ name even when the two have the same size: a file you have already used
 holds your saved selections, and they override the defaults the new build
 ships with.
 
-### Going deeper
+### Packaging a release
 
-* `doc/how_to_port.md` is the engineering reference for this port: the M2M
-  architecture, the MiSTer-to-MEGA65 porting walkthrough and a
-  Quartus-to-Vivado pattern catalog.
+`make_release.py` in the repository root packages a release: it converts the
+bitstreams of all boards into `*.cor` files (with `coretool`, or `bit2core`
+if `coretool` is not installed), creates the settings file and collects the
+documentation and the screen-adjustment files into one folder:
+
+```bash
+python3 make_release.py WIP-V2-B1 /tmp/builds
+```
+
+The version must match `CORE_VERSION`. A work-in-progress build (`WIP-*`)
+also needs its row in [inofficial.md](inofficial.md). Run
+`python3 make_release.py --help` for the options, for example packaging only
+some boards.
+
+### Developer documentation
+
+* [Architecture overview](developers/architecture.md): what the core
+  emulates, how it is layered from the board top down to Minimig, the
+  repository layout, clock domains, QNICE devices and HyperRAM map, the rules
+  to respect when you change something, the changes to the M2M framework and
+  to the Minimig core, and the MiSTer software the core replaces.
+* [Floppy drives with ADF images](developers/floppy-adf.md): how the
+  simulated drives read and write `*.adf` images, from the Amiga disk format
+  to the write-back to the SD card.
+* [The Hardware Floppy](developers/hardware-floppy.md): the MEGA65's
+  internal drive as a real Amiga drive.
+* [Timing closure and the build re-roll](developers/timing_closure.md).
+* [Audio](developers/audio.md): the audio path, the A500 and LED filters and
+  the stereo mix.
+* [HDMI latency](developers/hdmi_latency.md): how much the HDMI path delays
+  the picture, and the flicker-free mode.
+* MiSTer's floppy service [`minimig_fdd.cpp`](developers/minimig_fdd.cpp) and
+  configuration code [`minimig_config.cpp`](developers/minimig_config.cpp):
+  verbatim copies of the software that `adf_track_engine.vhd` and
+  `amiga_config.vhd` were modelled on.
 * The [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) documents the
   build environment in depth and explains the QNICE debug console — a
   real-time serial log and interactive monitor, available if you have a

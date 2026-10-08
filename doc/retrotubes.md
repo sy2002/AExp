@@ -11,11 +11,11 @@ is displayed natively by the tube (no flicker fixer involved) and the
 intentional flicker effects of demos melt on the phosphor exactly as their
 authors intended.
 
-**IMPORTANT CAUTIONS:** (Not following these rules might destroy your retro
-device)
+**Important cautions** — ignoring these rules can destroy your retro
+device:
 
 1. Only connect a retro device while having the 15 kHz retro VGA mode active.
-   Never connect using the "Standard" mode which yields 30 kHz or more. High
+   Never connect using the "Standard" mode, which yields 31 kHz. High
    horizontal frequencies damage the cathode ray tube.
 
 2. **Always use the right cable.** Particularly when you use SCART, the
@@ -128,4 +128,4 @@ Mark II, these have a DB9 RGB input as pictured below:
 ![DB9-example](assets/db9-rgb-input.jpg)
 
 Use the following VGA to DB9 RGB cable which can be found
-[on eBay (example from Australia, adjust to your country)](https://www.ebay.com.au/itm/115728666823?mkcid=16&mkevt=1&mkrid=705-154756-20017-0&ssspo=VdRmcP3PRmW&sssrc=2047675&ssuid=_M7sYODUQqq&var=415792281593&widget_ver=artemis&media=COPY).
+[on eBay (example from Australia, adjust to your country)](https://www.ebay.com.au/itm/115728666823?var=415792281593).

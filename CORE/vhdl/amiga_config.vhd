@@ -12,6 +12,10 @@
 -- (joy_swap, see sequence entry 7), default audio mix - and finally releases the CPU so that the
 -- 68000 boots from the (M2M-preloaded) Kickstart ROM.
 --
+-- Modelled on ApplyConfiguration() in MiSTer's HPS code:
+-- https://github.com/MiSTer-devel/Main_MiSTer/blob/c73802332ff9c73659410084b6319ccd29f0b3aa/support/minimig/minimig_config.cpp
+-- (local copy: doc/developers/minimig_config.cpp).
+--
 -- This module runs entirely in the clk_main (28.375 MHz) domain, the same clock that drives
 -- minimig.v's "clk" input.
 --

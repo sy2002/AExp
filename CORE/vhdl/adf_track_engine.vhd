@@ -15,6 +15,9 @@
 -- the disk is announced write-protected and writes are drained and DISCARDED, so that
 -- wprot-ignoring software cannot hang the machine.
 --
+-- Reference: https://github.com/MiSTer-devel/Main_MiSTer/blob/c73802332ff9c73659410084b6319ccd29f0b3aa/support/minimig/minimig_fdd.cpp
+-- (local copy: doc/developers/minimig_fdd.cpp; the ":nnn" line numbers in this file refer to it).
+--
 -- The full protocol contract (verified against rtl/paula_floppy.v) and the design rationale live
 -- in doc/developers/floppy-adf.md. The essentials this implementation relies on:
 --

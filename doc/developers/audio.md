@@ -1,4 +1,4 @@
-# AExp audio notes
+# Audio: Paula, the A500 filters and the stereo mix
 
 This note explains the AExp audio path: Paula, the Amiga-specific output
 filters and the stereo crossfeed (both faithful ports from MiSTer's
@@ -6,7 +6,7 @@ filters and the stereo crossfeed (both faithful ports from MiSTer's
 generic MiSTer "audio improvements" filter that the M2M framework also
 carries (and which AExp keeps disabled).
 
-It is written for maintainers who know neither MiSTer nor the Amiga audio
+It is written for a developer who knows neither MiSTer nor the Amiga audio
 hardware in detail. The short version is:
 
 * The audio chain is: raw Paula -> A500 fixed low-pass (switchable) ->
@@ -16,11 +16,11 @@ hardware in detail. The short version is:
   bit-faithful to MiSTer `Minimig.sv`; the OSM defaults (A500 Filter on, LED
   Filter on, Full Stereo, 100% volume) reproduce a real A500.
 * With both filters off and Full Stereo, the path is bit-transparent raw
-  Paula, exactly the pre-filter behavior.
+  Paula.
 * The generic M2M `audio_out` filter is a different thing: MiSTer output
   conditioning, not an Amiga model. AExp has the right coefficients for it in
   `CORE/vhdl/globals.vhd` but keeps `qnice_audio_filter_o` tied to `'0'`.
-* The end-user description of all of this is `doc/audio.md`.
+* The end-user description of all of this is [audio.md](../audio.md).
 
 ## 1. What is Paula?
 
@@ -229,18 +229,17 @@ Design properties:
 
 ### 3.4 Menu plumbing
 
-* `config.vhd`: "Stereo: %s" submenu (lines 83..91, radio group
-  `OPTM_G_STEREO`), "A500 Filter" (line 92, `OPTM_G_A500FILT`) and
-  "LED Filter" (line 93, `OPTM_G_LEDFILT`), both single-select with
-  `OPTM_G_STDSEL` = default ON. All three are HDL-read; no firmware logic is
-  involved.
-* `mega65.vhd`: `C_MENU_STEREO` (86..89) is decoded into MiSTer's 2-bit
+* `config.vhd`: the "Stereo: %s" submenu (radio group `OPTM_G_STEREO`),
+  "A500 Filter" (`OPTM_G_A500FILT`) and "LED Filter" (`OPTM_G_LEDFILT`), the
+  latter two single-select with `OPTM_G_STDSEL` = default ON. All three are
+  HDL-read; no firmware logic is involved.
+* `mega65.vhd`: the `C_MENU_STEREO` range is decoded into MiSTer's 2-bit
   `aud_mix` encoding; `C_MENU_A500FILT`/`C_MENU_LEDFILT` are wired straight
   into `main.vhd`. All in the core clock domain from the static
   `main_osm_control_i` vector, like the keyboard and VGA bits.
-* The menu growth (OPTM_SIZE 103 -> 114, OPTM_DY 28 -> 31) required the
-  usual QNICE menu-heap rebudget; the calculation lives next to
-  `MENU_HEAP_SIZE` in `CORE/m2m-rom/m2m-rom.asm`.
+* The line numbers behind these constants follow the menu layout in
+  `config.vhd`; a change there needs the menu checks and the heap budget of
+  [architecture.md](architecture.md#75-every-growth-of-the-menu-needs-a-heap-budget-check).
 
 ## 4. The generic M2M "audio improvements" filter stays off
 
@@ -266,13 +265,15 @@ one-line experiment.
 
 ## 5. Verification
 
-* `.research/tb_iir_amiga.v` (iverilog) drives both IIR instances exactly as
+* The testbench `tb_iir_amiga.v` <!-- TOOL: tb_iir_amiga.v --> (iverilog)
+  drives both IIR instances exactly as
   `audio_filters.vhd` instantiates them and checks the measured gains at DC,
   1 kHz, 3.2 kHz, 4.4 kHz and 10 kHz against the analytic RC prototypes
   scaled by the intrinsic DC gains, plus channel-separation of the
   time-multiplexed stereo core (right channel silent while the left plays).
-* `.research/tb_audio_filters.vhd` (nvc, with the `+100`-offset IIR stub
-  `iir_stub_sim.vhd`) proves the glue: bit-transparent bypass with everything
+* The testbench `tb_audio_filters.vhd` <!-- TOOL: tb_audio_filters.vhd -->
+  (nvc, with the `+100`-offset IIR stub `iir_stub_sim.vhd` <!-- TOOL: iir_stub_sim.vhd -->)
+  proves the glue: bit-transparent bypass with everything
   off, the A500/LED mux decisions, LED gating (armed AND live `pwr_led`),
   and all crossfeed blends against golden values computed by an independent
   Python implementation of the `aud_mix_top` arithmetic.

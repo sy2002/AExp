@@ -108,10 +108,28 @@ entitled to use it on.
 
 ---
 
+## Surprise: the time is an hour off
+
+Kickstart 1.3 knows nothing about time zones or daylight saving time. The
+Amiga shows the MEGA65's clock exactly as it is set, without adding or
+removing anything. So if the Amiga's time is an hour off, the MEGA65's clock
+is an hour off: typically because it was set to UTC, or because nobody moved
+it when daylight saving time began or ended. The MEGA65 does not adjust for
+that automatically.
+
+The fix is to set the MEGA65's clock to your local time, and to set it again
+each time daylight saving time changes.
+
+---
+
 ## A few things worth knowing
 
 - The clock is read-only from the Amiga's side. Set the time on the MEGA65, not
   with `SetClock SAVE` inside the Amiga.
+- With **HDMI: Flicker-free** switched on, the emulated Amiga runs about 0.16 %
+  fast, so the time it keeps in software gains roughly six seconds per hour.
+  The battery-backed clock itself is not affected; the Amiga reads it afresh at
+  every boot through `SetClock LOAD`.
 - Even while the year shows 1978, file dates still sort correctly against each
   other, because AmigaDOS counts days from its 1978 origin. Only the printed year
   looks off, so demos and everyday work are unaffected.

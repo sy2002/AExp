@@ -1,1422 +1,494 @@
-# AExp — Amiga 500 for MEGA65
+# AExp — Amiga 500 for MEGA65: instructions for coding assistants
 
-Port of the MiSTer Minimig-AGA core to the MEGA65, scoped to an Amiga 500
-OCS, built on the MiSTer2MEGA65 (M2M) framework V2.0.1.
+This file is for AI coding assistants working in this repository (`CLAUDE.md`
+includes it). It holds current facts and rules, not history. Keep it that way:
+when something changes, rewrite the affected statement in the present tense
+instead of appending a log entry. Deep material lives in the tracked developer
+docs listed in section 2; point there instead of duplicating it here.
 
-**Status: VERSION 1 IS RELEASED (tag `V1` = commit `46ef60c`, 2026-07-23;
-`VERSIONS.md` dates the release 2026-07-26).** Read the
-"Released and working" box below before assuming anything in this file is
-still pending - much of the prose here was written while a feature was in
-flight and was never re-worded after it shipped. Development continues on
-Version 2 (audio improvements, Hardware Floppy, more drives).
+Make no assumption about who the user is. Section 6 lists the people who
+appear in issues, commits and comments.
 
-### Released and working - do not re-litigate these
+## 1. What this is and where it stands
 
-- **ADF floppy df0:, READ AND WRITE** - shipped in Version 1, in daily use.
-- Video (HDMI + analog, interlace flicker fixer, screen adjustment),
-  keyboard (both modes), mouse/joystick, battery RTC, Slow RAM toggle.
-- See `VERSIONS.md` for the authoritative Version 1 feature list and
-  `doc/inofficial.md` for the alpha/beta history.
-- **The AExp release tag is `V1`** (commit `46ef60c`), and the alphas/betas
-  are `WIP-V1-*` / `WIP-V2-*`. There is no `V1.0.0` tag in this project.
-  Version numbers like "V2.0.1" in this file refer to the **MiSTer2MEGA65
-  framework**, never to an AExp release - do not read a framework version
-  as a core release. (This repo was forked from the M2M template, so M2M's
-  own tags `V0.9.0`, `V0.9.1`, `V1.0.0`, `V2.0.0`, `V2.0.1`,
-  `Vivado-2019.2` used to be present locally; they were removed on
-  2026-08-02 and `remote.upstream.tagOpt=--no-tags` keeps them from coming
-  back. GitHub `origin` never had them. If you ever see them again,
-  someone fetched upstream tags - they are framework releases.)
+- A port of the MiSTer Minimig-AGA core to the MEGA65, scoped to an
+  **Amiga 500: OCS only, PAL only, cycle-exact 68000 (fx68k), Kickstart 1.3**.
+  512 KB Chip RAM + 512 KB Slow RAM (OSM toggle "Slow RAM (A501)") + 256 KB
+  Kickstart, all in FPGA block RAM. No SDRAM, no Fast RAM, no IDE, no AGA/ECS.
+- Kickstart comes from the SD card, `/amiga/kick.rom` (raw 256 KB dump, no
+  byte swapping) and is **mandatory**: without it the core stops at a fatal
+  error screen (`C_CRTROMTYPE_MANDATORY` in `CORE/vhdl/globals.vhd`).
+- Built on the MiSTer2MEGA65 (M2M) framework **V2.0.1, in a modified copy**
+  that lives in `M2M/` as part of this repository (rule 8).
+- Boards: MEGA65 R3/R3A, R4, R5, R6, one Vivado project each.
+- **Status:** Version 1 is released (tag `V1`, commit `46ef60c`, July 2026).
+  Version 2 is in beta; the current build is the one named by `CORE_VERSION`
+  in `CORE/vhdl/config.vhd` (`WIP-V2-B1` at the time of writing).
+  `VERSIONS.md` is the authoritative feature list per release, and
+  everything it lists is shipped and works: among others the simulated ADF
+  drives (read and write), up to three drives, the Hardware Floppy reading
+  and writing real disks (Copylock originals included), DVI mode, the audio
+  filters, the interlace flicker fixer, screen adjustment. The flicker-free
+  HDMI clock servo (menu toggle, default on) shipped with V1 as well. Do not
+  re-open any of these as "unverified".
+- **Version names:** releases are `V<n>` (`V<n>.<m>` for a point release);
+  alphas are `WIP-V<n>-A<k>`, betas `WIP-V<n>-B<k>` (`make_release.py` also
+  accepts an `X<m>` suffix). Git tags use exactly these names.
+- **Tag trap:** `V1.0.0`, `V2.0.0`, `V2.0.1` and similar are **M2M framework**
+  releases, never AExp releases. If you add sy2002/MiSTer2MEGA65 as a remote
+  to compare, set `remote.<name>.tagOpt --no-tags` so that its tags never
+  enter this repository. Any "V2.0.1" in a comment means the framework.
+- **`CORE_VERSION` is the single version source.** The welcome and help
+  screens, `CORENAME` and the settings file `/amiga/aexp-<CORE_VERSION>.cfg`
+  (`CFG_FILE`) derive from it. A new version therefore needs a new settings
+  file (rule 13). Every alpha/beta has a row in `doc/inofficial.md` with its
+  commit hash, and `make_release.py` refuses to package a WIP build without
+  it.
 
-**Work in progress (Version 2):**
+## 2. Where the knowledge lives
 
-- `WIP-V2-A1` — audio filters (A500 + LED), Stereo Mix, master volume.
-- `WIP-V2-A2` — Hardware Floppy read: works "OK-ish", real disks mount and
-  browse, but old/marginal media still produce errors.
-- **`WIP-V2-A3` — MULTIPLE SIMULATED DRIVES. The HDL, the menu and the
-  framework were R3-built (`5f2869d`: BRAM 364/365, WNS +0.120 ns) and
-  HARDWARE-VERIFIED on 2026-08-03 (boot from df0, Workbench Tools in df1,
-  a program reading both drives, the Hardware Floppy, and live drive-
-  configuration switching all work). The per-drive firmware write-back
-  followed on top and is statically verified but NOT yet synthesized or
-  hardware-tested.** Three Amiga units `df0`/`df1`/`df2`, each either a
-  read/write ADF disk image or the Hardware Floppy (at most one). The
-  drive index IS the Amiga unit: per-drive twin lines in the main menu (a
-  mount line and a hardware-status TEXT line) whose visibility comes from
-  the backported M2M menu-dependency feature, a `Drive Settings` submenu
-  with a `Drives 1/2/3` radio plus one mode radio per drive, three
-  `adf_mount_wrapper` instances with their own guarded HyperRAM pools
-  behind a 4-way `avm_arbit_general`, and a unit-tagged
-  `adf_track_engine` whose write drain aborts the moment Paula selects a
-  different unit. **All three drives are writable**: the eight write-back
-  variables are arrays indexed by the drive, each drive owns its own
-  FAT32 handle snapshot (`ADF_FDH0/1/2`), `FLUSH_ADF_STEP` takes a drive
-  index, and `HANDLE_CORE_IO` runs per-drive SD guards, per-drive mount
-  tracking and ONE round-robin flush slice per poll, so three armed
-  drives cost the main loop what one used to. Three rules keep it safe
-  and are load-bearing: a drive may only ever be flushed through ITS OWN
-  handle; the same image file may not be mounted into two drives at once
-  (`ADF_DUP_CHECK` rejects the second mount, because each drive holds its
-  own HyperRAM copy and the later flush would overwrite the earlier one);
-  and no handle may be left FAT32-DIRTY across a return to the main loop,
-  because the machine has exactly ONE sector buffer whose owner the
-  device handle tracks by ADDRESS, and the file browser steals it without
-  flushing.
-  **The authoritative working document is
-  `.research/HANDOVER-multi-drive.md`** - read it before touching the
-  floppy stack; it carries the design rationale, what is already in the
-  tree, the defect classes to avoid (above all the untagged write drain,
-  which would write one drive into another drive's image), the ordered
-  remaining work and the verification recipes.
-  Note that `CORE_VERSION` drives `CFG_FILE`, so the OSM settings file on
-  the SD card becomes `/amiga/aexp-WIP-V2-A3.cfg` - regenerate it with
-  `M2M/tools/make_config.sh` (see hard rule 10; `OPTM_SIZE` is now 146).
-  The `doc/inofficial.md` row for A3 is added at packaging time, because
-  `make_release.py check_inofficial_md` requires a real commit hash.
-- **`WIP-V2-A4` — HARDWARE FLOPPY MARGIN INSTRUMENTATION (diag map v7).
-  Field testing falsified the old-media verdicts (2026-08-07): a
-  tester's original disk, verified on a real Amiga before AND after,
-  read-errors in our core - the front-end decode margin is the suspect,
-  and the A2-era dumps had no freshness marker (seven field "dumps"
-  turned out to be two observations).** A4 adds, all in the 50 MHz
-  domain with zero firmware/menu/BRAM impact: millisecond uptime + dump
-  nonce (dumps can never silently duplicate again), step counter +
-  /TRK0-referenced cylinder tracker, per-class SIGNED-error margin
-  histograms of the adaptive quantiser (serve-gated; optional
-  armed-sector window spanning exactly the approach to a chosen
-  sector), minimum-margin capture with est/length/class context,
-  estimate-excursion min/max, and a per-sector miss profile over
-  qualified read revolutions ("always sector 4 or roving?" - the
-  field signature is a deterministic sector-4 header miss on track 81
-  with zero LOL/fmt_bad). Device decodes addr[6:0] now; dump =
-  `M 7000 705F`; version reg 0x01 = 0x0007. Statically verified
-  (nvc clean, all three existing TBs pass unchanged, new
-  `tb_fdd_margin` checked against an independent integer model - which
-  is how the "gaps stage counts intervals exclusive of the edge cycle"
-  fact was found), NOT yet synthesized. The working doc is the Part-4
-  section of `.research/HANDOVER-hardware-floppy-round2.md` (decoded
-  field dumps, test.adf flux analysis, build + tester recipe incl. the
-  German dump instructions, and the phase-3/4 separator plan). The SD
-  settings file just needs a rename/copy to `/amiga/aexp-WIP-V2-A4.cfg`
-  (`OPTM_SIZE` unchanged at 146). The A4 R6 build closed timing only in
-  the post-route phys-opt pass (routed WNS -0.028 on the kick-ROM
-  half-period path through the shared device-data cone, final +0.192).
-- **`WIP-V2-A5` — REGISTERED DIAG READOUT (qnice_clk pressure relief,
-  not shipped - a prerequisite for the next iteration).** The diag bank
-  0x0104 latches the addressed word on the FALLING clock edge into one
-  local 16-FF register; the CPU-facing `qnice_dev_data_o` cone sees a
-  plain flip-flop instead of the 96-word mux cloud that helped an R6
-  build graze the kick-ROM half-period path. ZERO wait states - the
-  data source is register-fast, so this is the mount wrapper's
-  WBC-CSR pattern ("plain FFs, no wait states"), NOT its
-  HyperRAM-window wait pattern; bus timing is kick-ROM-identical
-  (address stable at the falling edge, data consumed at the ending
-  rising edge), so the firmware and monitor are untouched. Version reg
-  0x01 reads **0x0008** (map CONTENT identical to v7 - the bump only
-  identifies the build in field dumps); settings file
-  `/amiga/aexp-WIP-V2-A5.cfg` (content identical, `OPTM_SIZE` 146).
-  Verified: nvc clean, all four existing TBs unchanged-green, new
-  `.research/tb_fdd_diag_ro.vhd` (pipelined 128-address sweep against
-  an independent literal expectation table, latch-instant proof, alias
-  folding). NOT synthesized.
-  **A5 second increment - THE DPLL DATA SEPARATOR (map v9, reg 0x01 =
-  0x0009).** Deft's A4 dumps (log03, 2026-08-08) measured the real
-  failure: misses ROVE across all 11 sectors (~0.5/rev; "deterministic
-  sector 4" was a frozen-snapshot artifact), the armed-sector windows
-  are clean, and the killers are RARE extreme interval events (accepted
-  gaps at -19%/+12%, margins to 0.19 cycles, ~40 rejects/session, est
-  drag to 96.0 at exactly 300.0 RPM) that the interval classifier
-  AMPLIFIES: one displaced edge hits two intervals, a class flip is a
-  bit SLIP (rest of sector garbage), an out-of-span gap is a loud
-  resync. The fix: a counter-based digital PLL bit source in
-  `physical_fdd_bits.vhd` (per-edge phase pull err/2, period err/64
-  clamped +/-10%, one bit per cell boundary, +/-1 us phase tolerance,
-  errors stay local, droughts free-run) - the legacy quantiser path is
-  BIT-IDENTICAL, runtime-selectable (diag 0x35 bit 6 = 1 -> legacy,
-  default DPLL) and keeps running as passive observer, so the A4
-  margin instrumentation measures identically in both modes (field
-  A/B). New diag 0x5F = DPLL cell. Verified: tb_fdd_dpll RED/GREEN
-  (the measured dropout event corrupts the tail via legacy resync,
-  stays ONE bit flip under DPLL), S1..S5 pass in BOTH modes
-  (G_LEGACY generic), margin/diag_ro/engine/multidrive TBs + full nvc
-  chain + decoder v9 green. Plus two instrument fixes: /TRK0
-  assert-edge cylinder zeroing (integral read one low in the field),
-  min_est/min_gap cleared on reset/clear. NOT synthesized.
-- **`WIP-V2-A6` - THE SYNC-SEAM FIX (map v10, reg 0x01 = 0x000A;
-  R6-BUILT GOOD 2026-08-15: postroute-physopted WNS +0.172, 0 failing,
-  BRAM 364/365 unchanged, both fx68k .mem read - delivered to deft for
-  the field A/B). Settings file renames to `/amiga/aexp-WIP-V2-A6.cfg`
-  (content identical, OPTM_SIZE 146). KNOWN LIMITATION in this build,
-  fixed in WIP-V2-A7: while the framing hold is
-  active (default) and a serve has crossed the splice, the CAPTURE-based
-  diag instruments read misframed words - rev mask 0x1C/0x1D, fmt_bad
-  0x1E, header captures 0x11..0x1A, the 0x58..0x5E miss profile and the
-  armed-sector window are NOT trustworthy for post-splice sectors of
-  hold-mode serves (they look bad on healthy disks); the BOOT outcome,
-  the A/B switch, and the seam instruments 0x60..0x6C stay fully valid
-  (the serve-start latch 0x6A fires pre-splice). WIP-V2-A7 fixes this
-  limitation - it applies to 0x000A dumps only.** E2 of the
-  2026-08-15 audit ran RED as pre-registered: `.research/tb_fdd_splice.vhd`
-  (full AmigaDOS track through the REAL front-end at trackdisk's exact
-  cadence into a LITERAL KS1.3 trackdisk decoder; independent Python
-  twin `.research/td_check.py` agreed 7/7 on dumped captures) proved
-  that the aligner's realign-at-every-4489 turns the once-per-rev
-  write-splice slip into a seam ([gap run][hybrid][aligned 4489], e.g.
-  run-end long $22444489) that matches NO trackdisk hunt-table entry:
-  every spliced attempt dies `$1A` (written gap > ~560 B) or `$17` (second
-  post-gap boundary inside the `$67C` window -> mis-anchor, `failslot ==
-  SG`) in BOTH separator modes, except the SG=11 escape (serve start =
-  first-written sector, 11-start sweep = exactly one escape), while a
-  constant-framing capture of the SAME flux decodes GREEN (chunk-2
-  shift absorbs the splice - real-Paula behavior, ROM-designed). THE
-  FIX: `frame_hold` in physical_fdd_bits - word framing FREE-RUNS (no
-  mid-stream realign) while the engine streams past its serve-start
-  sync (new engine output `phys_data_o = phys_stream and not
-  phys_hunt`, threaded main->mega65->top) AND live WORDSYNC=0 (Paula
-  fdd_dws); pre-serve hunt and WORDSYNC=1 (X-Copy) keep realigning.
-  Runtime A/B: 0x35 bit 7 = realign-ALWAYS (pre-fix framing; default 0
-  = fix). E3 seam instruments at 0x60..0x6E (mid-serve realign counter
-  + bit-phase context, pre-seam 8-word tap, per-session serve-start
-  sector, LOL streaming/idle twins, chain-broken-window counter; the
-  0x58 miss profile is now chain-gated - deselect-hole windows no
-  longer count as misses). Dump = `M 7000 706F`. Verified: tb_fdd_splice
-  matrix (unfixed RED / fixed GREEN x DPLL/legacy incl. seam-counter
-  asserts), all six existing TBs green (tb_fdd_margin updated to the
-  chain-gated window semantics, tb_fdd_diag_ro table extended to v10),
-  decode_fdd_dump.py v10 + 52 selftests, full nvc chain. Zero firmware/
-  menu/BRAM/.xpr impact; cfg unchanged. E1 (`.research/e1_census/`):
-  KS1.3 census tool `tdcensus` + ADF + German recipe, built + vamos-
-  smoke-tested, ready for deft.
-- **`WIP-V2-A7` - THE HYGIENE BUILD toward the write milestone (reg
-  0x01 = 0x000B, register CONTENT identical to v10; released to NO ONE -
-  the A7->A8->V2 staging is in
-  `.research/HANDOVER-hardware-floppy-write.md`). Statically verified +
-  full TB gate green 2026-08-21, NOT yet synthesized.** Four queued
-  items, nothing else: (1) the sync-anchored DIAGNOSTIC word stream -
-  physical_fdd_bits carries a second framing counter over the same
-  shifter that ALWAYS realigns on a sync match (`dword_valid_o/dword_o`);
-  cap_proc consumes THIS stream, so the capture instruments (0x11..0x1A,
-  0x1C..0x1E, 0x58..0x5E, armed-sector window) are trustworthy during
-  framing-hold serves too - the A6 caveat is closed, and with the hold
-  off the two streams are bit-identical by construction (both counters
-  reset on the same events), so the realign-always A/B arm and the
-  SERVED stream into Paula are untouched in every mode. (2) WORDSYNC=1
-  coverage in tb_fdd_splice: one spliced serve under live WORDSYNC=1
-  asserts the hold stays OFF (frame status) and X-Copy-style-decodes the
-  capture (aligned [4489][4489] pair + word-aligned checksum decode for
-  every boundary incl. >= 3 post-splice sectors) - a hold-ignores-
-  WORDSYNC mutant top now goes RED (proven), where the old matrix was
-  blind. (3) `phys_data_o` in adf_track_engine is registered (the level
-  crosses to the 50 MHz domain through an async 2-FF; phys_stream and
-  phys_hunt toggle together at dispatch - decode-glitch hygiene).
-  (4) tdcensus `send_pkt1` repaired (sets mn_ReplyPort, loops
-  GetMsg/WaitPort until ITS OWN packet returns before freeing - the
-  stale-port-signal in-flight-free hazard; also: `inhibited` only set
-  when ACTION_INHIBIT actually succeeded; rebuilt, vamos smoke PASS).
-  Plus, from the increment's adversarial review (12 findings, all
-  minor, all folded): cap_proc ABANDONS a torn capture on chain reset
-  (a deselect mid-capture could otherwise complete the stale buffer
-  with the next selection's free-running hunt words = a mixed-session
-  garbage publish - pre-existing, now impossible), the splice TB's
-  instrument asserts got a still-selected 300 us tail-settle window +
-  a whole-run fmt_bad=0 backstop, and tb_engine_paula now checks the
-  registered phys_data_o against the REAL engine (low through the
-  hunt, high per stored word, low after DMA end).
-  Red/green, all proven: the extended TB against the A6 HDL fails
-  exactly at the new fmt_bad assertion (5 misframed post-splice headers
-  = the caveat reproduced); a hold-ignores-WORDSYNC mutant top dies at
-  the frame-status assert; two engine mutants (dropped hunt term /
-  stuck-0 phys_data_r) die at the new tb_engine_paula asserts; against
-  the real A7 HDL the full matrix passes (4 cells x DPLL/legacy x
-  fixed/unfixed + G_SWEEP, WORDSYNC=1 coverage 14 pairs/13 clean/4
-  post-splice in all of them). Gate: all eight TBs green, full nvc
-  chain, decode_fdd_dump.py 0x000B + selftests (the A6 hold-mode dump
-  caveat now scoped to 0x000A), check_osm_menu + check_firmware clean.
-  Settings file renames to `/amiga/aexp-WIP-V2-A7.cfg` (content
-  identical, OPTM_SIZE 146). Zero firmware/menu/BRAM/.xpr impact. The
-  write-datapath spec is at
-  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` (now at revision
-  3.6; the increment is **WIP-V2-A9, diag map 0x000D**, implemented and
-  field-proven - see its entry below; write research ground truth in
-  `.research/RESEARCH-write-mega65-core.md` +
-  `RESEARCH-write-paula-engine.md`; working doc
-  `.research/HANDOVER-hardware-floppy-write.md`). A8 went to the Copylock
-  read fix, which is why the write milestone is A9.
-- **`WIP-V2-A8` - THE COPYLOCK READ FIX (reg 0x01 = 0x000C; register
-  CONTENT identical to v10; BUILT AND FIELD-CONFIRMED 2026-08-28, zero
-  regressions - sy2002 calls it "very stable", and A9 is built on it).**
-  Field round (dejavu4u2, from `40263eb` + submodule `cf934cb`): all
-  three target titles - Cannon Fodder disk 2, The Chaos Engine,
-  Terminator 2 - load and play normally, and the CAUSAL A/B held exactly
-  as pre-registered: `M C 7035 8100` (surface off = the A7 stub) brings
-  the hang back on all three, `M C 7035 8000` restores them, on the same
-  disks in the same session. That pins the failure to this one register
-  rather than to anything else the build changed. The regression sweep
-  covered the only two theoretical exposures the review named, X-Copy and
-  trackdisk/old originals, and both are clean: X-Copy full-disk copies of
-  Alfred Chicken and Workbench 1.3 still 100%, and Giana Sisters, Alfred
-  Chicken, R-Type II, X-Copy Pro, Workbench 1.3, Arkanoid, Arkanoid
-  Revenge of Doh, Superfrog, Addams Family, New Zealand Story, Ruff'N
-  Tumble, Apidya and Benefactor all boot flawlessly. New Zealand Story is
-  itself a Copylock title - the very loader keirf disassembled - so it
-  doubles as a second positive control. The one open thread is Tier 2
-  (the seven dirk9880 titles), still UNCLASSIFIED for want of data: if
-  they are Copylock they are covered now, and if any fails on A8 it is a
-  different class and the classification-before-theory rule applies
-  again. Details + the shelf list behind `0x35` bit 8:
-  `.research/HANDOVER-protected-disks.md` (FIELD RESULT).
-  THE ORIGINAL DEFECT: Rob Northen COPYLOCK protected
-  originals (Cannon Fodder disk 2, Terminator 2, The Chaos Engine) hung
-  reading their protection track (Amiga track 1 = cyl 0 head 1) on the
-  Hardware Floppy while booting fine on the tester's real A500+.
-  ROOT CAUSE (established from keirf's Copylock disassemblies + flux +
-  the A7 dumps, three independent lines converging): Copylock times the
-  disk by CPU-polling Paula's **DSKBYTR** (`$DFF01A`) - poll bit 12
-  WORDEQUAL for the sync, then count poll iterations while bit 15
-  BYTEREADY toggles as raw MFM bytes arrive - comparing a 5%-short
-  sector (sync 0x8912) against a 5%-long one (0x8914); it needs
-  `(t_long-t_short)/t_short >= 2..4%`. Minimig's DSKBYTR was a CONSTANT
-  STUB (`paula_floppy.v`: BYTEREADY=1, WORDEQUAL=1, data 0x00), so the
-  ratio was always 0, the check failed and the loader spun then parked
-  the machine (black screen, motor on, no stepping - the video-forensics
-  verdict). The read chain itself was PROVEN innocent: the SCP flux of
-  all three disks decodes bit-identically under legacy/DPLL/fixed
-  separators on the loader-relevant sectors, the A7 captures equal the
-  real flux, and the est excursion (93.1..106.3 cyc) stays inside the
-  +/-10% clamp - which is why EVERY 0x35 A/B arm failed identically
-  (none touch DSKBYTR). **THE FIX - a gated DSKBYTR observation surface
-  in `paula_floppy.v`** (a 9th... no, still a minimig change under the
-  existing "physical-drive support" seam): main.vhd taps the engine's
-  physical-FIFO pop (`s_hwf_rd_en` + `hwf_rd_data_i`, QUALIFIED with
-  `hwf_rd_empty_i = '0'` so it mirrors the FIFO's real pops - the review's
-  OBS-SRC-1 fix: without the guard the engine's ST_IDLE last-word re-pop
-  publishes a phantom stale word over each real one) into a 1-clk pulse
-  `obs_word/obs_stb` (clk_main; the reconstructed real-disk word stream
-  at true flux pace), threaded main -> minimig_m65 -> minimig -> paula ->
-  paula_floppy as `fdd_obs_word/stb/legacy`. paula_floppy synthesises a
-  faithful DSKBYTR from it (2 raw MFM bytes per word hi-then-lo,
-  BYTEREADY set-per-byte + clear-on-read, WORDEQUAL live) ONLY while
-  `obs_gate = |(phys_mask & ~_sel & motor_on) & ~obs_legacy` - i.e. the
-  physical unit is the selected, motor-on drive and the A/B bit is clear;
-  otherwise the expression is the ORIGINAL constant stub, byte-for-byte.
-  The DMA FSM, the DSKSYN interrupt, the FIFO, the ENGINE and the FRONT
-  END are UNTOUCHED (the observation stream is independent of the DMA -
-  DSKBYTR delivers bytes whenever selected+motor-on, no DMA needed - so
-  the zero-length arm and syncint did not need changing). Runtime A/B:
-  **0x35 bit 8 = 1 disables the surface** (`M C 7035 8100` reverts to the
-  A7 stub and reproduces the hang; `M C 7035 8000` or reset = fix on).
-  qnice_fdd_ctrl widened 8->9 bits, crossed qnice->main via a new
-  cdc_stable. **Verified: a GOLDEN-DIFF iverilog TB (the new paula_floppy
-  vs the frozen pristine A7 module, identical stimulus) proves
-  BYTE-IDENTICAL outputs in every gate-off regime = the no-regression
-  proof; a Copylock CPU-model TB shows fix-ON 5% timing ratio /
-  fix-OFF 0% (hang); nvc clean on main/mega65/diag; tb_engine_paula +
-  tb_fdd_diag_ro (bumped to 0x000C) + check_osm_menu + check_firmware +
-  decode selftest all pass.** Zero firmware/menu/OPTM/BRAM impact;
-  settings file `/amiga/aexp-WIP-V2-A8.cfg` (content identical,
-  OPTM_SIZE 146). Working doc: `.research/INTEGRATION-SPEC-copylock-
-  dskbytr.md`; campaign: `.research/HANDOVER-protected-disks.md`; the
-  local regression TB is `.research/tb_paula_obs.v` (+
-  `tb_paula_floppy_a7ref.v` + `build_tb_paula_obs.sh`). Field A/B recipe
-  for dejavu4u2 in the handover.
-- **`WIP-V2-A9` - THE HARDWARE FLOPPY WRITE DATAPATH (reg 0x01 = 0x000D;
-  the first time any M2M core writes a real floppy). BUILT, FIELD-PROVEN AND
-  RELEASED AS A PUBLIC ALPHA (tag `WIP-V2-A9` = `b5da87a`): real Amigas read
-  the disks this core writes, and sy2002 called it good to go on
-  2026-09-20 - see FIELD RESULT at the end of this block.** A dumb, format-agnostic bit pipe from Paula's write DMA to the
-  WDATA pin - we never parse what we write, so AmigaDOS tracks, X-Copy
-  images and trackloader formats pass through identically. The contract is
-  `.research/INTEGRATION-SPEC-hardware-floppy-write.md` **revision 3.6**
-  (five adversarial audit rounds: 36 -> 45 -> 22 -> 10 -> 11 findings, all
-  folded; round 5 was the implementation session's own fold-check).
-  THE STRUCTURE: Paula's 2048-word FIFO + the dmal backpressure loop IS the
-  elastic buffer (supply 21.3 us/word beats demand 32 us/word, so a paced
-  drain can never starve mid-track), the engine pops ONE word per frame and
-  only when the writer is nearly dry, and a deliberately SHALLOW 4-deep CDC
-  FIFO feeds `physical_fdd_writer.vhd` (50 MHz: 100-cycle cells, MSB-first,
-  FWFT reload, 500 ns active-low WDATA pulses, ROM-faithful precomp, WGATE
-  hard-gated). Shallowness is the whole safety mechanism: Paula fires DSKBLK
-  when the HOST empties its FIFO, so every word still in our pipe then is
-  flux the Amiga already believes written - the in-flight residue is 2 to 3
-  word times (~72-104 us). That is about THREE TIMES a real Paula's, which
-  owes exactly one word because it fires DSKBLK when its own FIFO empties
-  into its own shifter. Shallow is necessary and NOT sufficient: a host that
-  touches a pin inside that window still cuts the tail, which is what the
-  drain hold in FIELD RESULT below exists for.
-  THE EPISODE MODEL (the structural critical of audit round 2): Paula's
-  write DMA survives every engine-side drain abort - trackwr stays high
-  until the host drains the FIFO - so the unit of write-session state is the
-  trackwr EPISODE, not the engine drain. Ownership binds ONCE at the first
-  drain (`epi_bound`/`epi_phys`); every later drain INHERITS it
-  (drain_unit = the physical unit, drain_commit = '0', wr_track_lat kept),
-  which is what stops a foreign-sel sample from re-latching the physical
-  DMA's remainder as an ADF-owned COMMITTING drain that would decode and
-  write the flux into a mounted .adf image. The abort is a LEVEL held for
-  the episode; an aborted episode is DEAD (the writer discards, Paula's DMA
-  still completes, DSKBLK fires) - exactly what a real Amiga leaves after a
-  mid-write fault, and trackdisk has no write verify, so the loss is silent
-  until the next read. While an episode is open the engine NEVER enters
-  ST_IDLE, so the 0x1nnn announce and the physical read-FIFO discard-pop are
-  both suspended - load-bearing beyond pacing, because each such pop would
-  fire the A8 obs tap into Paula's DSKBYTR surface in the middle of a write.
-  SAFETY: WGATE opens only while enable AND selected AND motor AND
-  STREAMing AND `wr_ok`, the tab qualifier - wprot_n read writable for 10 ms
-  of CUMULATIVE SELECTED time (the PC mechanism drives its outputs only
-  while selected), 50 us select-settle blanking, an 80 ns-filtered revoke,
-  and the disk-change latch as a filtered EVENT rather than a level (a level
-  would block X-Copy single-drive writes, which swap disks and rewrite the
-  same track WITHOUT stepping). Any gate term lost mid-stream, the engine's
-  abort level, or an underrun cuts WGATE in the SAME cycle and LATCHES the
-  abort for the rest of the episode - a returning term, a re-opened drain or
-  a re-select cannot re-open the gate. The read decode chain is held in
-  reset for the WHOLE episode (`chain_rst` gains `or wr_epi`, NOT merely
-  `or wgate`: a tab-blocked or aborted episode keeps the gate shut while the
-  disk still spins, and a decoding chain would refill the read FIFO behind
-  the write and feed the Copylock surface).
-  PRECOMP is ROM-faithful: a 7-channel-bit window whose middle bit is the
-  one written, gap-before shorter than gap-after -> EARLY and the mirror ->
-  LATE (the mega65-core `f_write_buf` table), ONE magnitude of 140 ns =
-  Paula's PRECOMP0, boundary bits explicitly unshifted. KS1.3 trackdisk
-  programs exactly this for every track >= 81 (FEA2DA..FEA306, the ROM's
-  track-80 exclusion honored); the decision is made ENGINE-side at the
-  episode bind so no multi-bit track value crosses a clock domain, and
-  arrives at the writer as one level. Diag 0x7C selects OFF/ON/AUTO.
-  Files: NEW `CORE/vhdl/physical_fdd/physical_fdd_writer.vhd`; the engine
-  gains the episode/tap/pacing/abort/interlock/announce; `physical_fdd_top`
-  instantiates the writer + a second `physical_fdd_wfifo` (G_AW=2) whose
-  write side is the CORE clock; the FIFO gains an ADDITIVE `rd_level_o`
-  (the read instance leaves it open and stays bit-identical); diag map
-  0x000D adds 0x70..0x7D; mega65/main thread it and add the 0x7C register
-  plus two cdc_stable crossings; **the four board tops now ROUTE
-  f_wdata/f_wgate instead of tying them '1' - an extension of M2M exception
-  7 (`floppy-pins`) that sy2002 owns and signs off**; CORE_VERSION becomes
-  WIP-V2-A9 (settings file `/amiga/aexp-WIP-V2-A9.cfg`, content identical,
-  OPTM_SIZE 146); all four .xpr list the new file. Zero firmware, zero menu,
-  zero BRAM impact (4x16 LUTRAM + registers).
-  VERIFIED IN SIM: the new `.research/tb_fdd_write.vhd`
-  closes the loop Paula-write-model -> REAL engine -> REAL write FIFO ->
-  REAL writer -> a LIVE ROTATING FLUX MODEL in 50 MHz cycle timestamps ->
-  REAL read chain -> REAL engine read service -> verdicts. The model is
-  pre-seeded with a DIFFERENT track and every writing scenario asserts
-  POSITIVELY that the gate opened and the old flux is gone, so a no-op
-  writer cannot pass by re-reading the seed. S1 (trackdisk cadence, full
-  6815-word track): WGATE window = 10,904,000 cycles = 6815 x 16 x 100
-  EXACTLY pin-to-pin; the ROM-exact KS1.3 trackdisk checker decodes our
-  own re-read (err=$00, SG=11); the constant-framing real-Paula referee
-  decodes; all 11 sectors byte-compare; 0x7D overflow 0, underrun 0,
-  in-flight <= 3; and the INDEPENDENT Python twin `td_write_check.py`
-  agrees EDGE FOR EDGE (38536 = 38536, +/-1 cycle, incl. the 109 %-of-a-
-  revolution self-overlap). S3 (tab open / pre-qualifier / qualified),
-  S4 (short+long engine abort), S5 (all seven gate terms), S9 (both click
-  classes + persisting foreign sel), S10 (df0 sel ambiguity), S11 (all
-  three reset classes + the sub-threshold DMA) pass in BOTH separator arms.
-  The whole pre-existing TB matrix stays green against the modified HDL.
-  A 12-mutant matrix (`.research/run_write_mutants.sh`) enforces the spec
-  rule that every mutant must turn a verdict RED.
-  **S7 and S8 are the two proofs to trust most.** S7 (T8 in
-  tb_adf_multidrive): a physical write carrying valid AmigaDOS sectors, a
-  mounted and write-ARMED ADF drive at the same track, and a PERSISTING
-  foreign selection injected mid-stream - RED against git HEAD ("Avalon
-  write to the wrong image offset": the pre-A9 engine really does commit
-  real-floppy data into a user's .adf) and GREEN against A9. That is the
-  episode model's whole reason to exist, demonstrated rather than argued.
-  S8 (`run_s8_golden.sh`): the engine's io-channel word stream over an
-  ADF-only workload is **19,481 words BYTE-IDENTICAL** between the pre-A9
-  and A9 engines - the bit-identity proof for every shipped ADF and read
-  behaviour.
-  **THE INCREMENT WAS ADVERSARIALLY REVIEWED (6 lenses + refuting
-  skeptics, 30 findings, all folded)** because the implementation session
-  was fragmented by repeated safeguard false positives and model switches.
-  It found two REAL HDL bugs that would have reached a disk: an episode
-  ending in ST_ARM left 1-2 words in the CDC FIFO to be written ahead of
-  the NEXT episode's first word, and the underrun abort was gated on the
-  whole precomp window emptying, so a 1-6 cell dry spell deasserted and
-  then RE-ASSERTED WGATE mid-track - an erased hole with no abort, no
-  reason code and no 0x75 tick, which is the path every real underrun
-  would have taken. It also found that the WGATE expression relied on a
-  monitor that is blind during the 50 us select-settle (so a stale wr_ok
-  from a PREVIOUS disk could open the gate on a just-swapped protected
-  one), that the read chain was released at DSKBLK while the writer still
-  had ~104 us of tail to write, and eight defects in the TESTBENCH itself
-  including one assert that could not fail. The mutant matrix then caught
-  five more checker gaps on its first run - each fixed rather than
-  excused, per the spec's rule.
-  **THE FULL-TRACK BLOCK THEN RAN FOR THE FIRST TIME (2026-08-28) AND PAID
-  FOR ITSELF.** The RPM x separator x framing sweep, S1p, S2, S6 and S12
-  are now all executed. They exposed no HDL defect but seven CHECKER
-  defects, every one of the same shape - a test that reported success
-  without exercising what it claimed: a mutant kill criterion that scored
-  TIMEOUTS as kills; nvc's "analysed unit older than its source" warning
-  ignored, so an edit mid-run left 26 of 27 cells testing stale code; a
-  mutant paired with the wrong cell, which was concealing that NEITHER
-  interlock gate had a working detector (hence the new mutant xiii, read
-  side, and x re-paired to S12/1); S12 grading a 600-word fragment with a
-  ROM-exact decoder, which no design could pass; the S2 X-Copy capture
-  modelled at the full DMA length instead of the spec's 6496 words, which
-  made the residue branch dead code and the tail cut destroy real sector
-  data; the twin's precomp tolerance applied per EDGE to a per-INTERVAL
-  quantity, guaranteeing a false RED on every precomp-active dump; and all
-  five S1p dumps colliding on one filename with the precomp-OFF one
-  surviving, so spec 3.4 had never actually been machine-checked. It has
-  now: the twin agrees EDGE-FOR-EDGE on a precomp-active cyl-90 track
-  (38546/38546, 10061 early + 10017 late), red-controlled against the old
-  tolerance. All runners now fail loudly on stale analysis, and a mutant
-  kill is credited only if the cell is GREEN on the unmutated design.
-  **THE 88-AGENT REGRESSION AUDIT THEN FOUND A REAL ONE (see spec 9a):**
-  the episode bound `epi_phys` from ONE sample of Paula's priority-encoded
-  sel field, whose "nothing selected" default is `2'd0` = "df0 selected",
-  so with the mechanism at df0 an ordinary deselect gap bound an ordinary
-  .adf write as physical - irreversibly, since that suspends the ownership
-  guard and pins `drain_commit` at '0' - and the whole track write was
-  discarded in silence (0 Avalon writes vs 256 pre-A9) while DSKBLK fired
-  and trackdisk, which has no write verify, believed it. FIXED by
-  qualifying the bind with the REAL per-drive select line
-  (`main_hwf_selected`, already in the engine's clock domain, no new CDC) -
-  a deliberate deviation from the original spec 2.1, **signed off by sy2002
-  on 2026-08-28 and folded into the contract as revision 3.6**, where the
-  qualifier is now the rule and 9a records why.
-  Control: `tb_adf_multidrive` T9, RED unfixed / GREEN fixed; T8 now drives
-  the select line, and without it caught a physical write committing into
-  an ADF image. The A8 read-path guards (`tb_hwf_obs_tap` and the
-  `paula_obs` golden diff) were MISSING from the regression suite and are
-  now permanent cells; a forked `tb_engine_paula` additionally proved the
-  physical read-FIFO pop stream - which IS the A8 DSKBYTR observation
-  stream - cycle-timestamp identical to git HEAD over 17061 pops.
-  **THE SIM GATE IS COMPLETE AND GREEN (2026-08-28, device fingerprint
-  46ee06de):** write matrix FULL 0 failures, all 5 twin cross-checks OK,
-  mutants i..xiii all KILLED on real assertions under a baseline-green
-  guard, regression 15/15 (now including the two A8 read-path guards that
-  were MISSING - `tb_hwf_obs_tap` and the `paula_obs` golden diff - plus a
-  new `run_pop_identity.sh` that runs the PRE-A9 engine on a physical read
-  workload and proves the read-FIFO pop stream, which IS the A8 DSKBYTR
-  observation stream, cycle-exact at 17061 pops), S7 red control RED
-  against git HEAD / GREEN against A9, and S8 in BOTH arms: byte-identical
-  with no physical unit, and with one CONFIGURED exactly 1525 announce
-  words differing in that unit's writable nibble and nothing else - the
-  second half of spec 6.2 S8, pre-registered and never run until now.
-  Late coverage added after the regression audit named the gaps: T10
-  (combo B, the mechanism at df0, where "nothing selected" and "df0" are
-  the same encoding), T11 (an ADF write against a BUSY writer with a full
-  CDC FIFO - every earlier ADF result had the writer stubbed at 0/0/0),
-  and T12 (a reset inside an open episode, which also settles the audit's
-  one latent finding by measurement: `epi_bound` does NOT survive a
-  reset). Results are recorded with per-scope fingerprints in the
-  session ledger, so no result can be quoted against a tree it did not
-  describe.
-  FIELD RESULT. Three bench fixes landed on top of the datapath `cb1823d`.
-  `c3a20dc`: the ADF encoder emits real MFM clock cells - it was a bit-exact
-  port of minimig_fdd.cpp, which omits them, harmless while the words only
-  reached Paula and fatal once X-Copy could raw-copy them onto media.
-  `c9e8538`: the write pulse launches at the cell midpoint. `3edf736`: **HOLD
-  SELECT AND SIDE THROUGH THE POST-DSKBLK DRAIN.** X-Copy's DOS engine writes
-  `[500 x $AAAA][11 x 544-word sectors][1 x $AAAA]`, DSKLEN 6485, so its
-  whole post-DSKBLK margin is ONE pad word, sized for a real Paula; it then
-  toggles /SIDE1 about 30 us after DSKBLK, the writer treated that as a gate
-  term, and the last word of sector 10 was lost on every upper-side track
-  (85 bytes of 901,120, all sector 10, all head 1, all offset 510/511). The
-  fix is a PAIR that must never ship apart: `mega65.vhd` holds `f_selecta_o`
-  and `f_side1_o` at their episode values while the writer is busy AND the
-  session has already fallen (the drain only - keying on busy alone would
-  freeze the pins for a whole track and across a reset), and only if the
-  held select is the ASSERTED one; `physical_fdd_writer.vhd` stops aborting
-  on SELECT/SIDE once the session has fallen. STEP and DIR are deliberately
-  NOT held - STEP is a pulse, freezing it would destroy it and leave the head
-  behind the host's cylinder counter, and the STEP abort term stays live.
-  This extends M2M exception 7 and the writer's abort contract; sy2002
-  approved both. Builds: R3 WNS +0.198, R6 +0.088 postroute-physopted (judge
-  R6 from THAT report, never `_routed`), BRAM 364/365, LUTRAM 8550, both
-  unchanged. Gate: write matrix 77/77, mutants 15/15 killed.
-  On real media: Workbench `format`, copy, REBOOT, run; X-Copy whole disk,
-  160 tracks, VERIFY ON, read-back byte-identical to a proven reference.
-  **The referee (dejavu4u2, 2026-09-02..20): an A500 (OCS, KS1.3) and an
-  A500+ (ECS, KS2.0) read all four core-written disks**, a repaired A1200
-  (KS3.2) reads the core-cloned Extras disk, a bootable Workbench clone was
-  written end to end by the core, Giana Sisters' high score survived a power
-  cycle (a custom trackloader format writing and re-reading its own data),
-  and the read regression against A8 is clean over 18 titles including the
-  Copylock originals.
-  **Flux analysis of his Greaseweazle dumps (2026-09-20), no core defect:**
-  the 140 ns precompensation REACHES THE MEDIUM - neighbour-conditioned
-  interval means step exactly at the track 80/81 boundary on both heads, by
-  +220/+248 ns on the core-formatted disk against +217/+248 ns on a disk a
-  real A500 formatted; every X-Copy write ends 15 cells after sector 10's
-  last data bit, i.e. at the end of the pad word, on BOTH heads; structure
-  matches the A500's apart from spindle speed. The tester's "intermittent
-  RAM-route boot failure" was three unrelated things: a voided test (X-Copy
-  RAM mode holds 73 cylinders in 1 MB and the second pass was missed), a disk
-  that was NEVER WRITTEN (statistically identical to its own never-written
-  tracks 160-163; X-Copy's pass was aimed elsewhere or - unproven, and the
-  writer has no state that blocks a whole pass - the core discarded 160
-  episodes), and a disk with PHYSICAL MEDIA DEFECTS (13 of 16 analog patches
-  at one rotational angle across five cylinders and both heads, which logic
-  that does not know where the index is cannot produce). He can no longer
-  reproduce either. His own theory, not waiting for the yellow ADF-flush LED,
-  explains neither disk: a simulated drive is served from HyperRAM, the flush
-  only copies it to the SD file.
-  **If a write problem is ever reported again, do not theorise - run the
-  protocol** at the top of `.research/HANDOVER-hardware-floppy-write.md`
-  (START HERE): untouched disk as source `.adf` + X-Copy read-back + raw
-  `.scp`, then `adf_compare.py` and the flux instruments in
-  `.research/scp_flux/`; for a disk that comes back virgin, `M 7000 707D`
-  before any reset (`0x70` episodes bound, `0x7A` episodes that opened
-  WGATE, `0x76` tab-blocked). Advise users to copy with VERIFY ON.
-  `doc/hardware_floppy.md` describes the write feature. Note that the four
-  board tops no longer tie `f_wdata`/`f_wgate` inactive, so the Hardware
-  Floppy is not PHYSICALLY read-only: the guards are the writer's conjunction
-  and the disk's own tab, with no runtime disable.
-- **`WIP-V2-A10` - ONE DRIVE BY DEFAULT (issue #29). Statically verified
-  2026-09-20, NOT yet synthesized.** The shipped configuration is now a
-  single Amiga unit, `df0:` as a Disk Image drive; `df1:`/`df2:` default to
-  `Off` and NO drive is the Hardware Floppy. Reason (issue #27 comment):
-  several games and demos misbehave when the Amiga sees more than one drive
-  - Riverraid Reloaded is the reported case. Everything beyond one drive is
-  opt-in through `Drive Settings`; nothing is removed, and for THIS part of
-  A10 no menu line moves and the firmware ROM is untouched - the DVI item
-  described at the end of this entry is what grows `OPTM_SIZE` to 148.
-  MECHANICALLY this is three `OPTM_G_STDSEL` flags moving in
-  `config.vhd` OPTM_GROUPS (Drives 15 -> 13, df1 24 -> 26, df2 31 -> 32)
-  plus the decoders that MIRROR them. The load-bearing rule is that a
-  STDSEL line must be VISIBLE under the other groups' defaults - df1/df2
-  `Off` carry `OPTM_DEP(OPTM_G_DRIVES,0)` / `OPTM_DEP2(...,0,1)` and are
-  exactly the variants the one-drive count swaps in, so the new triple is
-  self-consistent, which matters because NOTHING reconciles the drive
-  radios at boot (`DRV_ENFORCE_COUNT` runs only after the user changes
-  something). Three HDL sites had to follow, all of which encoded the old
-  default as a FALL-THROUGH: `drv_decode` in `mega65.vhd` (count chain now
-  tests `C_MENU_DRIVES_3` and falls through to 1; the df1/df2 chains now
-  test IMG/HW positively and fall through to `C_DRV_OFF` - the df2
-  fall-through used to be `C_DRV_HW`, the one value that can assert
-  `main_hwf_en`), its QNICE-domain twin `qnice_hwf_map3_decode` (same count
-  chain; its df2 test became the positive `C_MENU_DF2_HW = '1'` instead of
-  "neither IMG nor OFF", which would have marked df2 physical for an
-  all-zeros vector and made field dumps claim a mechanism that is not
-  there), and `amiga_cold_boot.vhd`, whose `drv_map_applied` power-on value
-  IS the encoded default and became `"00" & "10" & "10" & "00"` - left at
-  the old value it fires a spurious cold boot at t=0.
-  Verified: `check_osm_menu.py` GAINED the boot-state checks the change
-  turned out to need - exactly one OPTM_G_STDSEL per radio, every STDSEL
-  line VISIBLE under the other groups' defaults, and at most one drive
-  defaulting to `Hardware Floppy` (DRV_STEAL_HW does not run at boot
-  either). NOTE what the control actually is: the OLD complete triple is
-  self-consistent and passes, so it is NOT the red control; the check fires
-  on a PARTIALLY migrated triple, which is the regression this edit could
-  have shipped (mutant: Drives STDSEL at line 13 with df2 left at line 31
-  -> `line 31 carries OPTM_G_STDSEL for group 21 but is HIDDEN at boot`).
-  Three mutants kill on real assertions (missing OPTM_G_START, two drives
-  defaulting to Hardware Floppy, partial migration). Also fixed in the
-  checker while there: an UnboundLocalError that aborted every later check
-  when the OPTM_G_START count was wrong, a one-member radio taking the
-  single-select ordinal branch (wrong ordinal, then IndexError), and a
-  height sweep that gave a single-select mother only ONE state and could
-  therefore under-report the tallest view.
-  `check_firmware.py` + the full nvc chain clean.
-  `.research/tb_cold_boot_init.vhd` proves no power-on cold boot with the
-  new map (G_MAP default), one with the old (`-gG_MAP="10010000"
-  -gG_EXPECT_BOOT=true`), and that the assertion can fail
-  (`-gG_EXPECT_BOOT=true` alone). Settings file
-  becomes `/amiga/aexp-WIP-V2-A10.cfg`, **148 x 0xFF** because of the DVI
-  item below - generate a FRESH one, never copy the A9 file forward: a used
-  A9 file holds the old three-drive selections and, since the firmware
-  accepts a settings file on LENGTH alone, would silently restore them. Here
-  the length change happens to make that impossible, but do not rely on it.
-  The one-drive change itself has zero firmware/menu-size/BRAM/.xpr impact;
-  the diag map stays 0x000D (no floppy behaviour changed).
-  A10 ALSO CARRIES THE HARDWARE-FLOPPY DOCUMENTATION PASS (issue #27): the
-  user-facing docs still said the Hardware Floppy was read-only and that old
-  media produce read errors - both falsified long ago and fixed in the core
-  (A6 sync seam, A8 Copylock/DSKBYTR, A9 write). README, `doc/drives.md`,
-  `doc/hardware_floppy.md`, VERSIONS.md, `doc/developers/floppy-adf.md` and
-  `doc/developers.md` now say read AND write, carry the A9 field evidence
-  (A500 OCS + A500+ ECS + A1200 read core-written disks, bootable Workbench
-  clone, X-Copy 160 tracks VERIFY ON byte-identical, Giana Sisters high
-  score across a power cycle), gain a new "Copy-protected originals" section
-  (Rob Northen Copylock; Cannon Fodder, The Chaos Engine, Terminator 2, The
-  New Zealand Story = the A8 field-confirmed list) and replace the retracted
-  "blame the media" section. The docs deliberately state that a copier
-  cannot REPRODUCE Copylock (true on a real Amiga too), so "we read
-  protected originals" can never be read as "we clone them". The
-  write-protect tab stays documented as the only write guard. HELP_1 states
-  the one-drive default and no longer claims read-only; no other in-core
-  help page makes a Hardware Floppy claim.
-  HELP-PAGE GEOMETRY, found by the A10 review and FIXED here: the welcome
-  and help screens print into a FULL-SCREEN frame (shell.asm FRAME_FULLSCR
-  over the whole canvas; SCR$PRINTFRAME leaves the cursor at (x+1,y+1) and
-  whs.asm prints from there with no GOTOXY), so rendered row i lands on
-  SCREEN row i+1 and the usable area is rows 1..34 x columns 1..43 of the
-  45x36 canvas. ONE row too many overwrites the bottom border; TWO and the
-  last line is written past CHAR_MEM_SIZE (45*36 = 1620) and never appears.
-  HELP_3 had been at 36 rows since before A9 - its `Space or Run/Stop:
-  Close` footer was invisible on hardware and nobody noticed - and the A10
-  edit pushed HELP_1 to 35. Both fixed by rewording (HELP_3 -> 34, HELP_1
-  -> 33, the budget every other page keeps), and `check_osm_menu.py` now
-  CHECKS all eight pages against the geometry it derives from globals.vhd.
-  Note the trap in that checker, which cost one silent false pass before it
-  was caught: the page text must be scanned to the terminating semicolon
-  with a string-aware scanner, NOT split on the first `;`, because HELP_3
-  prose contained one (`Writes are saved in the background;`) - splitting
-  truncated the measurement and the too-long page passed. Mutants: an
-  over-long page, an over-wide line, and a semicolon-bearing over-long page
-  all go red on a green baseline.
-  A10 ALSO CARRIES THE DVI ITEM, ported from C64MEGA65. `DVI (no sound)` is
-  a single-select toggle, **default OFF**, inside the HDMI Settings submenu:
-  it lands at line 45 (after the separator that follows `576p 50 Hz 5:4`),
-  followed by a new separator at 46, so `Back to main menu` moves 45 -> 47
-  and EVERY line from the old 45 onwards shifts by +2. It drives the
-  framework's `qnice_dvi` input - `qnice_dvi_o <= qnice_osm_control_i(
-  C_MENU_HDMI_DVI)` replaces the `'0'` tie-off - and `vga_to_hdmi.vhd` then
-  forces `ENC_DVI` on every non-video period, so the audio packets and ALL
-  HDMI data islands vanish while the pixels, the timing and the resolution
-  stay identical. That is the cure for displays which reject an HDMI stream
-  and show nothing, and the cost is that sound is only on the 3.5 mm jack.
-  The signal is consumed in the qnice domain and `vga_to_hdmi.vhd` does its
-  own CDC, so the core needs none.
-  THE BLAST RADIUS IS THE RENUMBERING, and it is mechanical but wide: 20
-  `C_MENU_*` constants and the three subtypes (`C_MENU_OSM_SCALING`,
-  `_VOLUME`, `_STEREO`) in `mega65.vhd`, every `-- NN:` comment in BOTH
-  `OPTM_ITEMS` and `OPTM_GROUPS`, the "OSM bit positions" comment block and
-  the `OPTM_DY` view-height list (HDMI Settings submenu 7 -> 9 lines;
-  `OPTM_DY` itself STAYS 34, because the new lines live in a submenu).
-  `OPTM_DEP`/`OPTM_DEP2` encode GROUP ids, not line numbers, so no
-  dependency changes; the firmware has no hard-coded menu index at all
-  (`osm_const.asm` is scraped from `C_MENU_*` and `OPTM_G_*`), so keep the
-  new `C_MENU_HDMI_DVI : natural := 45;` and `OPTM_G_HDMIDVI : integer :=
-  22;` SINGLE-LINE for awk (`$6`). Group ids must stay monotonic increasing,
-  which is why the DVI group is 22, after the floppy block.
-  THE HEAP HAD TO BE REBUDGETED (hard rule 11): demand 2298 -> 2325, so
-  `MENU_HEAP_SIZE` 2304 -> 2336 and both `HEAP_SIZE` constants drop by the
-  same 32 (debug 4736 -> 4704, release 27776 -> 27744) to keep the combined
-  total at 7040 / 30080 - `HEAP`, `VAR$STACK_START` and `STACK_SIZE` do not
-  move. THE ROUNDING RULE ITSELF CHANGED HERE, on sy2002's challenge: it said
-  "next 128-word boundary", which cost 6 words at 146 items but would have
-  left 107 dead words at 148 - and since `FB_HEAP` starts at `HEAP +
-  MENU_HEAP_SIZE`, those words come straight out of the file browser. It now
-  says 32, and `check_osm_menu.py` enforces the new quantum. Tight is safe
-  because both budget checks are FATAL (`ERR_FATAL_HEAP1` at boot,
-  `ERR_FATAL_HEAP2` on every menu open) and the checker is exact, so a
-  shortfall can never be a silent regression. HELP_5 gained a three-line DVI note paid for out of its own footer
-  padding, so the page stays at 33 of 34 rows.
-  Verified: `check_osm_menu.py` all checks passed (148 lines, 41 singles + 3
-  ranges cross-checked against the item TEXT, demand 2325, 8 help pages),
-  `check_firmware.py` clean, `nvc --std=2008` clean on config.vhd (which
-  also ELABORATES) and on mega65.vhd in the full M2M + CORE chain. Two red
-  controls, run rather than assumed: `C_MENU_HDMI_DVI := 46` fails with
-  "points at '', expected 'DVI (no sound)'" (the checker's `expected` table
-  gained that entry - without it the loop, which iterates `expected` and not
-  the HDL, would silently lose coverage for the new constant), and an extra
-  `OPTM_GROUPS` entry fails nvc with "expected at most 148 positional
-  associations". Zero `.xpr`/XDC/board-top impact: `qnice_dvi` is already
-  routed in all four tops. README.md documents the feature and, because the
-  symptom it cures is a black screen, the exact BLIND key sequence: `Help`,
-  2 x Down, Return, 3 x Down, Return - derived from `OPTM_G_START` on line 2
-  plus `_OPTM_RUN_SM_2` (a submenu opens on its first selectable line, 41),
-  and valid only on the FIRST menu open after a core start (`OPTM_SELECTED`
-  is sticky). The count rule is ONE DOWN PER DRIVE SET TO DISK IMAGE PLUS ONE
-  for `Drive Settings` - NOT one per drive, which is what the first README
-  draft said and what the review caught: a Hardware-Floppy drive contributes
-  only a non-selectable `OPTM_G_TEXT` twin, and df0 as Hardware Floppy
-  REMOVES a Down because `_OPTM_RUN_INI` normalises the hidden start cursor
-  forward to `Drive Settings`. Verified over all nine reachable drive
-  configurations. Getting it wrong is not harmless: one Down too many opens
-  the SECOND `HDMI:` line (the filter submenu), where the same three Downs
-  and Return select and SAVE the `Smooth` scaling filter while the screen
-  stays black. Working doc: `.research/HANDOVER-dvi-osm.md`.
+| Path | Content |
+|---|---|
+| `README.md` | User manual; also the start page of the documentation website |
+| `VERSIONS.md` | Release notes per version. Maintained by the project owner; change it only when asked |
+| `doc/inofficial.md` | List of WIP builds (name, date, commit, summary). Maintained by the project owner; change it only when asked |
+| `doc/developers.md` | Building from source, the settings file |
+| `doc/developers/architecture.md` | **Start here.** Layering, repository layout, clock domains and CDC, QNICE devices, HyperRAM map, firmware callbacks, the core rules, every modification of the M2M framework (section 8), the Minimig submodule, the MiSTer HPS code AExp replaces, local checks |
+| `doc/developers/floppy-adf.md` | Simulated ADF drives: MFM, the engine, three drives, write-back, the arm-state invariant, verification |
+| `doc/developers/hardware-floppy.md` | The MEGA65's internal drive as a real Amiga drive: read chain, data separators, framing hold, Copylock/`DSKBYTR`, write datapath and its safety, diagnostics device `0x0104`, the field-report protocols |
+| `doc/developers/timing_closure.md` | The HyperRAM read-capture hold miss, why the IDELAY is fixed, the build re-roll |
+| `doc/developers/audio.md` | Audio path, A500/LED filters, stereo mix, volume |
+| `doc/developers/hdmi_latency.md` | HDMI latency and the flicker-free clock servo |
+| `doc/developers/minimig_fdd.cpp`, `minimig_config.cpp` | Verbatim reference copies from `Main_MiSTer` commit `c738023`: the software models of `adf_track_engine.vhd` and `amiga_config.vhd`. Line numbers in the engine's comments refer to this copy |
+| `CORE/Minimig_MiSTerMEGA65/README.md` | The fork's branch model and its list of modifications |
+| `doc/*.md` (user docs) | `drives.md`, `hardware_floppy.md`, `keyboard.md`, `audio.md`, `screen_adjust.md`, `retrotubes.md`, `RTC.md` |
+| `doc/make_doc.md` | The website builder `doc/make_doc.py` |
+| [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) | The framework, the QNICE debug console |
+| [C64MEGA65](https://github.com/MJoergen/C64MEGA65) | The reference M2M port; origin of the mount-device, physical-drive and menu-dependency patterns. Consult it for any M2M integration pattern |
 
-**ADF floppy milestone history (2026-07-03).** Read-only ADF
-support verified on real R3 hardware: Workbench 1.3.2 boots to the
-desktop, demoscene trackloaders run (State of the Art, Batman, TBL Eon).
-Mount via OSM " ADF:" → Shell streams to HyperRAM (QNICE device 0x0103,
-`adf_mount_wrapper.vhd`) → `adf_track_engine.vhd` serves Paula over the
-IO_FPGA host channel with bit-exact minimig_fdd.cpp MFM encoding. Design
-spec: `.research/INTEGRATION-SPEC-floppy-adf.md` (supersedes the vdrives
-advice). Milestone 1
-(Kickstart hand, 2026-06-10/11) preceded it. Timing closed (run 3: all
-AExp-owned groups ≥ +0.24 ns; global WNS +0.017 ns sits on the framework
-HyperRAM PHY path). **Interlace weave deinterlacing shipped 2026-07-04**
-(minimig `field1` → `video_fl` chain → ascal `i_fl`, `INTER => true`;
-verified on R3 hardware — Batman Rises' laced intro is stable; commit
-29c1aa2, WNS +0.108 ns). **VGA analog modes +
-OSM restructure implemented 2026-07-04** (VGA: Standard / 15 kHz HS+VS /
-15 kHz CSYNC radio, C64MEGA65-style decode + retro15kHz OSM-CE in
-main.vhd; filter submenu now directly under the HDMI resolution submenu;
-Audio-improvements item removed, `qnice_audio_filter_o` tied '0';
-OPTM_SIZE 35→44) — synthesized (WNS +0.165 ns, BRAM unchanged) and
-verified on R3 hardware 2026-07-04. Firmware OSM
-constants are now autogenerated like in C64MEGA65 (`make_rom.sh` →
-`osm_const.asm`; refactor proven ROM-byte-identical); the settings file
-is generated by `make_release.py` at packaging — the tracked `aexpcfg`
-master was removed. **Screen adjustment (issue #5): HDMI crop is
-hardware-verified (2026-07-09, both outputs of the old increment). The old
-"VGA centering" was an RCA-confirmed false positive — the soft blank only
-crops, it never pans. Replaced 2026-07-13 (A9) by a TRUE analog
-positioner — implemented + sim-proven (5-scenario nvc TB), NOT yet
-synthesized/hardware-tested.** New generic
-`M2M/vhdl/av_pipeline/analog_positioner.vhd` (M2M-UPSTREAM screen-center, in
-all four .xpr): post-OSM, pre-CSYNC edge rescheduler that shifts HS/VS phase
-vs. final RGB (delay = predicted period − pan; two-back VS predictor keeps
-interlace half-line phase + parity; width-exact per-pulse delays; seamless
-engage/bypass; porch-measured H clamps from post-crop DE + structural
-line/8, V ±64 lines; pan=0 = combinational bypass → other cores
-bit-identical). Units mode-normalized via `doubled_i` ← scandoubler: pan_x =
-1 hires px, pan_y = 1 line in ALL three VGA modes. Data path: v4
-`aexp_screen.cfg` (84 B, per-mode rows [4 HDMI][4 overscan][2 pan]; firmware
-still accepts v3, pan=0) → `LOAD_SCREEN_OFFSETS`/`DETECT_SCREEN_MODE` → CFD
-gp_reg words 8-9 → `i_qnice2video` CDC (142→166). The soft blank stays as
-honest analog OVERSCAN (crop/reveal borders) and was hardened: reset +
-geometry-acquisition gate, clamped edge targets (no more
-permanent-blank/12-bit wrap). Tool v4 (grouped UI, --pan-x/-y, --reset,
---copy-from, direction echo, v3 migration, `test_aexp_screen_cfg.py` = 25
-tests); presets regenerated v4; `doc/screen_adjust.md` rewritten around
-position/overscan/no-true-scale. Interactive OSD adjust still pending. **HDMI flicker-free (issue #12)
-— Increment 1 implemented 2026-07-09, statically verified (nvc analyze +
-elaborate against the real `clk`/`cdc_stable`; adversarial swarm) but NOT
-yet synthesized/hardware-tested.** CORE-only (clk.vhd + mega65.vhd +
-config.vhd + CORE.xdc; zero M2M/.xpr/firmware edits). A second MMCM
-`i_clk_fast` = 28.437500 MHz (313-line = 50.030 Hz, above 50) + a
-glitch-free `BUFGMUX_CTRL` are dithered native↔fast by a 2-state FSM in
-the `hr_clk` domain driven by the already-plumbed ascal over/underflow
-loop (`hr_high_i`/`hr_low_i`, mega65.vhd:97-98) → the core's time-average
-frame rate is exactly 50.000 Hz; interlace already averages 50.000 and
-settles on native (zero dither). **Direction inverted vs C64MEGA65:
-native 49.92 is BELOW 50 → the twin is FASTER.** HDL-read OSM toggle
-"HDMI: Flicker-free" (top-level between the HDMI Filter and VGA submenus,
-single-select default ON; `C_MENU_HDMI_FF`=25, OPTM_SIZE 41→42, OPTM_DY
-12→13, VGA `C_MENU_*`/lines +1; ships in the unreleased `WIP-V1-A6`, no
-version bump). CORE.xdc times
-the fast leg (`set_case_analysis 1` on `hr_core_speed_reg[0]/Q`,
-`create_generated_clock` on `i_clk_fast/CLKOUT0`) — the leaf names
-`i_clk_fast`/`hr_core_speed` are load-bearing (a "no pins matched" warning
-silently no-ops STA). Recommend FF OFF for VGA/15 kHz (H-sync frequency
-step). Real synthesis risk = the R6 global HyperRAM-PHY WNS (+0.058 ns
-baseline), NOT core timing (~+7 ns). Increment 2 (3-clock, adds
-`i_clk_slow`=28.3125 for the rare >50 content) deferred. Spec:
-`.research/INTEGRATION-SPEC-hdmi-flicker-free.md`. Everything below is the
-distilled project knowledge —
-the deep material lives in `doc/` (see "Key documents").
+**Before touching X, read Y:**
 
-## The emulated machine
+| If you touch | Read first |
+|---|---|
+| Anything in the floppy stack (`adf_*`, `physical_fdd/`, `paula_floppy.v`, the write-back firmware, drive menu lines) | `floppy-adf.md` and `hardware-floppy.md`, then rule 15 |
+| The firmware's ADF write-back (`HANDLE_CORE_IO`, `FLUSH_ADF_STEP`, `PREP_LOAD_IMAGE`) | `floppy-adf.md` sections 8 and 9 |
+| `config.vhd` menu items, groups, help pages | Rules 10, 11, 13 |
+| `m2m-rom.asm` | Rules 10–14, `architecture.md` section 6 |
+| Anything in `M2M/` | Rule 8 and `architecture.md` section 8 |
+| Constraints, build scripts, a failed build | Rules 5 and 9, `timing_closure.md` |
+| Clocks, CDC, new QNICE devices | `architecture.md` sections 4 and 5, rules 3–5 |
+| The Minimig submodule | Rule 16, `architecture.md` section 9 |
+| Audio | `audio.md` |
+| Video pipeline, HDMI, analog modes | Rule 6, `hdmi_latency.md`, `doc/screen_adjust.md` |
+| A user's floppy problem report | `hardware-floppy.md` section 9 |
 
-- Amiga 500, **OCS only** (no ECS/AGA), **PAL only**, 68000 (fx68k,
-  cycle-exact)
-- 512 KB Chip RAM (`$000000`–`$07FFFF`) + 512 KB Slow RAM (`$C00000`–`$C7FFFF`,
-  the "trapdoor" expansion) + 256 KB Kickstart 1.3 — **all in FPGA BRAM**,
-  no SDRAM involved (R3 has none; R4+ SDRAM is unused). The Slow RAM is
-  OSM-switchable: "Slow RAM (A501)" toggle, default on (issue #20, for
-  programs like Rogue that break with expansion RAM; **implemented
-  2026-07-16, NOT yet synthesized/HW-tested**). The toggle drives
-  `slow_ram_i` → `amiga_config.vhd`, which sets userio 0xF5 payload bit 2
-  (SS[0]); the firmware auto-soft-resets on toggle (`RESET_CORE` in
-  `OSM_SEL_POST`) so the replayed config takes effect at once. With slow
-  RAM off, minimig decodes $C00000+ as the custom-register mirror
-  (authentic chip-only A500); the RTC at $DC0000 stays mapped (deliberate,
-  matches MiSTer). The slow BRAM stays instantiated either way (no BRAM
-  delta).
-- Kickstart is loaded from SD card at boot: `/amiga/kick.rom` (raw 256 KB
-  dump, big-endian, no byte swapping), **mandatory** — missing file =
-  fatal error screen, core never starts (`C_CRTROMTYPE_MANDATORY` in
-  `CORE/vhdl/globals.vhd`)
-- One core clock: **28.375 MHz** (PAL ideal 28.37516, −5.6 ppm), MMCM in
-  `CORE/vhdl/clk.vhd` (100 MHz × 56.750 / 5 / 40). No 113.5 MHz clock —
-  everything SDRAM/turbo/AGA that needed it is out of scope.
-- Floppy: up to THREE drive units `df0`/`df1`/`df2` (WIP-V2-A3; Version 1
-  shipped one). Each unit is either a simulated ADF drive (read/write ADF
-  mount from the OSM, image staged in its own HyperRAM pool
-  `C_HMAP_ADF_DF0/1/2` at words 0x200000/0x280000/0x300000) or the
-  Hardware Floppy = the MEGA65's internal mechanism reading real Amiga DD
-  disks (read-only milestone, at most one unit). The OSM "Drive Settings"
-  submenu holds a `Drives 1/2/3` radio and one Disk Image / Hardware
-  Floppy / Off radio per drive; the main menu shows one line per drive,
-  swapped between the mount item and a hardware-status text by the M2M
-  menu-dependency layer. **ADF read AND write are
-  RELEASED and work: they shipped in Version 1 (tag `V1`, 2026-07-23) and
-  have been in daily use since. Do not treat the ADF drive as unproven** -
-  `VERSIONS.md` lists "One floppy drive (df0:): read/write standard 880 KB
-  *.adf disk images" as a Version 1 feature. What was never formally
-  recorded is the write test MATRIX of the write spec §8 (rename persists
-  across power cycle, format, write+verify, swap-while-dirty, wprot
-  regression); the feature itself is fine.
-  The write path is a
-  hardware MFM write decoder (bit-exact minimig_fdd.cpp
-  FindSync/GetHeader/GetData) commits verified sectors to HyperRAM;
-  per-track dirty bitmap + vdrives-style anti-thrash (2 s, config.vhd
-  word 13) in `adf_mount_wrapper` window 0xFFFE ("WBC"); firmware
-  flushes dirty tracks to the SD file in the background via the new
-  `HANDLE_CORE_IO` hook (512 B + fflush per slice, one FDH snapshot PER
-  DRIVE — the Shell re-opens `HNDL_RM_FILES[n]` before `PREP_LOAD_IMAGE`!);
-  drive LED yellow while any drive is dirty. Design + review findings:
-  `.research/INTEGRATION-SPEC-floppy-adf-write.md` (the arm-state
-  invariant in §5a is load-bearing and now has to hold PER DRIVE). A unit
-  is announced write-protected until the firmware arms its WR_EN, on SD
-  change, and while remounting.
-  No IDE. Keyboard + joysticks + mouse work.
-- Audio (**implemented + sim-verified 2026-07-24, NOT yet synthesized/
-  HW-tested; ships in the unreleased WIP-V2-A1, no version bump**): Paula →
-  `CORE/vhdl/audio_filters.vhd` (bit-faithful Minimig.sv port reusing M2M's
-  `iir_filter.v`: A500 fixed 4400 Hz low-pass = OSM "A500 Filter", CIA-A-PA1
-  LED filter 3000+3400 Hz following `pwr_led` live = OSM "LED Filter", both
-  single-select default ON; MiSTer `aud_mix` crossfeed = OSM "Stereo: %s"
-  radio Full/Wide/Narrow/Mono, default Full) → master volume (Q15,
-  monitor-knob = last) → HDMI + analog alike. All HDL-read OSM bits
-  (`C_MENU_STEREO` 96..99, `C_MENU_A500FILT` 102, `C_MENU_LEDFILT` 103 since
-  the Configure Drives block shifted lines ≥3 by +10), zero
-  firmware logic, zero BRAM; both filters have intrinsic DC gain (+0.53 /
-  +1.11 dB, MiSTer-faithful incl. the IIR's 16-bit clamp). Everything-off =
-  bit-transparent raw Paula (the V1 sound). OPTM_SIZE 103→114, OPTM_DY
-  28→31, MENU_HEAP 1536→1664. The generic M2M "audio improvements" filter
-  stays tied off. End-user doc: `doc/audio.md`; details:
-  `doc/developers/audio.md`; TBs in `.research/` (tb_iir_amiga.v +
-  tb_audio_filters.vhd, all green).
-- **Hardware Floppy (read milestone) — implemented 2026-07-26; first R3
-  build closed timing after the CDC fix, OSM reworked after hardware round
-  1; read path partially proven on hardware (real flux decoded, boot
-  attempt started), ships in WIP-V2-A2.** The MEGA65's internal 3.5" drive
-  as a real Amiga unit: OSM "Configure Drives" submenu with four combos
-  (`C_MENU_HWFC_*` 7..10) A: df0:ADF+df1:HW (default) / B: df0:HW+df1:ADF
-  / C: df0:ADF only / D: df0:HW only (no ADF drive - the engine gates its
-  ADF service, announcements and commits with `adf_en_i`); a combo change
-  cold-boots only the Amiga via `amiga_cold_boot`, drive count via userio
-  0xF7 bits [3:2] (two drives only in A/B). Research:
-  `.research/RESEARCH-physical-floppy-drive.md`. Minimig has NO flux layer,
-  so three surfaces: (1) 50 MHz read front-end `CORE/vhdl/physical_fdd/`
-  (C64MEGA65 physical-1581 codec: input conditioner + index qualification,
-  runt-filtered gap stage, ADAPTIVE quantiser — constants hardware-proven at
-  exactly 50 MHz on this mechanism — plus the new gap→raw-channel-bit
-  rebuild with drought filler and a bit-level DSKSYNC aligner/deserializer
-  into a Gray dual-clock word FIFO; BOTH FIFO resets derive from the QNICE
-  reset, load-bearing); (2) `adf_track_engine` per-unit backend mux (status
-  sel bits dispatch ADF vs physical; physical words stream at real disk
-  pace; raw dsksync exported to the aligner — no Copy Lock substitution;
-  physical writes drain-DISCARD, `drain_commit` gates the MFM decoder so
-  they can never commit into the ADF image; per-unit 0x1nnn announce,
-  physical always announced write-protected); (3) CIA-line muxes inside
-  `paula_floppy.v` (per-unit substitution into the open-collector status
-  AND-terms, real /TRK0 for recalibration, real INDEX edge into CIA-B FLAG,
-  `motor_on` export; `phys_mask=0` = bit-identical) + connector driving in
-  mega65.vhd (`f_side1 <= side` straight wire — HARDWARE-CONFIRMED correct
-  2026-07-26 by the diag sector-header capture, the C64 side-select lesson
-  laid to rest). /RDY is synthesized (motor off
-  = ready → drive-ID 0xFFFFFFFF for df1:; motor on = 505 ms + 2 qualified
-  index edges + index freshness = eject detection). Diag device 0x0104
-  (`physical_fdd_diag`, QNICE domain, CDC-free — the bring-up instrument).
-  The A2 menu had a static two-line structure whose LABELS a firmware
-  routine (`HWF_LABEL_SYNC`) rewrote in the menu heap to follow the
-  selected combo. **That routine is GONE in WIP-V2-A3**: the M2M
-  menu-dependency layer swaps whole lines now, which is what the twin
-  pairs are. A positional REORDER of the lines is
-  impossible within the framework invariants and was HARDWARE-REFUTED on
-  R3 (fatal 0x001F on submenu exit): submenu blocks are contiguity-defined
-  (head..closer) and CFM bit i is positionally bound to line i.
-  OPTM_SIZE 114→124, OPTM_DY 31→33,
-  MENU_HEAP 1664→1920. f_wgate/f_wdata stay tied '1' (write = a later
-  milestone; DD media only, PC HD mechanisms cannot do Amiga HD). TB
-  `.research/tb_physical_fdd_top.vhd`: 5 closed-loop scenarios (nominal /
-  ±3% speed / jitter / runts / drought re-lock) ALL PASS; firmware
-  qasm-clean; nvc + iverilog clean. Dev SD card: regenerate the settings
-  file (`M2M/tools/make_config.sh aexp-WIP-V2-A2.cfg auto`). First R3
-  synthesis (2026-07-26) FAILED timing exactly like the C64 precedent: WNS
-  -6.331, all 47 failing endpoints = the new RAW qnice<->main crossings
-  (word-FIFO Gray syncs + LUTRAM read into the engine's io_din register,
-  control/dsksync 2-FF metas) - the first unconstrained fabric paths
-  between these MMCM-unrelated clocks. FIXED in `CORE/CORE.xdc`:
-  clock-pair `set_max_delay -datapath_only 20.000` qnice<->main in BOTH
-  directions (deliberately NOT the C64 blanket false path: a clock-pair
-  false path would override common.xdc's object-scoped cdc_stable bounds,
-  while max_delay yields to them). Round 2 on R3 (2026-07-26, rebuilt
-  core WNS +0.131): the flux front-end PROVEN healthy on real media (284
-  sync hits = exactly 22/rev over ~13 revs, 300.5 RPM, 0 runts, 0 drops)
-  yet `DF1:BAD` → suspected side inversion → sector-header CAPTURE
-  (diag regs 0x11..0x1A: SIDE//TRK0-tagged 8 words after the double
-  0x4489) + runtime side-invert (writable diag reg 0x1F → XOR on
-  f_side1) added = map v2. **Round 3 (2026-07-26): SIDE INVERSION
-  REFUTED — polarity CORRECT as wired** (capture at cylinder 0/head 0
-  returned info long 0xFF000207 = track 0 sector 2, hand-verified
-  bit-exact MFM incl. clock bits; keep 0x1F at 0; mega65.vhd comment
-  updated). Full delivery-chain audit (engine ST_PHYS, wfifo FWFT,
-  paula_floppy receiver/WORDSYNC/DMA FSM): loss-free by construction,
-  everything after Paula rx shared with the WORKING ADF path — but NO
-  existing counter separates "read 6400 words and rejected them" from
-  "DMA never armed" (both end `DF1:BAD`). Response = **diag map v3**
-  (reg 0x01 = 0x0003; R3 build closed WNS +0.182, BRAM 365): 0x1B =
-  words SERVED into Paula (engine ST_PHYS_DATA count, Gray-crossed —
-  the go/no-go observable; 1 track read = 6400), 0x1C =
-  last-revolution sector-seen mask (0x07FF = all 11), 0x1D =
-  {captures,LOL} last rev, 0x1E = bad-format-capture count. The
-  DiskDoctor whole-disk sweep (v2 build) then PROVED: disk HEALTHY
-  (18254 captures = 11.00 headers/rev over 1659 streamed revs, LOL
-  0.60/rev = splice only), side mapping correct on BOTH heads (track
-  74 @ cyl37/h0 + track 105 @ cyl52/h1, `cylinder == DiskDoctor
-  display` → stepping 1:1), index edges 1:1 with streamed revs — yet
-  hard errors on ~every track at ~10 fast retries × 2 surfaces per
-  cylinder. Open findings: (a) /RDY WART — the PC mechanism gates
-  INDEX on /SEL, so idx_fresh starves across deselect gaps and the
-  synthesized /RDY flickers at operation STARTS (fix: drop the
-  idx_fresh term from steady-state media_ready, keep the spin-up
-  gate, eject via the proven /DSKCHG); (b) co-selection hole (Paula
-  sel = priority encoder: a df0: change-poll click during a df1: read
-  makes the engine abort/discard ~1 ms or dispatch the ADF service
-  into the phys DMA — refuted as root cause by round-1 combo D, MUST
-  still be fixed). THE FORK = v3 reg 0x1B served delta over one read
-  workload: ≈N×6400 → served-and-rejected → next instrument = a
-  Paula-side capture tap (first fifo_wr words after trackrdok rise);
-  ≈0 → never armed → the ready-model fix is the prime candidate.
-  Round 4 DECIDED the fork: **served-and-rejected** (0x1B ticking at the
-  full word rate live, media_ready/idx_fresh = 1 during reads, scoreboard
-  0x07FF/11/2 = complete revolutions into Paula — trackdisk rejects
-  anyway). The engine→Paula-receiver segment was then exonerated in sim
-  (`.research/tb_engine_paula.vhd`: REAL engine vs a line-by-line VHDL
-  model of paula_floppy.v's receiver at real-flux cadence — 2 attempts ×
-  6400 stored words, all ring-exact) and the same TB caught the
-  co-selection hole red-handed (foreign-sel pulse mid-read → 6242 shifted
-  words = poisoned buffer). **v4 = diag map 0x0004 (implemented + TB/nvc
-  verified 2026-07-27, NOT synthesized):** (a) store-signature pair — XOR
-  over the first 1024 post-sync words per attempt, engine-side
-  (`phys_sig_*`) AND inside the real paula_floppy.v (`fdd_dsig`, threaded
-  paula.v → minimig.v → minimig_m65.v → main.vhd), diag regs 0x20..0x23
-  (decode widened to addr[5:0]) — equal-on-hardware exonerates the real
-  channel, different = corruption caught; (b) co-selection FIX
-  (`phys_stream` session latch: no abort/discard/ADF-dispatch on
-  transient foreign sel while trackrd=1; red→green in the TB); (c) /RDY
-  HOLD fix (media_ready latches once qualified, holds while motor on —
-  INDEX is /SEL-gated so freshness starves across deselect gaps; eject =
-  /DSKCHG). Round 5 (v4 build) showed the signatures differing — round 6
-  (v5 instruments: checkpoint sigs 0x24..0x27, 8-word Paula tap
-  0x28..0x2F, WORDSYNC bit 0x23.8) revealed WHY and found the ROOT
-  CAUSE: **ADKCON WORDSYNC is 0 in this system** (measured live; the sig
-  windows were differently anchored — the "corruption" verdict is
-  retracted, the channel is clean), Paula therefore stores from the VERY
-  FIRST served word, and after the deselect-induced chain reset between
-  attempts the engine served up to ~570 free-running PRE-LOCK words (the
-  taps showed them: legal MFM at wrong bit phase, `A4A5 12A9...`) at the
-  buffer start — which trackdisk rejects (the WORKING ADF path's tap
-  shows its first aligned 0x4489 at offset 2 = the tolerance
-  calibration). Explains the ~100% failure incl. round 1's boot. **v6 =
-  THE FIX (implemented + red/green verified 2026-07-27, NOT synthesized;
-  version reg = 0x0006, map unchanged): serve-from-sync gate** in
-  `adf_track_engine` (`phys_hunt`: discard FIFO words until head equals
-  the live DSKSYNC, serve from the sync word; correct under either
-  wordsync setting; engine sig window now sync-inclusive = Paula's exact
-  window → 0x20 and 0x22 must read EQUAL on an intact channel). TB
-  reworked to measured reality (wordsync=0 model, hardware-taken junk
-  prefix per selection, strict sync-at-start check, phys_sel vs sel_stat
-  separation): old engine RED with the exact hardware junk signature,
-  fixed engine ALL PASS. Also: the two m2m-rom.asm genitive apostrophes
-  reworded (0 cpp warnings, 26261 ROM lines). **Round 7 (2026-07-27, v6
-  build): READ MILESTONE REACHED — the real disk MOUNTS with its volume
-  name and browses; signature pairs EQUAL on every dump (channel proven
-  word-exact end to end); one-time validate popup (authentic old-media
-  retry or the dirty-bitmap-needs-write case = correct wprot behavior)
-  and one Guru 00000025 while loading (suspect: 1994 disk content, not
-  the core) under observation. Round-8 checklist (eject/re-insert,
-  browse+Type, combo-D boot, wprot regression, DiskDoctor re-run) +
-  commit decision + R4/R5/R6 + docs pass pending.** Full playbook:
-  `.research/HANDOVER-hardware-floppy-round2.md`.
+## 3. Hard rules
 
-## Repository map
+Each rule was learned the expensive way. Rules 3 and 11 are cited by number
+in source comments ("CLAUDE.md rule 3", "hard rule 11 of AGENTS.md"): keep
+the numbering stable and append new rules at the end.
 
-- `M2M/` — the framework. **NEVER modify**, with NINE sanctioned
-  exceptions (all testbeds for a later M2M upstream merge, tagged
-  `M2M-UPSTREAM <name>` in-code, greppable): (1) `interlace` — new
-  `video_fl_i` input through framework → av_pipeline → digital_pipeline
-  → ascal `i_fl`, `INTER => true`; new inputs default to '0'
-  (progressive cores unaffected). (2) `core-io-hook` — `HANDLE_CORE_IO`,
-  an 8th mandatory core callback called from `HANDLE_IO` (shell.asm,
-  at the `_HANDLE_IO_0` label): a per-iteration time slice in the main
-  loop AND all blocking wait loops (OSM/browser/help), for background
-  tasks like non-vdrives write-back caches; contract: preserve all regs,
-  return fast, may change RAMROM selection. (3) `screen-center` — the
-  screen-adjustment plumbing (issue #5): (a) four signed per-edge offsets
-  threaded framework → av_pipeline (`i_qnice2video` CDC) → digital_pipeline
-  driving ascal's INPUT crop (`iauto=0`, `himin/himax/vimin/vimax`) for HDMI
-  (hardware-verified 2026-07-09); (b) four signed analog OVERSCAN soft-blank
-  edges (hardened `p_vga_softblank`, feeds only the analog pipeline); (c) two
-  signed analog PAN inputs (gp_reg words 8-9) into the new
-  `analog_positioner.vhd`, a post-OSM/pre-CSYNC sync-phase shifter (2026-07-13,
-  awaiting synthesis). All new inputs default to 0 = bit-identical for other
-  cores.
-  (4) `osm-hotkey` — three core-driven inputs (`osm_key_a_i`/`osm_key_b_i`
-  default 67=Help, `osm_combo_i` default '0') threaded core →
-  `framework.vhd` → `m2m_keyb.vhd` so the core picks which key(s) drive the
-  menu-open bit (`qnice_keys` bit 7, the *ungated* scan); the defaults
-  reproduce the classic Help-only behaviour and leave the firmware ROM
-  byte-identical, so every existing M2M core is unchanged. Issue #8,
-  2026-07-11 — implemented, awaiting synthesis; **the 4th exception still
-  needs sy2002's explicit sign-off** (spec §8).
-  (5) `osm-scale` — a RAM-inference override: `tdp_ram.vhd` gains a
-  `RAM_STYLE_SELECT` generic (default `"auto"` = every existing caller
-  unchanged) driving the block RAM's `ram_style`; `ascal.vhd` uses it to pin its
-  shallow async ping-pong buffers (`i_dpram`) to `"distributed"` LUTRAM.
-  Otherwise Vivado maps them to BRAM, burning 4 RAMB36s AND absorbing `avl_dr`
-  into the BRAM output, invalidating the ascal-FIFO CDC max-delay endpoints
-  (`CORE/CORE.xdc`) that MEGA65 cores depend on.
-  (6) `raw-joyports` — `M2M/vhdl/debouncer.vhd`: the ten `work.debounce`
-  instances (1 ms stable-time) replaced by plain 2-FF synchronizers, so the DB9
-  direction/fire (and mouse quadrature) lines reach the core raw — authentic (a
-  real Amiga has no DB9 debouncing) and mandatory for quadrature mice, whose fast
-  pulse trains the 1 ms filter swallowed (frozen-then-jumping pointer). Port-flip
-  + joy on/off gating kept; `CLK_FREQ`/`reset_n` now unused. sy2002-approved
-  2026-07-22, to become a framework option when upstreamed.
-  (7) `floppy-pins` — the four board tops route the 11 read-path floppy pins
-  (f_motora/f_selecta/f_side1/f_stepdir/f_step/f_density + the 5 inputs)
-  into `MEGA65_Core` for the Hardware Floppy feature (the C64MEGA65
-  issue-#90 pattern: board top → core direct, `framework.vhd` untouched);
-  f_motorb/f_selectb/f_wdata/f_wgate stay tied '1'. sy2002-approved
-  2026-07-26.
-  (8) `osm-deps` — SMART MENU DEPENDENCIES, backported from C64MEGA65 issue
-  #229 (dependency format 2): a menu line can be tagged in config.vhd with
-  `OPTM_DEP`/`OPTM_DEP2` so that it is only visible while one of the items
-  of a "mother" group is selected. New `M2M/rom/optm_deps.asm`, plus
-  `M2M$CFG_OPTM_DEPS`, `OPTM_IR_DEPS`, the third visibility pass in
-  `_OPTM_STRUCT`, the live redraw and cursor normalisation in `_OPTM_RUN`,
-  the `OPTM_SELECT` carry guard, the boot validator call and the five
-  `ERR_F_DEP*` strings. Every line is unconditionally visible when
-  config.vhd does not serve the feature probe, so other cores are
-  unaffected. AExp needs it for the per-drive twin lines: this instance
-  additionally allows dependent `OPTM_G_LOAD_ROM` lines, PARTIALLY VISIBLE
-  radio groups and two-level chains, which is why `OPTM_DEPS_VAL` classes
-  2 and 3 are weaker here than in the C64 original (reasons in its header).
-  (9) `live-text` — `OPTM_LIVE_TEXT` (+ its `_OPTM_LT_ISEND` helper) in
-  `M2M/rom/menu.asm`, backported from C64MEGA65, where it drives the live
-  status field of the `8:Internal 1581` line. It replaces a fixed-width slice
-  of one menu item in the writable `OPTM_IR_ITEMS` heap copy and repaints just
-  those characters when that line is visible; it never triggers the fatal menu
-  callback. AExp uses it for the live Hardware Floppy status in the three
-  `dfN:Hardware Floppy` twin lines. **Purely ADDITIVE** — nothing else in the
-  framework calls it, so every other core is byte-identical. One deliberate
-  difference to the C64 original: M2M V2.0.1 has no `OPTM_FOREGROUND` flag and
-  introducing one would mean touching `OPTM_RUN` and the selection-callback
-  path, so the "does the menu own the screen right now" question is left to the
-  caller (AExp answers it with `M2M$CSR_OSM` + its own `OSM_SUB_ACTIVE` +
-  `OPTM_MENULEVEL`). Getting that wrong is cosmetic, never fatal.
-  sy2002-approved 2026-08-04. When this goes upstream it should grow the
-  `OPTM_FOREGROUND` flag of the C64 original, so the "does the menu own the
-  screen" test lives in the framework instead of in each caller.
-  All other framework fixes
-  go into `CORE/CORE.xdc` (constraints) or get documented for upstreaming.
-  Git remote `upstream` = sy2002/MiSTer2MEGA65 (master = V2.0.1).
-- `CORE/vhdl/` — the port (all files ours):
-  - `mega65.vhd` — BRAM lanes (2×256K×8 chip, 2×256K×8 slow, 2×128K×8
-    kick), banked-address decode, QNICE devices 0x0100 (kick) + 0x0103
-    (ADF), HyperRAM plumbing (avm_fifo CDC + 2-master arbiter →
-    hr_core_*), OSM wiring
-  - `main.vhd` — wraps minimig_m65 + cpu_wrapper + amiga_clk; fx68k phase
-    enables, frame-locked video CE, sync inversion, interlace field
-    export (`video_fl_o` ← minimig `field1`), reset mapping, host
-    bus mux (amiga_config ↔ adf_track_engine) + avm_cache
-  - `amiga_config.vhd` — FSM replaying MiSTer's HPS config via the userio
-    protocol after every reset (0xF1=0x07 halt+reset, 0xF3=OCS,
-    0xF4=68000, **0xF5=0x04** = 512K+512K, 0xF6/0xF7/0xF8/0xF9/0xF2=0,
-    0xF1=0x00 release)
-  - `adf_mount_wrapper.vhd` — QNICE device 0x0103: byte-window bridge
-    into HyperRAM + M2M CSR (window 0xFFFF) + ADF size validator
-    (160–166 tracks × 5632 bytes; "mounted"+track count → cdc_stable)
-    + write-back CSR "WBC" (window 0xFFFE: WR_EN, 166-bit dirty bitmap
-    W1C, anti-thrash ms countdown, dirty-event receiver)
-  - `adf_track_engine.vhd` — Paula floppy host service (MiSTer HandleFDD
-    in hardware): 1 ms poll + drive-status re-announce, per-sector MFM
-    streaming with status-bit-8 flow control, MFM write decoder
-    (drain-and-commit: verified sectors → HyperRAM via avm writes,
-    dirty-track events → wrapper via two-phase cdc_stable toggle
-    handshake); since WIP-V2-A2 also the Hardware Floppy backend (per-unit
-    dispatch on the status sel bits, real-flux word streaming, dsksync
-    export, drain-discard for physical writes); the protocol contract is
-    documented in its header
-  - `physical_fdd/` — the Hardware Floppy 50 MHz read front-end (pkg,
-    input conditioner, runt-filtered gap stage, adaptive quantiser,
-    raw-bit rebuild + DSKSYNC aligner, dual-clock word FIFO, top, QNICE
-    diag device 0x0104); codec stages adapted from the C64MEGA65
-    physical-1581 bring-up (hardware-proven at exactly this clock)
-  - `keyboard.vhd` — MEGA65 keys → raw Amiga scancodes (kms_level toggle)
-  - `clk.vhd`, `globals.vhd`, `config.vhd` (OSM menu — bit = line number,
-    must match `C_MENU_*` constants in mega65.vhd; exception: the HDMI
-    Filter radio, lines 19–26, is read by the firmware (`OSM_FLT_*` in
-    m2m-rom.asm must mirror them), not mega65.vhd; VGA radio lines
-    32/36/37)
-- `CORE/m2m-rom/` — core QNICE firmware (`m2m-rom.asm`): ADF size guard
-  + ADF write-back (`HANDLE_CORE_IO` + `FLUSH_ADF_STEP`: FDH snapshot,
-  SD-change + SD-slot guards, per-chunk fflush, force-flush + disarm in
-  `PREP_LOAD_IMAGE` — the §5a arm-state invariant of the write spec)
-  + HDMI Filter dispatcher `LOAD_HDMI_FILTER` (C64MEGA65-V6 port;
-  `ASCAL_USAGE=1`, includes a backported `M2M$LOAD_POLYPHASE` — delete it
-  when M2M is upgraded to V2.1+; coefficient blobs in `video_filters/`).
-  OSM menu constants are autogenerated: `make_rom.sh` scrapes `C_MENU_*`
-  (mega65.vhd) and the core `OPTM_G_*` (config.vhd) into `osm_const.asm`
-  (`AEXP_OSM_*` / `AEXP_OPTM_G_*`, gitignored) — no hardcoded menu
-  indexes in the firmware. The OSM settings file (72 bytes = OPTM_SIZE;
-  SD name `/amiga/aexp-<CORE_VERSION>.cfg`) is generated by
-  `make_release.py` at packaging — no tracked master. `CORE_VERSION` in
-  config.vhd is the single version source (welcome/help
-  screens, CORENAME, CFG_FILE all derive from it; `make_release.py`
-  validates it and packages releases, alpha rows live in
-  `doc/inofficial.md`).
-- `CORE/Minimig_MiSTerMEGA65/` — git submodule, upstream
-  MiSTer-devel/Minimig-AGA_MiSTer. Branch **develop** carries all
-  Xilinx/MEGA65 changes; **MiSTer** mirrors upstream; **master** is the
-  released state (= `develop` at each AExp release). Every change to
-  original files has a dated provenance comment with original code kept
-  commented out. `rtl/minimig_m65.v` is our VHDL-friendly rename shim
-  (minimig.v has leading-underscore ports = illegal VHDL identifiers).
-- `CORE/CORE-R{3,4,5,6}.xpr` — one Vivado project per board.
-- `doc/` — the knowledge base. `.research/` — untracked local research
-  notes (integration specs, review reports); never committed.
+1. **Keep the four `.xpr` files in sync.** Every file-list or file-type change
+   goes into `CORE/CORE-R3.xpr`, `-R4`, `-R5` and `-R6` in the same commit.
+   Expected per-board deltas, do not "fix" them: the board top
+   `M2M/vhdl/top_mega65-r<n>.vhd`, the board constraints `M2M/MEGA65-R<n>.xdc`,
+   R3's `max10.vhdl` + `pcm_to_pdm.vhdl` versus R4+'s `audio.vhd`, and
+   `M2M/vhdl/vdrives.vhd`, which R4–R6 list and R3 does not (AExp never
+   instantiates it; `C_VDNUM = 0`).
+2. **`.xpr` `SFType` tokens:** only `VHDL2008`, `SVerilog`, or no attribute
+   (inferred from the extension). Anything else, such as `"Verilog"` or
+   `"SystemVerilog"`, makes Vivado segfault when it opens the project.
+3. **Block RAM is full** (364 or 365 of 365 tiles, depending on the build;
+   check `Block RAM Tile` in `*_utilization_placed.rpt`). New buffers go into
+   HyperRAM or distributed LUTRAM, never block RAM. The 320 Amiga tiles are an
+   exact mapping with nothing left to squeeze; re-enabling IDE (+8 tiles) does
+   not fit.
+4. **No QNICE ports on spread-out block RAM.** QNICE devices are accessed on
+   the falling clock edge, a 10 ns half-period budget, and the address bus
+   cannot reach 256 tiles spread over the die in time (it once cost
+   WNS −0.757 ns). Only the Kickstart ROM (64 tiles) has a QNICE port; devices
+   `0x0101`/`0x0102` (Chip/Slow RAM) stay reserved and unwired. The CPU-facing
+   data path of every QNICE device shares that half-period cone: give a new
+   register bank a registered readout (the `physical_fdd_diag` pattern) rather
+   than a wide combinational mux.
+5. **The timing margin is thin.** Judge a build by
+   `*_timing_summary_postroute_physopted.rpt` (post-route `phys_opt_design` is
+   enabled on all four boards; `_routed` is the state before it) or, after a
+   re-roll, by `mega65_<board>_reroll_timing.rpt`; WNS and WHS must both be
+   ≥ 0. Load-bearing constraints in `CORE/CORE.xdc`:
+   - the ascal FIFO CDC `set_max_delay -datapath_only` bounds (they cut
+     phantom inter-clock requirements and the router's hold-fix detours);
+   - the clock-pair `set_max_delay -datapath_only 20.000` between `qnice_clk`
+     and `main_clk` in both directions. Deliberately not a false path: a
+     clock-pair false path would override the object-scoped `cdc_stable`
+     bounds in `M2M/common.xdc`;
+   - the flicker-free leg: `set_case_analysis` on
+     `CORE/hr_core_speed_reg[0]/Q` and the generated clock on
+     `CORE/clk_gen/i_clk_fast/CLKOUT0`. Renaming `hr_core_speed` or
+     `i_clk_fast` makes these silently match nothing; `build_bitstream.tcl`
+     fails such a build with `GATE` lines.
 
-## Hard rules (each learned the expensive way)
+   Framework timing fixes go into `CORE/CORE.xdc`, never into
+   `M2M/common.xdc` or the board XDCs.
+6. **Video into the framework:** syncs active-high (Minimig's are active-low
+   and inverted in `main.vhd`); blanks must cover the syncs; the video clock
+   enable is frame-locked 7.09 MHz (14.19 MHz for frames with hires lines) and
+   **never** 28 MHz (`video_mixer` `LINE_LENGTH` 768, ascal `IHRES` 1024).
+   `qnice_scandoubler_o` is `'1'` for Standard VGA and `'0'` in the two 15 kHz
+   modes, decoded from the VGA radio in `mega65.vhd`. Keep
+   `qnice_ascal_triplebuf_o` at `'0'`: triple buffering grows the frame buffer
+   to 6 MB, overwrites the ADF pools and breaks flicker-free.
+7. **`OPTM_PAUSE` stays `false`**: the core does not implement `pause_i`.
+8. **`M2M/` is a modified framework; do not modify it further** unless there
+   is no other way, and then only with the project owner's explicit sign-off.
+   Every sanctioned change carries an `M2M-UPSTREAM <name>` tag
+   (`grep -rn 'M2M-UPSTREAM' M2M CORE`), and new framework inputs default to
+   values that leave other M2M cores bit-identical. The nine named exceptions:
+   - `interlace` — `video_fl_i` field flag through to ascal `i_fl`,
+     `INTER => true` (HDMI weave deinterlacing);
+   - `core-io-hook` — `HANDLE_CORE_IO`, an extra mandatory firmware callback
+     run in the Shell main loop and in every blocking wait loop;
+   - `screen-center` — HDMI crop offsets, analog overscan soft blank, analog
+     pan via `analog_positioner.vhd`;
+   - `osm-hotkey` — core-selectable key(s) that open the menu;
+   - `osm-scale` — `RAM_STYLE_SELECT` for `tdp_ram`, ascal ping-pong buffers
+     pinned to LUTRAM (the untagged 8x8-font OSM renderer belongs to it);
+   - `raw-joyports` — DB9 lines through 2-FF synchronizers, no 1 ms debounce;
+   - `floppy-pins` — the board tops route the internal floppy connector into
+     the core, read pins and the write pins `f_wdata`/`f_wgate` alike;
+   - `osm-deps` — menu-line dependencies (`OPTM_DEP`/`OPTM_DEP2`,
+     `optm_deps.asm`);
+   - `live-text` — `OPTM_LIVE_TEXT`, in-place repaint of part of a menu line.
 
-1. **Keep all four .xpr files in sync** — every file-list or file-type
-   change goes to R3+R4+R5+R6 in the same commit. Expected per-board
-   deltas (do NOT "fix"): board top, board XDC, R3 `max10.vhdl` +
-   `pcm_to_pdm.vhdl` vs R4+ `audio.vhd`.
-2. **.xpr SFType tokens**: only `VHDL2008`, `SVerilog`, or *no attribute*
-  (extension-inferred). Anything else (e.g. "Verilog", "SystemVerilog")
-  makes Vivado **segfault on project open** (hs_err with
-  `HDDASrcFileType::getId`).
-3. **BRAM is at 363.5/365 tiles — full.** All future buffers (ADF images,
-   sector buffers, monitor ROMs) MUST live in HyperRAM. Re-enabling
-   IDE (+8 tiles) does not fit. The 320 Amiga tiles are an exact mapping,
-   nothing left to squeeze.
-4. **No QNICE ports on die-spread BRAMs.** QNICE reads/writes RAMs on the
-   falling clock edge = half-period (10 ns) budget; the address bus
-   cannot reach 256 spread tiles in time (cost us WNS −0.757). Only the
-   kick ROM (64 tiles) has a QNICE port.
-5. **Timing margin is thin (+0.387 ns).** Check the timing summary after
-   every build. The ascal FIFO CDC constraints in `CORE/CORE.xdc`
-   (set_max_delay -datapath_only) are load-bearing — they cut phantom
-   ps-requirement inter-clock paths AND the hold-fix router detours.
-6. **Video into the framework**: active-HIGH syncs (minimig outputs are
-   active-low — inverted in main.vhd), blanks must cover syncs, video CE
-   is frame-locked 7.09/14.19 MHz and **never** 28 MHz (M2M line buffers:
-   video_mixer LINE_LENGTH=768, ascal IHRES=1024),
-   `qnice_scandoubler_o='1'` (15.625 kHz core!).
-7. **OPTM_PAUSE stays false** — pause_i is not implemented in the core.
-8. Commit as **sy2002 <code@sy2002.de>** (repo-local git config is set).
-   Do NOT add a `Co-Authored-By: Claude` trailer — Claude is credited in
-   the `AUTHORS` file instead.
-9. Do not delete `/tmp/claude-501` task outputs (deny rules in
-   `.claude/settings.local.json`); tell workflow subagents not to run
-   cleanup commands.
-10. `CORE/m2m-rom/make_rom.sh` scrapes globals.vhd (`C_VDNUM`/
-    `C_CRTROMS_*_NUM`), mega65.vhd (`C_MENU_*` → `AEXP_OSM_*`) and
-    config.vhd (core `OPTM_G_*` → `AEXP_OPTM_G_*`) via awk into generated
-    .asm files — keep all those constants single-line; the Vivado
-    pre-synth hook rebuilds the firmware, so menu changes need a
-    synthesis (or VM-side make_rom.sh) to reach the ROM. Changing
-    `OPTM_SIZE` ⇒ `make_release.py` generates the matching settings file
-    at packaging (no tracked master; manual for dev SD cards:
-    `M2M/tools/make_config.sh <name> auto` from inside `M2M/tools`).
-11. **Every OSM growth needs a QNICE heap rebudget.** `OPTM_SIZE` is not
-    only the settings-file length: `HELP_MENU` copies the item string plus
-    three `OPTM_SIZE` arrays into `MENU_HEAP_SIZE`, then uses the remainder
-    as `OPTM_HEAP` for one `SCR$OSM_O_DX`-wide (`OPTM_DX + 2` frame
-    characters) buffer per vdrive, submenu and manual ROM, plus one scratch
-    buffer. After changing `OPTM_SIZE`,
-    `OPTM_ITEMS`, `OPTM_DX`, or any of those counts, verify both
-    `LOG_HEAP1`/`LOG_HEAP2` budgets (a fatal naming `MENU_HEAP_SIZE` or
-    `OPTM_HEAP_SIZE` is the corresponding failed check). If
-    `MENU_HEAP_SIZE` changes, normally subtract the identical delta from both
-    debug and release `HEAP_SIZE` constants so the combined heap totals stay
-    unchanged. Only raise a combined total after the assembled `HEAP`/stack
-    addresses prove that `STACK_SIZE` still fits. Keep `MENU_HEAP_SIZE` tight:
-    every extra word directly reduces
-    file-browser capacity (a file entry costs three list words plus its name,
-    terminator and directory flag) - `FB_HEAP` literally starts at
-    `HEAP + MENU_HEAP_SIZE` (`M2M/rom/shell.asm`). **Round the calculated
-    demand up to the next 32-word boundary and no further.** This rule used to
-    say 128, which was harmless while it happened to cost 6 words at 146 items
-    but would have left 107 dead words at 148. Allocating tight is safe
-    because a shortfall is LOUD rather than silent: `HELP_MENU` checks the
-    permanent structure against `MENU_HEAP_SIZE` (`ERR_FATAL_HEAP1`) and the
-    `OPTM_HEAP` demand against the remainder (`ERR_FATAL_HEAP2`), so the core
-    stops with a fatal screen at boot and on every menu open, and
-    `check_osm_menu.py` recomputes the demand statically long before that.
-    The demand is fully static: every term comes from config.vhd constants,
-    and `SCR$OSM_O_DX` is latched once at screen init from `M2M$CFG_OPTM_DIM`
-    (OSM Scaling scales the overlay in hardware, not the character grid).
-    The exact demand
-    formula (from `HELP_MENU` in `M2M/rom/options.asm`): 20 (menu struct) +
-    `OPTM_ITEMS` string chars (`\n` = 2 chars) + 1 (terminator) + 4 ×
-    `OPTM_SIZE` + 1, plus (vdrives + submenus + manual ROMs + 1) ×
-    (`OPTM_DX` + 2) for `OPTM_HEAP`. The struct is 20 words and there are FOUR
-    per-item arrays since the menu-dependency backport (M2M exception 8); the
-    boot-time dependency validator transiently needs 20 + 3 × `OPTM_SIZE`,
-    which is always far below the permanent demand. Since the A10 DVI item,
-    the 148-item menu needs exactly 2325 words and uses `MENU_HEAP_SIZE` 2336,
-    headroom 11 (it was 146 items / 2298 / 2304 / headroom 6 from WIP-V2-A3 up
-    to that point, so the A10 edit moved both `HEAP_SIZE` constants down by 32,
-    not by the 128 the old rounding rule would have cost) —
-    `.research/check_osm_menu.py` recomputes all of this from
-    `config.vhd`.
-    **Firmware VARIABLES count too**, even though this rule is about the menu:
-    they sit below the heap, so every word added there pushes `HEAP` up and
-    comes straight out of the stack. The per-drive write-back and the live
-    Hardware Floppy status line added 66 variable words, so the combined total
-    was lowered from the C64 figure of 30208 to **30080** to buy the margin
-    back: `HEAP=0x8280` + 30080 = `0xF800` against `VAR$STACK_START 0xFEE0`
-    leaves 1760 words for a `STACK_SIZE` of 1536. Recheck both live heap
-    budgets and the `HEAP`/`VAR$STACK_START` symbols in `m2m-rom.lis` manually
-    whenever the menu or the firmware variables grow.
+   Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
+   `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
+   `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
+   section 8.10. Never re-sync `M2M/` from the template; moving to M2M V2.1.0
+   is planned future work.
+9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
+   `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
+   across individual machines. Do not force or re-route the RWDS strobe and do
+   not loosen the input-delay constraints either; all three move the sampling
+   point. A small hold miss on `hr_d_io`/`hr_rwds` is placement luck, and
+   `CORE/build_all.sh` re-rolls it (`timing_closure.md`).
+10. **`make_rom.sh` scrapes VHDL with line-based `awk`: keep these constants
+    on one line each.** `C_MENU_*` from `mega65.vhd` and the core's `OPTM_G_*`
+    from `config.vhd` (value read as field 6 of
+    `constant NAME : natural := 45;`) become `AEXP_OSM_*`/`AEXP_OPTM_G_*` in
+    `osm_const.asm`; `C_VDNUM`, `C_CRTROMS_MAN_NUM`, `C_CRTROMS_AUTO_NUM`, the
+    `C_ADF_*` geometry and `C_DEV_AMIGA_ADF0..2` from `globals.vhd` become
+    `globals.asm` and the device symbols. The firmware has no hard-coded menu
+    index. The generated `.asm` files are git-ignored; menu changes reach the
+    ROM only through `make_rom.sh` (run by every synthesis).
+11. **Every menu growth needs a QNICE heap rebudget.** `HELP_MENU`
+    (`M2M/rom/options.asm`) builds the menu in `MENU_HEAP_SIZE`
+    (`m2m-rom.asm`), and `FB_HEAP` (the file browser) starts right behind it,
+    so every spare word costs browser capacity. The demand is
+    `20 + len(OPTM_ITEMS) + 1 + 4 * OPTM_SIZE + 1` (struct, item string with
+    `\n` counting 2, terminator, four per-item arrays) plus
+    `(vdrives + submenus + manual ROMs + 1) * (OPTM_DX + 2)` for `OPTM_HEAP`.
+    **Round up to the next 32-word boundary and no further.** When
+    `MENU_HEAP_SIZE` changes, subtract the same delta from both `HEAP_SIZE`
+    constants (debug and release) so the combined totals stay put. A shortfall
+    is loud (`ERR_FATAL_HEAP1`/`ERR_FATAL_HEAP2` at boot and on every menu
+    open), and the menu checker <!-- TOOL: check_osm_menu.py --> recomputes
+    the demand statically; the current numbers are in the comment above
+    `MENU_HEAP_SIZE`. **Firmware variables count too:** they sit below `HEAP`,
+    so every added word pushes `HEAP` up and comes out of the stack. Check in
+    `m2m-rom.lis` that `HEAP` + the combined release total stays below
+    `VAR$STACK_START` (`0xFEE0`) by more than `STACK_SIZE`; the arithmetic is in
+    the comment next to the release `HEAP_SIZE`.
+12. **The firmware ROM must end below `0x7000`.** M2M maps the device window
+    at `0x7000`–`0x7FFF`, so 28672 words are usable. `make_rom.sh` enforces it,
+    with `END_OF_ROM` as the last ROM item before `.ORG 0x8000`; the build log
+    prints `Shell ROM: N/28672 words.` (27533 at `WIP-V2-B1`).
+13. **Menu structure (`config.vhd`):**
+    - A line's position is the bit number that carries its state; inserting a
+      line shifts every `C_MENU_*` constant behind it, by hand. The HDMI filter
+      radio (`C_MENU_FLT_*`) is read by the firmware, not the HDL.
+    - Group ids must be monotonically increasing; a new feature takes the next
+      id. `OPTM_G_START` appears exactly once.
+    - Defaults: exactly one `OPTM_G_STDSEL` per radio, every STDSEL line must
+      be visible under the other groups' defaults, and at most one drive may
+      default to Hardware Floppy (`DRV_ENFORCE_COUNT`/`DRV_STEAL_HW` do not
+      run at boot). A changed default must also change the HDL that mirrors
+      it: `drv_decode` and `qnice_hwf_map3_decode` in `mega65.vhd`, and the
+      power-on value of `drv_map_applied` in `amiga_cold_boot.vhd` (a mismatch
+      fires a cold boot at t=0).
+    - `OPTM_DY` + 2 must not exceed 36 rows. Welcome and help pages print into
+      a full-screen frame: at most 34 rows of 43 columns. One row too many
+      overwrites the border, two and the last line is lost. Page strings may
+      contain `;`, so measure them with a string-aware scanner.
+    - The README's blind key sequence for switching DVI on depends on the
+      menu layout above the HDMI submenu and on the drive defaults; re-derive
+      it when either changes.
+    - After any menu change run <!-- TOOL: check_osm_menu.py --> and, if
+      `OPTM_SIZE` changed, generate a fresh settings file (section 4). Never
+      copy an older `.cfg` forward: the firmware accepts a file on its length
+      alone, so a used file silently restores old selections.
+14. **QNICE assembly pitfalls (`m2m-rom.asm`):**
+    - The assembler wrapper runs the C preprocessor (`cc -xc -E`), so `'` and
+      `"` are tokenised inside `;` comments: no possessive apostrophes (write
+      "the X of Y"), and never split a quoted string across lines.
+    - Only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL` and `SHR` write the carry flag;
+      `MOVE` does not. Address arithmetic inserted between a 32-bit `ADD` and
+      its `ADDC` silently eats the carry. Run
+      <!-- TOOL: check_firmware.py --> after firmware changes.
+    - Call monitor/OS functions (`MTH$`, `STR$`, `IO$`, …) through
+      `SYSCALL(name, 1)`, never `RSUB` to the internal label, even when it
+      resolves.
+15. **Floppy data-safety invariants.** Each one prevents silent data loss on
+    a user's disk or image:
+    - The ADF write drain is unit-tagged: it aborts the moment Paula selects
+      another unit, and `drain_unit` latched at drain start decides the commit
+      address. An untagged drain writes one drive's data into another's image.
+    - A drive is flushed only through its own FAT32 handle snapshot
+      (`ADF_FDH0/1/2` via `ADF_FDH_TAB`), never through a shared "current"
+      handle.
+    - One image file may not be mounted into two drives (`ADF_DUP_CHECK`):
+      each drive holds its own HyperRAM copy and the later flush overwrites
+      the earlier.
+    - No handle may stay FAT32-dirty across a return to the main loop. There
+      is one sector buffer, its owner is tracked by address, and the file
+      browser claims it without flushing.
+    - The arm-state invariant of `floppy-adf.md` section 9 holds per drive: a
+      drive is announced write-protected until its own mount completes and
+      the firmware arms its `WR_EN`; `PREP_LOAD_IMAGE` force-flushes and
+      disarms; SD-card changes disarm.
+    - A Hardware Floppy write is owned per trackwr **episode**: ownership
+      binds once, qualified by the real per-drive select line
+      (`main_hwf_selected`, because Paula's priority-encoded `sel` field
+      encodes "nothing selected" as `df0`), every later drain inherits it, and
+      a physical drain never commits (`drain_commit = '0'`). An aborted
+      episode stays dead; the read chain is held in reset for the whole
+      episode.
+    - The writer's gate conjunction (enable, selected, motor, streaming,
+      tab-qualified `wr_ok`) and the disk's own tab are the only write
+      guards; there is no runtime read-only switch. The post-DSKBLK drain hold
+      (`mega65.vhd` holds SELECT and SIDE) and the writer's "no SELECT/SIDE
+      abort after the session fell" ship together or not at all; STEP and DIR
+      are never held.
+16. **Minimig submodule conventions** (`CORE/Minimig_MiSTerMEGA65`, repo
+    `sy2002/Minimig_MiSTerMEGA65`): `MiSTer` mirrors upstream unchanged,
+    `develop` carries all MEGA65 changes and is what AExp tracks, `master`
+    equals `develop` at each AExp release. Every change to an original file
+    gets a dated provenance comment
+    (`// MiSTer2MEGA65 (AExp Amiga 500 port), <Month Year>: ...`) with the
+    original code kept as a comment next to it. Commit in the submodule on
+    `develop` first, then record the new pointer in AExp.
+17. **The QNICE submodule tracks `dev-V1.61`** (`.gitmodules` `branch`), not
+    the 2024 commit the M2M V2.0.1 template pins. That branch carries the FAT32
+    fixes the ADF write-back depends on (sector buffer written back before
+    `DIR_OPEN`/`FILE_OPEN` reuse it; 32-bit sector-address overflow check).
+    Update with `git submodule update --remote M2M/QNICE`; never let a
+    template sync drag the pointer back.
+18. **The QNICE tool binaries belong to the OS that runs Vivado.** The
+    pre-synthesis hook runs `make_rom.sh` with `M2M/QNICE/assembler/qasm` and
+    `qasm2rom` as built in place. In a working copy shared with a build host
+    of another OS, do not rebuild them in place and do not run `make_rom.sh`:
+    the `asm` wrapper deletes `m2m-rom.out`/`.rom` first and then fails on the
+    foreign binaries. Use the native recipe in section 4. (`build_all.sh`
+    rebuilds them via `./make_qasm.sh`, which is git-ignored, not tracked.)
 
-## Build & verification workflow
+## 4. Build and verification
 
-- **No Vivado on this Mac.** It runs in the user's Parallels Ubuntu VM on
-  a shared folder. Prepare everything, then ask the user to synthesize
-  and return: `CORE/CORE-R3.runs/synth_1/runme.log`,
-  `impl_1/*_utilization_placed.rpt`, `impl_1/*_timing_summary_routed.rpt`,
-  `impl_1/*_route_status.rpt`. Per-module BRAM: ask for
+**Vivado 2022.2** (ML Standard, Artix-7 XC7A200T) runs on Linux or Windows
+only, so it is usually not on the machine where the code is edited. Prepare
+everything, then ask the user to build and return the logs.
+
+- **Builds:** per board in the GUI (Generate Bitstream on
+  `CORE/CORE-R<n>.xpr`; the pre-synthesis hook `CORE/m2m-rom/synth_pre.tcl`
+  rebuilds the firmware), or in batch with `CORE/build_all.sh` (`--help`),
+  which writes `build_R<n>.log` with `RESULT` lines and re-rolls boards that
+  only just missed timing (`timing_closure.md`).
+- **What to request after a build:** `CORE/CORE-R<n>.runs/synth_1/runme.log`;
+  from `impl_1/`: `*_utilization_placed.rpt`,
+  `*_timing_summary_postroute_physopted.rpt`, `*_route_status.rpt`, and after
+  a re-roll `mega65_<board>_reroll.txt` + `_reroll_timing.rpt`; the
+  `build_R<n>.log` summary for batch builds. For per-module BRAM ask for
   `report_utilization -hierarchical`.
-- **QNICE firmware**: the Vivado pre-synth hook rebuilds it inside the
-  VM on every build — the VM works directly in this (mounted) folder,
-  which is why `M2M/QNICE/assembler/qasm`/`qasm2rom` are Linux ELF
-  binaries. Never overwrite them, and NEVER run
-  `CORE/m2m-rom/make_rom.sh` on the Mac: the `asm` wrapper deletes
-  `m2m-rom.out`/`m2m-rom.rom` BEFORE assembling, then dies on the Linux
-  binaries. For Mac-side sanity checks compile temporary native tools
-  into a temp dir (`cc -O2 -o "$TMP"/qasm M2M/QNICE/assembler/qasm.c`,
-  same for `qasm2rom`), then from `CORE/m2m-rom`: `cc -xc -E
-  m2m-rom.asm | sed '/^#.*/d' > __t.asm && "$TMP"/qasm __t.asm
-  m2m-rom.out && "$TMP"/qasm2rom m2m-rom.out m2m-rom.rom` (verified to
-  produce a `.def`-identical ROM vs the VM build).
-  **The firmware ROM must end below `0x7000`**: M2M maps the 4K RAMROM/device
-  window at `0x7000`-`0x7FFF`, so only 28672 words of the 32K-word QNICE ROM
-  are usable; `make_rom.sh` enforces this (ported from the C64 core): it
-  derives the image size from the serialized addresses rather than from
-  the `.rom` line count, which qasm2rom inflates with the zero words of the
-  RAM variables, cross-checks it against the `END_OF_ROM` label (which must
-  stay the last ROM item before `.ORG 0x8000`), trims the variable words
-  off the image and fails the Vivado build loudly on overflow or on a
-  layout qasm2rom cannot serialize. `WIP-V2-B1` uses 27533 words, 1139
-  free; the VM log line to look for is `Shell ROM: N/28672 words.`
-- **The QNICE submodule tracks `dev-V1.61`** (`.gitmodules` `branch`,
-  currently `2541cce`, 2026-09-22; update with `git submodule update --remote
-  M2M/QNICE`, the pre-synth hook reassembles the firmware against the new
-  monitor). That branch carries two FAT32 library fixes under the ADF
-  write-back: the sector buffer is written back before `DIR_OPEN`/`FILE_OPEN`
-  re-fill it (`a937af2`, the single-buffer-owner hazard the firmware also
-  guards against itself, see hard rule 11 and the write spec) and the 32-bit
-  sector-address overflow check (`2541cce`). The M2M V2.0.1 template pins the
-  2024 commit `2eb27dd`, 13 commits behind; a template sync must never drag
-  the pointer back there.
-- **Headless QNICE menu regression**: `M2M/rom/menu_percent_test.asm` runs
-  the real `OPTM_SHOW` scanner and guards the C64 `%`-at-end-of-label fix.
-  The pinned QNICE (`dev-V1.61`) ships the emulator's headless batch mode
-  (`-b`, one or more `.out` images), so build the POSIX terminal flavour
-  from `M2M/QNICE/emulator` and use it as `$QNICE_HEADLESS`. Assemble the
-  test with the native/VM assembler, then run `$QNICE_HEADLESS -b 0x8000
-  M2M/QNICE/monitor/monitor.out M2M/rom/menu_percent_test.out`. Expected:
-  `PASS: percentage labels preserve later %s indices`. Run this after every
-  change to `M2M/rom/menu.asm` or percentage-bearing `OPTM_ITEMS` labels.
-- **Local static checks before any Vivado round-trip** (installed:
-  nvc 1.21, ghdl 5.1, iverilog). Two Python checkers live in `.research/`
-  (untracked, like the rest of it): `check_osm_menu.py` recomputes
-  `OPTM_SIZE`, the submenu balance, the `OPTM_DEP` rules, the worst-case
-  visible height per menu view and the `MENU_HEAP_SIZE` demand from
-  `config.vhd`, and cross-checks every `C_MENU_*` constant in `mega65.vhd`
-  against the TEXT of the line it addresses - run it after ANY menu change.
-  `check_firmware.py` checks the per-drive tables and arrays against
-  `ADF_DRIVES` and requires every `ADDC`/`SUBC` in `m2m-rom.asm` to take its
-  carry from a producer that writes the same storage class; on QNICE only
-  `ADD`/`ADDC`/`SUB`/`SUBC`/`SHL`/`SHR` write Carry and `MOVE` does not, so
-  inserting address arithmetic between a 32-bit `ADD` and its `ADDC` silently
-  eats the carry (this exact slip once made the ADF write-back address every
-  chunk past a 64 KB boundary 64 KB too low). Then analyze all CORE VHDL with
-  `nvc --std=2008` in dependency order (M2M packages first: tools.vhd,
-  types_pkg, video_modes_pkg, tdp_ram, 2port2clk_ram); clk.vhd/mega65.vhd
-  need stub `unisim`/`xpm` vcomponents packages (recipe in memory).
-  iverilog `-g2012 -t null` over the kept
-  Verilog set with stubs for `dpram` and `fx68k`. Known noise to ignore:
-  forward references, fx68k unpacked structs, zero-width-concat
-  follow-ons.
-- Synthesis log checks: `microrom.mem`/`nanorom.mem` "read successfully"
-  (silent failure = dead CPU with no error), Amiga RAMs as block RAM,
-  `Synth 8-5835` (BRAM over-utilized, "Will try to implement using LUT-RAM")
-  now fires routinely — BRAM sits at 365/365, so Vivado spills the excess to
-  LUT-RAM and the build still fits; it is a real failure only if implementation
-  then cannot place/route. Vivado OOM in the VM: close the implemented design in
-  the GUI before relaunching a run.
+- **What to check in them:**
+  - `Synth 8-3876` lines saying `microrom.mem` and `nanorom.mem` were "read
+    successfully". A silent failure here gives a dead CPU and no error.
+  - Amiga RAMs inferred as block RAM; `Block RAM Tile` ≤ 365.
+  - `Synth 8-5835` ("BRAM over-utilized … implement using LUT-RAM") is
+    routine at this fill level; it is a real failure only if implementation
+    then cannot place or route.
+  - WNS/WHS ≥ 0 from the post-route phys-opt report (rule 5); no `GATE`
+    lines; route status fully routed.
+  - `Shell ROM: N/28672 words.` (rule 12).
+- **Settings file for a dev SD card:** from inside `M2M/tools`,
+  `./make_config.sh aexp-<CORE_VERSION>.cfg auto` (`auto` reads `OPTM_SIZE`
+  from `config.vhd`; type the `.cfg` suffix).
+- **Releases:** `make_release.py` (generic M2M packager) with
+  `CORE/release.toml` and the core-specific hooks in `CORE/release_hooks.py`
+  (ships `aexp_screen.cfg` presets and `aexp_screen_cfg.py`). It validates
+  `CORE_VERSION`, generates the settings file and checks `doc/inofficial.md`.
+- **Documentation website:** every push of `README.md` or `doc/**` to
+  `develop` rebuilds and publishes https://sy2002.github.io/AExp/
+  (`.github/workflows/pages.yml`) unless `doc/DOC_FROZEN` exists. Docs on
+  `develop` are therefore user-facing at once. `doc/make_doc.py check` builds
+  it locally (see `doc/make_doc.md`).
 
-## Architecture cheat sheet
+**Local static checks before any Vivado round trip** (free tools: nvc, GHDL as
+a second opinion, Icarus Verilog):
 
-- **Memory bus**: with 68000 + no fast RAM, ALL memory traffic (CPU +
-  chipset DMA) flows through minimig's single SRAM-style port
-  (`ram_addr[22:1]` word address + `_bhe/_ble/_we/_oe`). The address is
-  BANKED by `minimig_sram_bridge.v`: chip at `[22:19]="0000"`, slow at
-  `[22:19]="1000"`, kick at `[22:19]="1111"` (bit 18 ignored = F8/FC
-  mirror). 1-cycle BRAM latency meets the 7.09 MHz bus easily; read-mux
-  select is registered to match.
-- **QNICE device bus**: `qnice_dev_id_i` ≥ 0x0100, 4k windows, byte
-  addresses; kick = 0x0100 (lane U = even byte = bits 15:8, so raw ROM
-  dumps load unmodified); 0x0101/0x0102 reserved (chip/slow, unwired).
-- **Host/userio channel**: `IO_UIO` carries config commands (driven by
-  amiga_config.vhd); `IO_FPGA` is Paula's floppy channel (tied 0 —
-  the future floppy service and the RamDump upload engine plug in here /
-  via cmd 0xF0 mem_write through the halted m68k_bridge).
-- **HyperRAM**: 8 MB, Avalon-MM via `hr_core_*` ports (currently tied
-  off), 100 MHz, ~9 cycles latency after CDC, arbiter shared with the
-  ascal framebuffer. Core address space from `C_HMAP_DEMO` (0x0200, 4kW
-  units). Pattern for core→HyperRAM: avm_cache + avm_fifo CDC (reference:
-  C64MEGA65 REU chain).
-- **Reference port**: /Users/mirko/.dev/MEGA65/C64MEGA65 — consult it for
-  every M2M integration pattern (vdrives, CRT/PRG loaders, OSM, LEDs).
+- **VHDL:** analyse with `nvc --std=2008` in dependency order, from a scratch
+  work directory (nvc writes its library into the invocation directory):
+  `M2M/QNICE/vhdl/tools.vhd`, `types_pkg`, `video_modes_pkg`, `tdp_ram`,
+  `2port2clk_ram`, `cdc_stable`, `qnice_csr`, `qnice2hyperram`, the
+  `memory/avm_*` + `axi_fifo` files, then `globals.vhd`, `config.vhd`, the
+  `physical_fdd/` files (pkg first, top last), `adf_track_engine`,
+  `adf_mount_wrapper`, `amiga_config`, `amiga_cold_boot`, `audio_filters`,
+  `keyboard`, `clk`, `main`, `mega65`. `clk.vhd` and `mega65.vhd` need stub
+  `unisim.vcomponents` (`MMCME2_ADV`, `BUFG`, `BUFGCE`, `BUFGMUX_CTRL`) and
+  `xpm.vcomponents` (`xpm_cdc_async_rst`, `xpm_cdc_single`, `xpm_fifo_axis`)
+  packages. <!-- TOOL: run_nvc_chain.sh --> <!-- TOOL: nvc_stubs/ -->
+- **Verilog:** `iverilog -g2012 -t null` over the Minimig sources AExp uses,
+  with stubs for `dpram` and `fx68k`. Known noise: forward references, fx68k
+  unpacked structs, zero-width-concat follow-ons.
+- **Menu and firmware:** <!-- TOOL: check_osm_menu.py --> after any menu
+  change, <!-- TOOL: check_firmware.py --> after any firmware change. Both
+  must end with `all checks passed`.
+- **Firmware assembly without the build host:** build the tools natively into
+  a temp dir (`cc -O2 -o "$TMP"/qasm M2M/QNICE/assembler/qasm.c`, same for
+  `qasm2rom.c`), then from `CORE/m2m-rom`:
+  `cc -xc -E m2m-rom.asm | sed '/^#.*/d' > "$TMP"/t.asm && "$TMP"/qasm "$TMP"/t.asm "$TMP"/m2m-rom.out && "$TMP"/qasm2rom "$TMP"/m2m-rom.out "$TMP"/m2m-rom.rom`.
+  This needs the generated include files of rule 10 to exist (any earlier
+  `make_rom.sh` run). Its first `END_OF_ROM` + 1 words are identical to the
+  build host's trimmed `m2m-rom.rom`.
+- **Headless QNICE menu regression:** the pinned QNICE emulator has a batch
+  mode. Build the POSIX flavour from `M2M/QNICE/emulator` and run
+  `qnice -b 0x8000 M2M/QNICE/monitor/monitor.out <test>.out`. The `%`-label
+  regression test for `OPTM_SHOW` <!-- TOOL: menu_percent_test.asm --> must
+  print `PASS: percentage labels preserve later %s indices`; run it after any
+  change to `M2M/rom/menu.asm` or to menu labels that contain `%`.
+- **Testbenches:** the floppy families are described in `floppy-adf.md`
+  section 11 and `hardware-floppy.md` section 11 (regression runner
+  <!-- TOOL: run_fdd_regression.sh -->, write matrix and mutants
+  <!-- TOOL: run_write_matrix.sh --> <!-- TOOL: run_write_mutants.sh -->).
+  Others: drive-default cold boot <!-- TOOL: tb_cold_boot_init.vhd -->, the
+  Minimig backports <!-- TOOL: tb_cia_inmode.v -->
+  <!-- TOOL: tb_blitter_freeze.v --> <!-- TOOL: tb_beamcounter_readback.v -->,
+  keyboard <!-- TOOL: tb_keyboard.vhd -->, analog positioner
+  <!-- TOOL: tb_analog_positioner.vhd -->.
+- **Testbench discipline:** every new check gets a red control (show it
+  fails on a mutant or on the old code) before its green counts; a mutant
+  counts as killed only if the same cell is green on the unmutated design and
+  it fails on an assertion, not a timeout; treat nvc's "older than its source
+  file" warning as a failure (stale analysis); give each parallel run its own
+  work directory; never edit a script while it runs.
 
-## Roadmap
+## 5. Architecture cheat sheet
 
-1. **Floppy: ADF read/write DONE and RELEASED in Version 1 (tag `V1`).**
-   Read-only landed 2026-07-03, write 2026-07-05 (`WIP-V1-A4`), and both
-   rode through A5..A11 and the release candidates B2/B3 into the Version 1
-   release. This is a working, shipped, daily-driven feature - do NOT
-   re-open it as "unverified". The only thing still unrecorded is the
-   formal write test matrix
-   (`.research/INTEGRATION-SPEC-floppy-adf-write.md` §8: WB rename
-   persists across power cycle, format, write+verify, swap-while-dirty,
-   wprot regression). Before touching floppy code, read BOTH specs in
-   `.research/` — the read spec is authoritative on three verified points
-   (DEVICE-type mount, bit-8 flow control not
-   IO_WAIT, disk_present re-announce per poll); the write spec's §5a
-   arm-state invariant closed three review-confirmed critical bugs
-   (stale FDH across re-mounts, stale-READY re-arm, F1/F3 slot switch).
-   Future increments: df1 (HyperRAM window `C_HMAP_ADF_DF1` reserved),
-   mount-status OSM feedback (`<Saving>` needs an M2M options.asm
-   generalization, noted in the write spec §7).
-2. **DiagROM test round** — zero code: 256 KB DiagROM as /amiga/kick.rom
-   exercises slow RAM, keyboard, audio, CIAs (diagrom.com).
-3. **RamDump loader** — run deft's demo without floppy (possibly obsolete
-   now that ADFs boot — confirm with deft whether .A5R is still wanted):
-   the `.A5R` format (192-byte header with full CPU context
-   D0-D7/A0-A6/USP/SSP/SR/PC, segment table, RTE-based launcher entry) plus the
-   German delivery contract for deft. Loader = OSM manual-load → QNICE→main CDC FIFO
-   → upload engine drives userio 0xF0 → launcher ROM replaces kick.
-   Hardware state deliberately NOT restored (V1); brief color flicker OK.
-4. Pending decision: publish to GitHub as sy2002/AExp (plan exists:
-   fork Minimig upstream → sy2002/Minimig_MiSTerMEGA65, fix .gitmodules
-   URL, add origin, push master+develop).
+Full picture: `architecture.md` sections 2, 4 and 5.
 
-## Key documents (read before working)
+- **Layering:** board top → `framework.vhd` (M2M: QNICE, SD, OSM, HyperRAM,
+  video pipelines) + `CORE/vhdl/mega65.vhd` (clocks, BRAMs, QNICE devices,
+  ADF mount devices, Hardware Floppy front end, OSM decoding) → `main.vhd`
+  (replaces MiSTer's `Minimig.sv`: `amiga_config`, `adf_track_engine`,
+  `keyboard`, `audio_filters`, video enables) → `minimig_m65.v`/`minimig.v`,
+  `cpu_wrapper.v`/fx68k, `amiga_clk.v`.
+- **Clocks:** `main_clk` 28.375 MHz (100 MHz × 56.75 / 5 / 40, −5.6 ppm vs
+  PAL), dithered through a `BUFGMUX_CTRL` with the flicker-free twin
+  28.4375 MHz (`i_clk_fast`) so that the average frame rate is exactly 50 Hz;
+  `qnice_clk` 50 MHz (QNICE, ADF mount devices, the whole Hardware Floppy
+  front end and writer); `hr_clk` 100 MHz (HyperRAM); framework video and
+  audio clocks. There is no 113.5 MHz clock.
+- **Amiga memory bus:** with a 68000 and no Fast RAM, all CPU and DMA traffic
+  goes through Minimig's single SRAM-style port (`ram_addr[22:1]` word
+  address + byte enables), banked by `minimig_sram_bridge.v`: Chip at
+  `ram_addr[22:19] = "0000"`, Slow at `"1000"`, Kickstart at `"1111"` (bit 18
+  ignored, the `$F8`/`$FC` mirror). Each memory is split into upper/lower
+  8-bit lanes; the even byte is bits 15..8, so raw ROM dumps load unswapped.
+- **QNICE devices** (`globals.vhd`): `0x0100` Kickstart, `0x0101`/`0x0102`
+  reserved, `0x0103`/`0x0105`/`0x0106` ADF mount devices of `df0`/`df1`/`df2`
+  (byte window into the image, `0xFFFE` write-back CSR, `0xFFFF` M2M load
+  handshake), `0x0104` Hardware Floppy diagnostics (from the QNICE monitor:
+  select it, then `M D 7000 707D`; `0x7001` reads the map version `000D`;
+  `hardware-floppy.md` section 8).
+- **Host channel:** `IO_UIO` carries `amiga_config.vhd`'s replay of the MiSTer
+  HPS configuration after every reset (`0xF1` halt, `0xF3` OCS, `0xF4` 68000,
+  `0xF5` memory incl. the Slow RAM bit, `0xF6`, `0xF7` drive count, `0xF8`,
+  `0xF9` joystick swap, `0xF2` audio mix, `0xF1` release). `IO_FPGA` is
+  Paula's floppy channel, served by `adf_track_engine.vhd`; `main.vhd`
+  multiplexes the bus between the two.
+- **HyperRAM** (8 MB, 8 KB windows, `C_HMAP_*`): `0x000`–`0x1FF` framework
+  (ascal frame buffer in the first 2 MB), `0x200`/`0x280`/`0x300` the
+  `df0`/`df1`/`df2` image pools (115 windows + guard window each), `0x3FF` top
+  guard. `mega65.vhd` asserts the ordering at elaboration time. Core access
+  pattern: `avm_fifo` CDC + `avm_arbit_general`.
+- **Drives:** three units, each a Disk Image, the Hardware Floppy (at most
+  one) or Off (`df0` never Off); default one drive, `df0` as Disk Image,
+  because many games misbehave with more. The drive index 0..2 is at once the
+  Amiga unit, manual ROM id, device selector, HyperRAM pool and firmware
+  array index. A topology change cold-boots only the Amiga.
 
-User-facing docs (also the source for the a500.mega65.org website, built by
-`doc/make_doc.py`; see `doc/make_doc.md`):
+## 6. Working conventions
 
-- `doc/keyboard.md` — full keyboard mapping guide, both modes, per-key tables.
-- `doc/retrotubes.md` — connecting real 15 kHz CRTs (BNC / SCART / DB9 RGB) to
-  the analog output, including the wiring-safety cautions.
-- `doc/audio.md` — end-user guide to volume, stereo mix and the A500/LED
-  filters (including the power-LED/filter story).
-- `doc/screen_adjust.md` — HDMI crop + analog position/overscan, the
-  `aexp_screen.cfg` format and the `aexp_screen_cfg.py` tool.
-- `doc/RTC.md` — real-time clock setup and the Kickstart 1.3 quirks.
-- `doc/developers.md` — build the core from source (clone → `*.cor`).
+- **Commits:** the repo-local git config sets the author identity; use it as
+  configured. Do not add `Co-Authored-By` trailers; AI assistance is credited
+  in `AUTHORS`. Commit only when asked.
+- **Code comments describe the present state.** Never narrate what was
+  removed or changed; that belongs in commit messages.
+- **Documents read as if they had always been right.** No narration of how a
+  text was produced or corrected, no process meta. Keep only caveats about
+  the subject itself.
+- **Markdown must render in Marked 2 with MathJax inline math.** Outside code
+  spans and fences: escape bare `$` as `\$` (two on a line become math), never
+  write bare `==` (pairs turn the text between them into a yellow highlight,
+  even across sections), put angle-bracket placeholders like `<name>` in
+  backticks, watch stray `*`/`_`. Only give a code fence a language tag when
+  all of its content is that language.
+- **Debugging: classify before you theorise.** A failure pattern gets
+  classified with measurements and a control before any theory. A near-100 %
+  failure rate across independent inputs (disks, titles, testers) points at
+  an internal, systematic cause; require a controlled reference test before
+  blaming the inputs. For floppy field reports follow `hardware-floppy.md`
+  section 9 exactly: control disk, X-Copy map, fresh diagnostics dumps,
+  runtime A/B arms, flux.
+- **When asked for something "like the C64 core",** read the C64MEGA65 code
+  first and propose one concrete design in this project's vocabulary instead
+  of abstract options.
+- **Scope:** AExp is open-source preservation in the MAME/WinUAE tradition.
+  Kickstart and trackdisk disassembly, copy-protection analysis (Copylock)
+  and flux reverse engineering are in scope.
+- **People:**
+  - sy2002 — author of the M2M framework and of this port.
+  - deft — MEGA65 project lead and Amiga demo author; provides test content
+    and calibration data. Communicate with him in German; documents for him
+    are German PDFs made with pandoc + xelatex (strip any English context
+    header first).
+  - dejavu4u2 — field tester of Hardware Floppy reading and writing (real
+    A500/A500+ as referee, flux dumps); credited in `AUTHORS`.
 
-Internal engineering notes:
+## 7. Open work
 
-- `doc/developers/floppy-adf.md` — ADF floppy (read/write) design.
-- `doc/developers/audio.md` — audio path.
-- `doc/developers/hdmi_latency.md` — HDMI latency analysis.
-- `doc/developers/research_df1.md` — second-drive (df1) research.
-- `doc/inofficial.md` — alpha/beta build history (shipped only in WIP releases).
-- `.research/` (local only, untracked) — integration specs and agent review
-  reports from the porting sessions.
+Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
+`WIP-V2-B1`:
 
-## People & communication
-
-- The user IS sy2002 — author of the M2M framework and co-author of
-  C64MEGA65. Expert level; framework questions can be asked directly.
-- deft — MEGA65 project lead and Amiga demo author; provides test
-  content (RamDump deliveries). Communication with deft is in German;
-  documents intended for him: German, PDF via pandoc + xelatex
-  (both installed; strip the English context header first).
+- **Version 2 release:** the beta is in field test; the release date in
+  `VERSIONS.md` is still a placeholder. Documentation issues #31 (developer
+  docs), #27 (user docs) and #26 (Minimig README + `minimig_fdd.cpp`) are open
+  for V2.
+- **#24 File browser failure** after many warm starts with large ADF
+  collections (seen on V1; a long reset press clears it). Unclassified until
+  the reporter supplies the exact fatal-error text and code.
+- **#30 Wings of Death horizontal jitter** after the disk-2 swap, on HDMI and
+  analog, every AExp build; MiSTer comparison pending. Labelled V3 or later.
+- **#22 screen controls** and **#3 hard disk on SD card:** research, V3 or
+  later.
+- **Upstream Minimig** (issue #28 and the two reports attached to it; A500
+  faithfulness decides every port). In: MiSTer PRs 230, 234, 236, commit
+  `d16cd84`. Deferred: PR 242 (WinUAE-derived model, in no MiSTer release,
+  only ever tested together with 234). Not ported as written: PR 235, since a
+  real A500 mirrors the custom registers at `$C00000`–`$D7FFFF` and
+  `$DE0000`; an A500-exact decode of our own is backlog (acceptance:
+  WhichAmiga 1.4 and xSysInfo 0.6). `Main_MiSTer`'s September 2026 changes to
+  the two reference `.cpp` files are not reconciled; diff against the copies
+  in `doc/developers/` first.
+- **Framework:** migrating to M2M V2.1.0 and dropping what it supersedes
+  (rule 8). A third flicker-free clock for content above 50 Hz is designed
+  (`clk.vhd` header) but not built.
+- **Hardware Floppy:** DD media only; HD disks are out of scope on this
+  mechanism.

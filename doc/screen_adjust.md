@@ -41,9 +41,9 @@ Two things work against a perfectly placed picture:
    completely differently, so each gets its **own** adjustment. One knob
    cannot fix both.
 
-**Remember:** The core is not outputting a VGA signal at all. VGA is used here
-as a shortcut for "analog signal". We use this shortcut because the hardware
-connector looks like a VGA connector.
+Strictly speaking, the core does not output a VGA signal at all. "VGA" is
+used on this page as shorthand for the analog output, because the connector
+on the MEGA65 is a VGA connector.
 
 ---
 
@@ -92,10 +92,10 @@ there is no single file that is perfect everywhere. So the plan is simple:
    the trailing `_16_9` or `_4_3` so the name ends in just `.cfg`. Only a
    file named exactly `aexp_screen.cfg` is read by the core.
 3. Start the core, or — if it is already running — open the on-screen menu
-   (press the **Help** key) and choose **"Reload screen cfg"**.
+   (press the **Help** key) and choose **"Reload Screen Config"**.
 4. Look at the picture. Happy? You are done. If not, rename the *other* file
-   to `aexp_screen.cfg` (replacing the first one) and use **"Reload screen
-   cfg"** again to compare. Each reload takes about a second — no reboot
+   to `aexp_screen.cfg` (replacing the first one) and use **"Reload Screen
+   Config"** again to compare. Each reload takes about a second — no reboot
    needed.
 
 The core adjusts automatically as programs change the picture shape: the
@@ -260,11 +260,6 @@ areas simply turn black — overscan does **not** move the remaining picture
 menu keeps itself inside the remaining visible area, so it stays fully usable
 while you trim.
 
-If you used the "VGA offsets" of an earlier AExp release: these are the same
-four values, now with honest names. They always cropped the picture — they
-never panned it, despite what older documentation said. Use `pan_x`/`pan_y`
-for panning.
-
 ### What about picture size?
 
 If, after positioning and trimming, the analog picture is still too wide,
@@ -299,7 +294,7 @@ require rebooting or re-flashing the core:
 1. **Adjust and save** the file with the tool (it creates `aexp_screen.cfg`).
 2. **Copy** `aexp_screen.cfg` into the **`/amiga`** folder on your SD card.
 3. On the MEGA65, open the core's **on-screen menu** (press the **Help** key)
-   and choose **"Reload screen cfg"**.
+   and choose **"Reload Screen Config"**.
 4. **Look** at the picture. Not right yet? Go back to step 1 and nudge the
    numbers a bit more.
 

@@ -66,7 +66,9 @@ temporary source tree is regenerated.
 The workflow in `.github/workflows/pages.yml` runs the same build when relevant
 documentation changes reach `develop`. It uploads the generated `_site`
 directory directly to GitHub Pages and does not create or update a `gh-pages`
-branch. Pull requests build the site for validation but do not deploy it.
+branch. Pull requests build the site for validation but do not deploy it. The
+workflow can also be started by hand from the Actions tab (`workflow_dispatch`),
+which builds and publishes the current state of the branch it is run on.
 
 GitHub Pages must be configured once under **Settings → Pages → Source: GitHub
 Actions**. After that, documentation updates are published automatically.

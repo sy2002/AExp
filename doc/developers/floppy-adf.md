@@ -2,8 +2,7 @@
 
 This is the design-and-rationale document for the AExp floppy subsystem — the
 three simulated drives `df0:` / `df1:` / `df2:`, each of which mounts an 880 KB
-ADF disk image and reads *and* writes it. It merges and supersedes the two
-internal integration specs.
+ADF disk image and reads *and* writes it.
 
 It is written for a coder who **knows the MiSTer2MEGA65 (M2M) framework but
 has never touched an Amiga**. The Amiga floppy is the single most un-M2M-like
@@ -16,15 +15,15 @@ we built. If you only want the register maps, jump to
 
 ## Table of contents
 
-1. [The one idea you must accept first: the Amiga has no sectors](#1-the-one-idea-you-must-accept-first-the-amiga-has-no-sectors)
+1. [The Amiga has no sectors](#1-the-amiga-has-no-sectors)
 2. [Amiga floppy geometry and the ADF file](#2-amiga-floppy-geometry-and-the-adf-file)
 3. [MFM: how 512 bytes of data become ~1088 bytes of flux](#3-mfm-how-512-bytes-of-data-become-1088-bytes-of-flux)
 4. [The MiSTer/minimig model, and how AExp differs](#4-the-misterminimig-model-and-how-aexp-differs)
 5. [Why we could **not** use the `vdrives` system](#5-why-we-could-not-use-the-vdrives-system)
 6. [Three drives, one engine](#6-three-drives-one-engine)
-7. [The read path (Milestone 1)](#7-the-read-path-milestone-1)
-8. [The write path (Milestone 2)](#8-the-write-path-milestone-2)
-9. [The arm-state invariant (the subtle correctness core)](#9-the-arm-state-invariant-the-subtle-correctness-core)
+7. [The read path](#7-the-read-path)
+8. [The write path](#8-the-write-path)
+9. [The arm-state invariant](#9-the-arm-state-invariant)
 10. [Questions you are probably asking](#10-questions-you-are-probably-asking)
 11. [How we verified it](#11-how-we-verified-it)
 12. [Reference](#12-reference)
@@ -32,7 +31,7 @@ we built. If you only want the register maps, jump to
 
 ---
 
-## 1. The one idea you must accept first: the Amiga has no sectors
+## 1. The Amiga has no sectors
 
 Every storage device you have integrated into M2M so far — the C64's 1541, an
 SD card, a CRT/PRG loader — is a **block device**. Something asks for "block
@@ -180,9 +179,10 @@ Amiga's odd/even XOR scheme. When we *write*, verifying these checksums is how
 we know a decoded sector is trustworthy before committing it.
 
 **Where the bit-exact reference comes from.** MiSTer already reverse-engineered
-this codec into C, in `minimig_fdd.cpp` (upstream
-`Main_MiSTer/support/minimig/`; functions `SendSector` for encode and
-`FindSync` / `GetHeader` / `GetData` for decode). We transcribed those functions
+this codec into C, in [`minimig_fdd.cpp`](minimig_fdd.cpp) (upstream
+`Main_MiSTer/support/minimig/`, see [§4.1](#41-the-software-model-minimig_fddcpp);
+functions `SendSector` for encode and `FindSync` / `GetHeader` / `GetData` for
+decode). We transcribed those functions
 into VHDL, and verified byte-identical output through the whole chain; it is the
 ground truth for both the encoder and the decoder. Every "magic" mask (`0x55`,
 `0xAA`, `0x5555`) in `adf_track_engine.vhd` traces directly to a line in that
@@ -265,14 +265,81 @@ The split is deliberate and is the key architectural decision:
 
 Everything else in this document is detail hung on that three-way split.
 
+### 4.1 The software model: `minimig_fdd.cpp`
+
+`adf_track_engine.vhd` is a hardware port of MiSTer's floppy service, the file
+`support/minimig/minimig_fdd.cpp` of
+[`Main_MiSTer`](https://github.com/MiSTer-devel/Main_MiSTer). The engine follows
+its structure closely: `HandleFDD` dispatches on Paula's status word,
+`ReadTrack` and `SendSector` became the read service and the MFM encoder, and
+`WriteTrack` with `FindSync`, `GetHeader` and `GetData` became the write
+decoder. The version the engine was modelled on is kept verbatim next to this
+document as [`minimig_fdd.cpp`](minimig_fdd.cpp). It comes from Main_MiSTer
+commit `c738023`
+([upstream file](https://github.com/MiSTer-devel/Main_MiSTer/blob/c73802332ff9c73659410084b6319ccd29f0b3aa/support/minimig/minimig_fdd.cpp)),
+and the `:nnn` line numbers in the engine's comments refer to it.
+[architecture.md](architecture.md#10-the-mister-hps-code-and-its-replacements)
+explains the choice of commit and covers the other Main_MiSTer file AExp
+modelled, `minimig_config.cpp`.
+
+AExp keeps the behaviour that Amiga software can observe:
+
+- the MFM stream layout: 544 words per sector, 350 gap words after the last
+  sector, the info long word and both checksums in their odd/even split;
+- the track clamp (a request beyond the end of the image serves the last
+  track), the per-drive sector-rotation continuation, and its reset after a
+  write;
+- the "Copy Lock" sync substitution on reads (a `DSKSYNC` of `0x0000`, `0x8914`
+  or `0xA144` is served as `0x4489`) and the literal `0x4489` sync hunt on
+  writes;
+- the drive-status announce after every poll, which the MiSTer poll loop in
+  `user_io.cpp` sends after each `HandleFDD` call.
+
+What AExp changed or added:
+
+1. **Hardware instead of software.** The engine runs in the core clock domain
+   and speaks Paula's host channel directly (frames, `io_strobe`, `io_wait`),
+   with status bit 8 as the only flow control ([§7.2](#72-serve-adf_track_engine)).
+2. **HyperRAM as the medium.** MiSTer reads and writes the `.adf` file on the
+   SD card sector by sector. AExp streams the image into HyperRAM once at
+   mount, serves reads from there, commits written sectors there, and lets the
+   firmware copy changed tracks back to the file in the background
+   ([§8](#8-the-write-path)).
+3. **Write protection.** MiSTer announces a disk writable if the file can be
+   opened for writing. AExp announces it writable only after the firmware has
+   armed that drive for write-back, and drains writes to an unarmed drive
+   without committing them ([§8.6](#86-write-protect-and-the-drive-status-announce),
+   [§9](#9-the-arm-state-invariant)).
+4. **Image size check.** MiSTer derives the track count from the file size and
+   caps it at 166. AExp accepts only images of 160 to 166 whole tracks and
+   rejects everything else at mount time ([§7.1](#71-mount-getting-an-adf-into-hyperram)).
+5. **Real MFM clock bits.** The reference forces every clock cell to 1 and
+   leaves the info words without clock bits; AExp computes the real clock cells
+   over the whole stream, so that a raw copy onto a real disk is writable
+   ([§3](#3-mfm-how-512-bytes-of-data-become-1088-bytes-of-flux)).
+6. **Three deviations in the write decoder**, all without effect on valid
+   sectors ([§8.2](#82-the-mfm-write-decoder)).
+7. **One engine for three drives.** MiSTer handles each request in one
+   synchronous call. AExp time-shares a single engine between `df0:` to `df2:`
+   and latches the owning unit of every read and write, aborting a write drain
+   the moment Paula reports another unit ([§6](#6-three-drives-one-engine)).
+8. **The Hardware Floppy backend.** For the unit that is backed by the real
+   drive, the engine streams the words the flux front end reconstructs, at disk
+   speed and without the Copy Lock substitution, exports the live `DSKSYNC` to
+   the front end, and feeds Paula's write data to the physical write path (see
+   [hardware-floppy.md](hardware-floppy.md)).
+
+Upstream has changed `minimig_fdd.cpp` since the port, in September 2026:
+external floppy drives, SCP and IPF flux images, and clock bits in its own
+encoder. None of that is reconciled with AExp.
+
 ---
 
 ## 5. Why we could **not** use the `vdrives` system
 
 This is the first question any M2M coder asks, so let us be precise. You know
 `vdrives` (`M2M/vhdl/vdrives.vhd` + the Shell's `HANDLE_IO` / `FLUSH_CACHE`): it
-is how C64MEGA65 gives the 1541 writable D64 images. It is a beautiful,
-proven system. It is also **the wrong shape for the Amiga floppy**, for a reason
+is how C64MEGA65 gives the 1541 writable D64 images. It is a proven system. It is also **the wrong shape for the Amiga floppy**, for a reason
 that is structural, not incidental.
 
 **What `vdrives` actually bridges.** `vdrives` is a translator for MiSTer's
@@ -285,7 +352,7 @@ to the SD card. It is, end to end, a **decoded-block** pipeline.
 
 **Why the Amiga floppy has nothing to hand it.** The Minimig core does **not**
 expose `sd_lba`/`sd_rd`/`sd_wr` for its floppy. As we established in
-[§1](#1-the-one-idea-you-must-accept-first-the-amiga-has-no-sectors) and
+[§1](#1-the-amiga-has-no-sectors) and
 [§4](#4-the-misterminimig-model-and-how-aexp-differs), the Amiga floppy speaks
 raw MFM over the `IO_FPGA` **floppy host channel**, not a block protocol — a
 legacy of MiSTer's minimig, where the ARM's `HandleFDD` services that channel
@@ -331,6 +398,16 @@ radio: 1 / 2 / 3) and what each one *is* (a mode radio per drive):
 - **Hardware Floppy** — the MEGA65's own internal 3.5" mechanism driving real
   Amiga disks (read and write, and at most one drive at a time);
 - **Off** — the unit does not exist. `df0:` always exists and has no Off item.
+
+Minimig itself is built for the full four units: Paula keeps track position,
+presence and write protection for `df0:` to `df3:`, and all of them share the
+single `IO_FPGA` host channel, with the selected unit in the `sel` field of
+Paula's status word. How many units the Amiga sees is one configuration value,
+`floppy_config[3:2]`, which `amiga_config.vhd` sends with userio command
+`0xF7` from the drive count of the menu; inside Paula it only gates the ready
+line of `df1:` to `df3:`. A change of the drive configuration cold-boots the
+Amiga (`amiga_cold_boot.vhd`), because Paula latches the count at reset and
+AmigaOS enumerates its drives at boot.
 
 The main menu shows **two permanently allocated lines per drive** — the mount
 item `" dfN:%s"` and a plain TEXT line reading `dfN:Hardware Floppy` — and the
@@ -395,7 +472,7 @@ is the only latency-sensitive one — Paula is waiting for its sector — and sl
 1..3 are the wrappers, which are busy only while the Shell streams an image off
 the SD card.
 
-### 6.3 Unit ownership: the load-bearing invariant
+### 6.3 Unit ownership
 
 Because one engine serves several units, every piece of in-flight state must
 know **which unit it belongs to**, and it must be *latched*, not re-derived.
@@ -447,7 +524,7 @@ guard window is 4096 words, roughly 500× the worst case.
 
 ---
 
-## 7. The read path (Milestone 1)
+## 7. The read path
 
 Read support has two halves that meet at HyperRAM: **mount** (get the ADF into
 that drive's HyperRAM pool, at load time) and **serve** (feed Paula from
@@ -516,7 +593,7 @@ a disk, SPACE ejects it — the C64 gesture. The framework has no unmount path f
 CRT/ROM devices, so `HANDLE_UNMOUNT_KEY` intercepts the key core-side, before the
 `KEYB$SCAN` of the menu's own wait loop. It finds *which* drive the cursor is on
 by comparing `OPTM_CUR_SEL` against the three build-time flat menu-line constants
-in `ADF_MNT_LN_TAB` — three compares, versus rescanning the 146-line menu three
+in `ADF_MNT_LN_TAB` — three compares, versus rescanning the whole menu three
 times on every key-wait poll. `ADF_UNMOUNT` then takes that drive index and, in
 this order, ejects (writes `ST_IDLE` to that device's CSR, which drops
 `disk_mounted` and reverts the menu label), force-flushes that drive's dirty
@@ -541,10 +618,10 @@ handshake. Three word-response pairs carry the state:
 | `w3+` | FIFO data words |
 
 `sel[1:0]` in `w0` is what tells the engine which unit this poll is about, and
-[§6.3](#63-unit-ownership-the-load-bearing-invariant) explains why it is latched
+[§6.3](#63-unit-ownership) explains why it is latched
 rather than trusted per poll.
 
-Three gotchas here cost real debugging and are worth stating flatly:
+Three details here are easy to get wrong and are worth stating flatly:
 
 - **`io_wait` is per-word pacing, not FIFO backpressure.** If you overrun
   Paula's FIFO it *silently drops the word* while `dsklen` keeps counting — a
@@ -590,7 +667,7 @@ quiet cycles on both.
 
 ---
 
-## 8. The write path (Milestone 2)
+## 8. The write path
 
 ### 8.1 The mirror insight
 
@@ -630,7 +707,7 @@ mode machine (`HUNT` → `HDR` → `DATA`) layered onto the existing drain loop:
   then 256 even words, re-interleaving into a 512-byte sector buffer and
   verifying the data checksum.
 
-**A crucial simplification carried over from MiSTer:** a section is consumed
+**A simplification carried over from MiSTer:** a section is consumed
 **only once Paula's FIFO already holds all of it** (header needs ≥ 25 buffered
 words, data needs ≥ 516). This removes any mid-section starvation handling — the
 decoder never blocks waiting for a word that has not arrived.
@@ -747,7 +824,7 @@ code of `FLUSH_ADF_STEP` is for: `ADF_FL_IDLE` (clean, nothing to do),
 `ADF_FL_DID` (this call consumed the slice) and `ADF_FL_GATED` (work remains but
 the gate is shut).
 
-Two details of that scheduler are load-bearing, and both are easy to get subtly
+Two details of that scheduler matter, and both are easy to get subtly
 wrong:
 
 * **The chunk that finishes a track still reports `ADF_FL_DID`.** It has just
@@ -779,7 +856,7 @@ Every drive carries its own session state (`ADF_FL_STATE`, `ADF_FL_REMAIN`,
 `ADF_FL_BADDR_LO/HI`), so two drives can each have a track session open and the
 poll that serves one of them simply resumes where that drive left off.
 
-Several details are load-bearing:
+Several details matter:
 
 - **Per-track, not whole-image.** `vdrives` rewrites the *entire* image on any
   dirty cache — fine for a 174 KB D64, but an 880 KB ADF would be painfully slow.
@@ -805,7 +882,9 @@ Several details are load-bearing:
 The disk's LED policy comes straight from `vdrives`: the MEGA65 drive LED is
 forced on and turns **yellow** while any track of **any** drive is dirty
 (`main_adf_any_dirty` is the OR across all three), back to **green** once the
-last drive is clean — "do not power off yet."
+last drive is clean — "do not power off yet." The LED is the only indication:
+the framework's `<Saving>` label in the menu is driven by the `vdrives` cache
+state in `M2M/rom/options.asm` and therefore never appears for these drives.
 
 ### 8.5 The one sector buffer everybody shares
 
@@ -829,14 +908,14 @@ would be silently stranded. The OSM settings save is the other case: it runs on 
 **second device handle** for the same card (`CONFIG_DEVH`), which has its own
 owner field that knows nothing about ours, while the hardware buffer underneath
 is still the single one. And with three drives it is also what makes
-**interleaved track sessions safe**: `df0` and `df1` can each have an open
+**interleaved track sessions safe**: `df0:` and `df1:` can each have an open
 session, and the poll that serves one of them always finds the shared buffer
 clean. The explicit flush costs nothing — the sector is written exactly once
 either way, just earlier.
 
 **Consequence 2: the handle snapshot must not start out DIRTY.** When
 `HANDLE_CORE_IO` snapshots the Shell's file handle for a drive
-([§9](#9-the-arm-state-invariant-the-subtle-correctness-core)), it `memcpy`s the
+([§9](#9-the-arm-state-invariant)), it `memcpy`s the
 12-word struct — and then clears `FAT32$FDH_FLAGS` immediately. The copy lives at
 a *different address*, so it can never be the recorded buffer owner; but if it
 inherited a DIRTY flag, the next `FAT32$FLUSH` through it would push whatever the
@@ -862,13 +941,13 @@ it, `trackdisk` sees a writable disk, and `info df1:` reports `Read/Write`.
 
 ---
 
-## 9. The arm-state invariant (the subtle correctness core)
+## 9. The arm-state invariant
 
 If you read only one section of the write path for correctness, read this one.
-An adversarial multi-agent review found **three critical bugs here**, all the
-same root cause, and the fixes are subtle enough that they are worth spelling
-out — a future maintainer *will* be tempted to "simplify" them. Everything below
-holds **per drive**.
+Three bugs had their root cause here, all the same one, and the fixes are
+subtle enough that they are worth spelling out, because every one of them
+looks like a candidate for simplification. Everything below holds **per
+drive**.
 
 ### 9.1 Why every drive needs its own file handle
 
@@ -945,7 +1024,7 @@ having both:
   device handle, which after the switch describes the other card, so a flush
   through it would write into whatever file happens to live at those clusters
   over there. Drives armed on the slot that is now active survive: with two cards
-  in use, `df0` from slot 1 and `df1` from slot 2 are independent, and only one
+  in use, `df0:` from slot 1 and `df1:` from slot 2 are independent, and only one
   of them dies.
 
 `ADF_UNMOUNT` (the SPACE eject) applies the same card-change guard before it
@@ -1006,8 +1085,7 @@ was pending is flushed into the right file before the drive is disarmed.
 
 ## 10. Questions you are probably asking
 
-These are the questions that came up naturally while bringing the feature up on
-real hardware; a reader will ask the same ones.
+These are the questions a reader of the sections above is likely to ask.
 
 ### "The disk shows `Read/Write` in `info df0:` — does that already prove writing works?"
 
@@ -1062,7 +1140,7 @@ reconciles itself.
   access, so a firmware byte-read sees either the old 16-bit word or the new one,
   never half of each.
 
-The single honest caveat is inherent to any write-back cache: **cut power during
+The one caveat is inherent to any write-back cache: **cut power during
 the yellow window and the not-yet-flushed tail is lost** (HyperRAM is volatile
 too). That is not corruption of anything the machine is using — it is the same as
 pulling a real floppy while the drive light is on, which is precisely what the
@@ -1075,7 +1153,7 @@ touches three different mechanisms:
 
 - **In the engine**, the two write drains cannot overlap: Paula serves one unit
   at a time and the drain is bound to `drain_unit`, which is aborted the moment a
-  poll reports another unit ([§6.3](#63-unit-ownership-the-load-bearing-invariant)).
+  poll reports another unit ([§6.3](#63-unit-ownership)).
 - **In the wrappers**, nothing is shared at all: each drive has its own dirty
   bitmap and its own anti-thrash countdown, in its own WBC.
 - **In the firmware**, both drives are armed, both accumulate dirty tracks, and
@@ -1116,7 +1194,7 @@ display what it streams off the SD card, so seeing the renamed file proves the
 change is genuinely in the file on the card. That is an independent oracle: the
 reader cannot possibly be the source of the change.
 
-**Host-side verification (on the Mac):** `xdftool` (from `amitools`, `pip install
+**Host-side verification:** `xdftool` (from `amitools`, `pip install
 amitools`) or `unadf` inspects the ADF straight off the SD card — `xdftool
 disk.adf list` to see the change, and a byte-compare of a renamed file against
 the pristine original (a rename must leave the file's data blocks identical) to
@@ -1131,10 +1209,11 @@ stress case; and, for the multi-drive part, two drives dirtied and flushed
 concurrently, a rejected duplicate mount, an eject of one drive while another is
 mid-flush, and an F1/F3 card switch with drives armed on both slots.
 
-**Menu-side cross-check:** `.research/check_osm_menu.py` recomputes the menu
+**Menu-side cross-check:** the menu checker `check_osm_menu.py` <!-- TOOL: check_osm_menu.py -->
+recomputes the menu
 geometry and the heap budgets from `config.vhd` and verifies every `C_MENU_*`
 constant against the text of the line it addresses — which is what keeps the six
-flat menu-line constants (`C_MENU_DF{0,1,2}_MOUNT_LN` / `_HW_LN`) honest, since
+flat menu-line constants (`C_MENU_DF{0,1,2}_MOUNT_LN` / `_HW_LN`) correct, since
 the firmware trusts them without rescanning the menu.
 
 ---
@@ -1149,13 +1228,13 @@ the firmware trusts them without rescanning the menu.
 | `CORE/vhdl/adf_mount_wrapper.vhd` | One ADF device (three instances). Byte-window bridge into that drive's HyperRAM pool, `0xFFFF` mount CSR + size validator, `0xFFFE` write-back CSR (dirty bitmap, anti-thrash, `WR_EN`). |
 | `CORE/vhdl/main.vhd` | Instantiates the engine + the shared `avm_cache` (with the mount-change invalidation); the `IO_FPGA` bus mux; the write-back and drive-configuration ports. |
 | `CORE/vhdl/mega65.vhd` | The three mount wrappers (generate loop), the HyperRAM CDC/arbiter chain, the `cdc_stable` bundles, the Drive Settings decode, the flat menu-line constants, the drive-LED policy. |
-| `CORE/vhdl/globals.vhd` | Single source of truth for the device ids, the guarded HyperRAM map, the ADF geometry and the manual CRT/ROM array (`C_CRTROMS_MAN`, order load-bearing). Scraped by `make_rom.sh`. |
+| `CORE/vhdl/globals.vhd` | Single source of truth for the device ids, the guarded HyperRAM map, the ADF geometry and the manual CRT/ROM array (`C_CRTROMS_MAN`, whose order matters). Scraped by `make_rom.sh`. |
 | `CORE/vhdl/config.vhd` | The OSM: the three twin line pairs, the Drive Settings submenu, the mount groups and the menu dependencies. |
 | `CORE/m2m-rom/m2m-rom.asm` | Firmware: `HANDLE_CORE_IO`, `FLUSH_ADF_STEP`, the per-drive tables and helpers (`ADF_SEL_WBC`, `ADF_DISARM`, `ADF_WIPE_DIRTY`, `ADF_DUP_CHECK`, `IS_ADF_GROUP`), the `PREP_LOAD_IMAGE` guards, the arm-state logic, `HANDLE_UNMOUNT_KEY` / `ADF_UNMOUNT`, `.ADF` filter + size guard. |
 | `M2M/rom/shell.asm` | The `HANDLE_CORE_IO` hook in `HANDLE_IO` (`M2M-UPSTREAM core-io-hook`). |
 | `M2M/rom/optm_deps.asm`, `menu.asm`, `options.asm` | The menu-dependency layer that swaps each drive's twin lines (`M2M-UPSTREAM osm-deps`) and `OPTM_LIVE_TEXT`, which patches the live status field into a hardware-drive TEXT line (`M2M-UPSTREAM live-text`). |
-| `CORE/vhdl/physical_fdd/` | The Hardware Floppy read front-end — what a unit is backed by when it is not a simulated ADF drive. Out of scope here; the engine's per-unit dispatch is the only contact point. |
-| `Main_MiSTer/support/minimig/minimig_fdd.cpp` | Upstream MiSTer reference (not in this repo) — bit-exact source for the encoder and decoder. |
+| `CORE/vhdl/physical_fdd/` | The Hardware Floppy front end, read and write — what backs a unit that is not a Disk Image drive. Described in [hardware-floppy.md](hardware-floppy.md); the engine's per-unit dispatch is the only contact point. |
+| `doc/developers/minimig_fdd.cpp` | Verbatim copy of MiSTer's `Main_MiSTer/support/minimig/minimig_fdd.cpp`, the bit-exact source for the encoder and decoder ([§4.1](#41-the-software-model-minimig_fddcpp)). |
 
 ### Per-drive device window map
 
