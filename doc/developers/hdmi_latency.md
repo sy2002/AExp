@@ -331,25 +331,25 @@ run like this:
    720p 50 Hz (also repeat with 576p 4:3 — some displays route 576p
    through a slower "SD/TV" path than 720p).
 2. **Game Mode ON** on the display under test. This is the single
-   biggest variable: on current Samsung TVs it is the difference
-   between ≈10 ms and ≈80–120 ms of set-internal delay.
+    biggest variable: on current Samsung TVs it is the difference
+    between ≈10 ms and ≈80–120 ms of set-internal delay.
 3. Film both screens at the highest camera frame rate available
-   (240 fps slow-motion on a phone turns the ±20 ms quantization of
-   these first measurements into ±4 ms).
+    (240 fps slow-motion on a phone turns the ±20 ms quantization of
+    these first measurements into ±4 ms).
 4. Use a hard timing edge, not motion judgment. The C64 border blink
-   BASIC program is ideal:
+    BASIC program is ideal:
 
-   ```
-   10 FOR I=0 TO 300:NEXT I
-   20 POKE 53280,1
-   25 FOR I=1 TO 10:NEXT
-   30 POKE 53280,0
-   40 GOTO 10
-   ```
+    ```
+    10 FOR I=0 TO 300:NEXT I
+    20 POKE 53280,1
+    25 FOR I=1 TO 10:NEXT
+    30 POKE 53280,0
+    40 GOTO 10
+    ```
 
-   On the Amiga, dragging the Workbench screen works, but a flashing
-   full-screen color (e.g. a tiny AMOS/asm flasher writing COLOR00) is
-   easier to score frame-exactly.
+    On the Amiga, dragging the Workbench screen works, but a flashing
+    full-screen color (e.g. a tiny AMOS/asm flasher writing COLOR00) is
+    easier to score frame-exactly.
 
 Expected outcomes:
 

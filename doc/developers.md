@@ -37,68 +37,68 @@ Operating-system hints for the `bash` tool chain:
 ### Build the core
 
 1. **Clone with all submodules** (the Minimig core and QNICE-FPGA; the M2M
-   framework is part of this repository):
+    framework is part of this repository):
 
-   ```bash
-   git clone --recursive https://github.com/sy2002/AExp.git
-   cd AExp
-   ```
+    ```bash
+    git clone --recursive https://github.com/sy2002/AExp.git
+    cd AExp
+    ```
 
-   Already cloned without `--recursive`? Pull the submodules in afterwards:
+    Already cloned without `--recursive`? Pull the submodules in afterwards:
 
-   ```bash
-   git submodule update --init --recursive
-   ```
+    ```bash
+    git submodule update --init --recursive
+    ```
 
 2. **Build the QNICE tool chain.** This compiles the assembler, the
-   QNICE C compiler, etc. natively for your operating system:
+    QNICE C compiler, etc. natively for your operating system:
 
-   ```bash
-   cd M2M/QNICE/tools
-   ./make-toolchain.sh
-   ```
+    ```bash
+    cd M2M/QNICE/tools
+    ./make-toolchain.sh
+    ```
 
-   Answer every prompt by pressing <kbd>Enter</kbd>. When it finishes,
-   return to the repository root (`cd ../../..`).
+    Answer every prompt by pressing <kbd>Enter</kbd>. When it finishes,
+    return to the repository root (`cd ../../..`).
 
 3. **Open the Vivado project for your board and generate the bitstream.**
-   There is one project per MEGA65 revision:
+    There is one project per MEGA65 revision:
 
-   | Board      | Vivado project     |
-   |------------|--------------------|
-   | R3 / R3A   | `CORE/CORE-R3.xpr` |
-   | R4         | `CORE/CORE-R4.xpr` |
-   | R5         | `CORE/CORE-R5.xpr` |
-   | R6         | `CORE/CORE-R6.xpr` |
+    | Board      | Vivado project     |
+    |------------|--------------------|
+    | R3 / R3A   | `CORE/CORE-R3.xpr` |
+    | R4         | `CORE/CORE-R4.xpr` |
+    | R5         | `CORE/CORE-R5.xpr` |
+    | R6         | `CORE/CORE-R6.xpr` |
 
-   Run **Generate Bitstream**. Vivado rebuilds the QNICE on-screen-menu
-   firmware automatically in a pre-synthesis step, so there is nothing else
-   to prepare. The bitstream ends up in
-   `CORE/CORE-R3.runs/impl_1/mega65_r3.bit` (substitute your board).
+    Run **Generate Bitstream**. Vivado rebuilds the QNICE on-screen-menu
+    firmware automatically in a pre-synthesis step, so there is nothing else
+    to prepare. The bitstream ends up in
+    `CORE/CORE-R3.runs/impl_1/mega65_r3.bit` (substitute your board).
 
-   Check the timing summary of the implemented design: the worst negative
-   slack (WNS) and the worst hold slack (WHS) must both be 0 or positive.
+    Check the timing summary of the implemented design: the worst negative
+    slack (WNS) and the worst hold slack (WHS) must both be 0 or positive.
 
 4. **Turn the `*.bit` into a MEGA65 `*.cor` file** with `coretool`, part of
-   the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
+    the [MEGA65 tools](https://github.com/MEGA65/mega65-tools):
 
-   ```bash
-   cd CORE/CORE-R3.runs/impl_1
-   coretool -B AExp-WIP-V2-B1-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V2-B1"
-   ```
+    ```bash
+    cd CORE/CORE-R3.runs/impl_1
+    coretool -B AExp-WIP-V2-B1-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V2-B1"
+    ```
 
-   Use the target string that matches your board — `mega65r3`, `mega65r4`,
-   `mega65r5` or `mega65r6` — and the version string from the `CORE_VERSION`
-   constant in `CORE/vhdl/config.vhd` (`WIP-V2-B1` in this example). Unlike
-   the C64 core, the Amiga core registers no MEGA65 file type (ADFs are
-   mounted from inside its own menu), so no `--flags` or `--caps` arguments
-   are needed.
+    Use the target string that matches your board — `mega65r3`, `mega65r4`,
+    `mega65r5` or `mega65r6` — and the version string from the `CORE_VERSION`
+    constant in `CORE/vhdl/config.vhd` (`WIP-V2-B1` in this example). Unlike
+    the C64 core, the Amiga core registers no MEGA65 file type (ADFs are
+    mounted from inside its own menu), so no `--flags` or `--caps` arguments
+    are needed.
 
 5. **Deploy and run.** Copy the `*.cor` to the MEGA65 (or, with a JTAG
-   adaptor, flash the `*.bit` directly with `m65 -q mega65_r3.bit`) and
-   follow the [installation steps](../README.md#installation) in the main
-   README. Remember that the Kickstart ROM at `/amiga/kick.rom` is
-   mandatory — without it the core stops at an error screen.
+    adaptor, flash the `*.bit` directly with `m65 -q mega65_r3.bit`) and
+    follow the [installation steps](../README.md#installation) in the main
+    README. Remember that the Kickstart ROM at `/amiga/kick.rom` is
+    mandatory — without it the core stops at an error screen.
 
 ### Build all boards in batch mode
 
