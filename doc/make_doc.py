@@ -72,6 +72,7 @@ PREFERRED_NAVIGATION = (
             ("Timing closure and re-roll", "doc/developers/timing_closure.md"),
             ("Audio internals", "doc/developers/audio.md"),
             ("HDMI latency", "doc/developers/hdmi_latency.md"),
+            ("Building the documentation website", "doc/make_doc.md"),
         ),
     ),
 )
