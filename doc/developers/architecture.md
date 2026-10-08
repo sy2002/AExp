@@ -440,8 +440,9 @@ adding variables check the `HEAP` and `VAR$STACK_START` addresses in
 current calculation.
 
 The help pages have a budget as well: they are printed into a full-screen frame
-that leaves 34 rows of 43 characters. A longer page overwrites the frame or is
-cut off.
+that leaves 34 rows of 43 characters. Each page uses exactly 33 rows of at most
+42 characters, so a free row and column separate the text from the border and
+the footer stays in place while paging; `tools/check_osm_menu.py` enforces it.
 
 ### 7.6 Menu line numbers are bit numbers
 

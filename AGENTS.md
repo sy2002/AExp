@@ -220,9 +220,12 @@ the numbering stable and append new rules at the end.
       power-on value of `drv_map_applied` in `amiga_cold_boot.vhd` (a mismatch
       fires a cold boot at t=0).
     - `OPTM_DY` + 2 must not exceed 36 rows. Welcome and help pages print into
-      a full-screen frame: at most 34 rows of 43 columns. One row too many
-      overwrites the border, two and the last line is lost. Page strings may
-      contain `;`, so measure them with a string-aware scanner.
+      a full-screen frame with 34 rows of 43 columns inside. Every help page
+      has exactly 33 rows of at most 42 columns: the free last row and column
+      keep the text off the border (row 34 visibly touches it), and the footer
+      stays on rows 32 and 33 with a matching `(n/N)` counter.
+      `tools/check_osm_menu.py` checks all of it. Page strings may contain
+      `;`, so measure them with a string-aware scanner.
     - The README's blind key sequence for switching DVI on depends on the
       menu layout above the HDMI submenu and on the drive defaults; re-derive
       it when either changes.

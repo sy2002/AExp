@@ -59,6 +59,7 @@ PREFERRED_NAVIGATION = (
             ("Hardware Floppy", "doc/hardware_floppy.md"),
             ("Audio", "doc/audio.md"),
             ("Real-time clock", "doc/RTC.md"),
+            ("FAQ", "doc/faq.md"),
         ),
     ),
     ("Releases", (("Work-in-progress builds", "doc/inofficial.md"),)),

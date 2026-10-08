@@ -527,12 +527,16 @@ def check_help_pages(src, root):
     the cursor at (x+1, y+1). M2M/rom/whs.asm WHS_SHOW_PAGES then prints the
     page from there with no GOTOXY, so rendered row i lands on screen row
     i+1. With the canvas CHARS_DX x CHARS_DY and a one-character frame, the
-    usable area is rows 1..CHARS_DY-2 and columns 1..CHARS_DX-2.
+    area inside the frame is rows 1..CHARS_DY-2 and columns 1..CHARS_DX-2.
 
-    A page that is one row too long overwrites the bottom border; two rows
-    too long and the last line is written past the end of the character
-    memory and never appears at all. Nothing else in the build catches
-    either, because it is plain string concatenation in config.vhd.
+    The pages use one row and one column less. Every page starts with an
+    empty row and every line with a space, and the free last row and column
+    mirror them: text on the last row inside the frame touches the bottom
+    border on screen. Each help page has exactly that many rows, so its
+    footer stays on the same two rows while the reader pages through, and
+    the footer carries the page counter "(n/N)", which must match the page.
+    Nothing else in the build catches any of this, because it is plain
+    string concatenation in config.vhd.
     """
     globals_vhd = os.path.join(root, "CORE", "vhdl", "globals.vhd")
     try:
@@ -552,7 +556,7 @@ def check_help_pages(src, root):
         print("note: screen geometry not found in globals.vhd, pages not checked")
         return
     chars_dx, chars_dy = vga_dx // font_dx, vga_dy // font_dy
-    max_rows, max_cols = chars_dy - 2, chars_dx - 2
+    max_rows, max_cols = chars_dy - 3, chars_dx - 3
 
     version = re.search(r'constant CORE_VERSION\s*:\s*string\s*:=\s*"([^"]+)"', src)
     version = version.group(1) if version else ""
@@ -586,6 +590,7 @@ def check_help_pages(src, root):
             i += 1
         return "".join(out)
 
+    help_count = sum(1 for name in pages if name != "SCR_WELCOME")
     worst = 0
     for name in pages:
         body = nocom.split("constant %s : string :=" % name, 1)[1]
@@ -594,14 +599,24 @@ def check_help_pages(src, root):
         text = page_text(body)
         rows = text.replace("\\n", "\n").split("\n")
         worst = max(worst, len(rows))
-        if len(rows) > max_rows:
-            fail("%s renders %d rows; the framed help screen holds %d "
-                 "(row %d would overwrite the bottom border)"
-                 % (name, len(rows), max_rows, max_rows + 1))
+        if name == "SCR_WELCOME":
+            if len(rows) > max_rows:
+                fail("%s renders %d rows; the welcome screen holds %d"
+                     % (name, len(rows), max_rows))
+        else:
+            if len(rows) != max_rows:
+                fail("%s renders %d rows; every help page has exactly %d, so "
+                     "that its footer stays on rows %d and %d"
+                     % (name, len(rows), max_rows, max_rows - 1, max_rows))
+            expected = "(%s/%d)" % (name.split("_")[1], help_count)
+            footer = rows[-2].rstrip() if len(rows) > 1 else ""
+            if not footer.endswith(expected):
+                fail("%s footer %r does not end with the page counter %s"
+                     % (name, footer.strip(), expected))
         for index, row in enumerate(rows):
             if len(row) > max_cols:
-                fail("%s row %d is %d characters wide; the framed help screen "
-                     "holds %d" % (name, index, len(row), max_cols))
+                fail("%s row %d is %d characters wide; the help screen "
+                     "takes %d" % (name, index, len(row), max_cols))
     print("help pages: %d checked, tallest %d of %d rows, width limit %d"
           % (len(pages), worst, max_rows, max_cols))
 
