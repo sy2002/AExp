@@ -265,18 +265,19 @@ one-line experiment.
 
 ## 5. Verification
 
-* The testbench `tb_iir_amiga.v` <!-- TOOL: tb_iir_amiga.v --> (iverilog)
-  drives both IIR instances exactly as
-  `audio_filters.vhd` instantiates them and checks the measured gains at DC,
-  1 kHz, 3.2 kHz, 4.4 kHz and 10 kHz against the analytic RC prototypes
-  scaled by the intrinsic DC gains, plus channel-separation of the
-  time-multiplexed stereo core (right channel silent while the left plays).
-* The testbench `tb_audio_filters.vhd` <!-- TOOL: tb_audio_filters.vhd -->
-  (nvc, with the `+100`-offset IIR stub `iir_stub_sim.vhd` <!-- TOOL: iir_stub_sim.vhd -->)
-  proves the glue: bit-transparent bypass with everything
-  off, the A500/LED mux decisions, LED gating (armed AND live `pwr_led`),
-  and all crossfeed blends against golden values computed by an independent
-  Python implementation of the `aud_mix_top` arithmetic.
+* The testbench `CORE/sim/audio/tb_iir_amiga.v` (iverilog) drives both IIR
+  instances exactly as `audio_filters.vhd` instantiates them and checks the
+  measured gains at DC, 1 kHz, 3.2 kHz, 4.4 kHz and 10 kHz against the
+  analytic RC prototypes scaled by the intrinsic DC gains, plus
+  channel-separation of the time-multiplexed stereo core (right channel
+  silent while the left plays).
+* The testbench `CORE/sim/audio/tb_audio_filters.vhd` (nvc, with the
+  `+100`-offset IIR stub `CORE/sim/stubs/iir_stub_sim.vhd`) proves the glue:
+  bit-transparent bypass with everything off, the A500/LED mux decisions,
+  LED gating (armed AND live `pwr_led`), and all crossfeed blends against
+  golden values computed by an independent Python implementation of the
+  `aud_mix_top` arithmetic.
+* `CORE/sim/audio/run.sh` runs both in a few seconds.
 
 ## 6. Practical conclusion
 

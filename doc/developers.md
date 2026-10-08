@@ -195,6 +195,10 @@ some boards.
   the stereo mix.
 * [HDMI latency](developers/hdmi_latency.md): how much the HDMI path delays
   the picture, and the flicker-free mode.
+* [Tools and testbenches](developers/tools.md): the menu and firmware
+  checkers, the Hardware Floppy diagnostics decoder and flux analysis
+  scripts, the simulation testbenches, and the checks to run before a
+  synthesis.
 * MiSTer's floppy service [`minimig_fdd.cpp`](developers/minimig_fdd.cpp) and
   configuration code [`minimig_config.cpp`](developers/minimig_config.cpp):
   verbatim copies of the software that `adf_track_engine.vhd` and

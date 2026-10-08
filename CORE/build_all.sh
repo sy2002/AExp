@@ -50,12 +50,22 @@ if ! command -v vivado >/dev/null 2>&1; then
     exit 1
 fi
 
-# The QNICE assembler binaries live in a folder that macOS and the Ubuntu VM
-# share, so whichever OS compiled them last wins. Rebuild them for this OS
-# and assemble the firmware once: a firmware problem aborts the run here,
-# before the first multi-hour synthesis (synth_pre.tcl re-runs make_rom.sh
-# during synthesis anyway).
-./make_qasm.sh || exit 1
+# The QNICE assembler comes from M2M/QNICE/tools/make-toolchain.sh (see
+# doc/developers.md). An optional, untracked ./make_qasm.sh runs first: it lets
+# a working copy shared between two operating systems rebuild the assembler for
+# the one this script runs on. Then the firmware is assembled once, so that a
+# firmware problem aborts the run here, before the first multi-hour synthesis
+# (synth_pre.tcl re-runs make_rom.sh during synthesis anyway).
+if [ -x ./make_qasm.sh ]; then
+    ./make_qasm.sh || exit 1
+fi
+../M2M/QNICE/assembler/qasm </dev/null >/dev/null 2>&1
+case $? in
+    126|127)
+        echo "ERROR: the QNICE assembler is missing or was built for another operating" >&2
+        echo "       system - run M2M/QNICE/tools/make-toolchain.sh first (see doc/developers.md)." >&2
+        exit 1 ;;
+esac
 ( cd m2m-rom && ./make_rom.sh ) || exit 1
 
 jobs="${JOBS:-4}"

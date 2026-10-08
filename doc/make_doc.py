@@ -67,6 +67,7 @@ PREFERRED_NAVIGATION = (
         (
             ("Building from source", "doc/developers.md"),
             ("Architecture overview", "doc/developers/architecture.md"),
+            ("Tools and testbenches", "doc/developers/tools.md"),
             ("Floppy: ADF disk images", "doc/developers/floppy-adf.md"),
             ("Floppy: Hardware Floppy", "doc/developers/hardware-floppy.md"),
             ("Timing closure and re-roll", "doc/developers/timing_closure.md"),

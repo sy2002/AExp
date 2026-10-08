@@ -977,8 +977,8 @@ The registers that answer the questions that actually come up:
   10,904,000), `0x77` the in-flight residue at DSKBLK (expected 3 or less) and
   the tail-cut count, `0x7D` refused pushes (must be 0).
 
-A decoder script turns a pasted dump into prose, flags stale instruments and
-duplicated captures, and knows every map version. <!-- TOOL: decode_fdd_dump.py -->
+A decoder script, `tools/decode_fdd_dump.py`, turns a pasted dump into prose,
+flags stale instruments and duplicated captures, and knows every map version.
 
 ### 8.4 The live status line
 
@@ -1046,28 +1046,31 @@ for three files: the source `.adf`, the disk X-Copied back to an `.adf` on the
 MEGA65 (`df0:` an image, `df1:` the Hardware Floppy), and a raw `.scp` of it.
 Then:
 
-1. Compare source and read-back. Differences confined to sector 10, offsets
-   510/511, head 1 only, mean the post-DSKBLK tail is being cut again.
-   Thousands of differing bytes on every track mean the disk was never
-   written. Anything else is classified before it is theorised. <!-- TOOL: adf_compare.py -->
-2. Scan the flux for analog damage patches. A healthy disk, core-written or
-   Amiga-written, scans to zero. Patches that line up in rotational angle
-   across tracks are a physical feature of the medium: X-Copy's writes start
-   at a random angle, so write logic cannot produce them. Wrong data in clean,
-   legal MFM is the opposite signature and points at logic. <!-- TOOL: scp_flux/patch_scan.py -->
-3. Find where each X-Copy write ends relative to sector 10's last data bit.
-   Healthy is 15 cells after it, on both heads. Earlier means the tail is
-   being cut. <!-- TOOL: scp_flux/xcopy_tail.py -->
+1. Compare source and read-back (`tools/adf_compare.py`). Differences
+   confined to sector 10, offsets 510/511, head 1 only, mean the post-DSKBLK
+   tail is being cut again. Thousands of differing bytes on every track mean
+   the disk was never written. Anything else is classified before it is
+   theorised.
+2. Scan the flux for analog damage patches (`tools/flux/patch_scan.py`). A
+   healthy disk, core-written or Amiga-written, scans to zero. Patches that
+   line up in rotational angle across tracks are a physical feature of the
+   medium: X-Copy's writes start at a random angle, so write logic cannot
+   produce them. Wrong data in clean, legal MFM is the opposite signature and
+   points at logic.
+3. Find where each X-Copy write ends relative to sector 10's last data bit
+   (`tools/flux/xcopy_tail.py`). Healthy is 15 cells after it, on both heads.
+   Earlier means the tail is being cut.
 4. For a disk that comes back virgin, have the tester repeat the recipe and
    dump `M D 7000 707D` **before any reset**. `0x70` and `0x7A` both up by the
    number of tracks: the core wrote, look at the drive and the disk. `0x70` up
    but `0x7A` flat, with `0x76` counting: the core discarded, look at the tab
    qualifier. `0x70` flat: the write never reached the physical unit; X-Copy
    was aimed at another drive.
-5. Before blaming a single track, fingerprint which drive wrote it: the cells
-   per revolution reveal the writing spindle's speed, and a track rewritten by
-   the tester's own Amiga says nothing about our writer. The precomp step can
-   be measured on the medium the same way. <!-- TOOL: scp_flux/writer_fingerprint.py --> <!-- TOOL: scp_flux/precomp_step.py -->
+5. Before blaming a single track, fingerprint which drive wrote it
+   (`tools/flux/writer_fingerprint.py`): the cells per revolution reveal the
+   writing spindle's speed, and a track rewritten by the tester's own Amiga
+   says nothing about our writer. The precomp step can be measured on the
+   medium the same way (`tools/flux/precomp_step.py`).
 6. The advice that prevents the whole class: **copy with verify on**. X-Copy's
    verify reads every track back, flags a bad blank on the spot, and cannot
    miss a disk that was never written.
@@ -1136,20 +1139,23 @@ originals stay with the window open.
 
 Every bench below ran in simulation before the hardware round it prepared,
 and the testbenches, the independent model twins and the runner scripts are
-kept as the regression gate for any change to the floppy stack. They are
-grouped by what they prove; the hardware and field evidence comes last.
+kept as the regression gate for any change to the floppy stack. They live in
+`CORE/sim/floppy/` and `CORE/sim/minimig/`;
+[Tools and testbenches](tools.md) has the commands and runtimes. They are grouped by what they prove; the hardware and field
+evidence comes last.
 
 **The read front-end.** A closed-loop bench turns properly clocked MFM into
 timed `RDATA` edges and requires the front-end to reproduce the exact
 word-aligned stream through the real dual-clock FIFO, at nominal speed, ±3 %
 speed with per-edge jitter, with injected runts and across a flux drought,
-in both separator modes. <!-- TOOL: tb_physical_fdd_top.vhd -->
+in both separator modes (`tb_physical_fdd_top.vhd`).
 A red/green bench for the DPLL replays the measured failure classes (a
 displaced edge, a dropped reversal, a 3 % bias) and shows the dropped
 reversal corrupting the rest of the sector under the legacy classifier while
-staying a single bit under the DPLL. <!-- TOOL: tb_fdd_dpll.vhd -->
+staying a single bit under the DPLL (`tb_fdd_dpll.vhd`).
 The margin instruments are checked against an independent integer model of
-the quantiser and the histogram engine, which must agree bit-exactly. <!-- TOOL: tb_fdd_margin.vhd --> <!-- TOOL: gen_tb_fdd_margin.py -->
+the quantiser and the histogram engine, which must agree bit-exactly
+(`tb_fdd_margin.vhd`, with the model in `gen_tb_fdd_margin.py`).
 
 **The sync seam.** The decisive bench builds a real eleven-sector AmigaDOS
 track with a write splice, loops it as flux through the real front-end at
@@ -1161,24 +1167,24 @@ and a constant-framing model of the same flux (what a real A500 delivers)
 decodes green. An independent Python implementation of the same ROM algorithm
 returned identical verdicts on the dumped captures. The bench also covers
 WORDSYNC on, where the hold must stay off and an X-Copy-style decode must
-succeed. <!-- TOOL: tb_fdd_splice.vhd --> <!-- TOOL: td_check.py -->
+succeed (`tb_fdd_splice.vhd`, the Python twin `models/td_check.py`).
 
 **The engine and Paula.** The physical delivery segment, the real engine's
 physical states against a line-by-line VHDL model of Paula's host receiver and
 disk DMA, with two attempts back to back and every stored word compared to
-the feed; the same bench logs every real FIFO pop with its cycle timestamp,
-and a runner proves that pop stream cycle-exact between the engine as it was
-before the write datapath and the current one, because that stream feeds the Copylock surface. <!-- TOOL: tb_engine_paula.vhd --> <!-- TOOL: run_pop_identity.sh -->
+the feed (`tb_engine_paula.vhd`). The same bench can log every real FIFO pop
+with its cycle timestamp, and that pop stream was shown cycle-exact between
+the engine as it was before the write datapath and the current one, because
+that stream feeds the Copylock surface.
 The multi-drive ownership bench drives the real engine with a behavioural
 Paula and a behavioural Avalon slave and includes the physical cases: a
 physical write drained without any Avalon write, the cross-contamination
 scenario above, the `df0:` bind ambiguity, an ADF write against a busy writer,
-and a reset inside an open episode. <!-- TOOL: tb_adf_multidrive.vhd -->
-A golden-trace runner records the engine's complete io-channel word stream
-over an ADF-only workload and diffs it against the engine as it was before
-the write datapath:
-byte-identical with no physical unit configured, and with one configured
-differing only in the announce's writable nibble. <!-- TOOL: run_s8_golden.sh -->
+and a reset inside an open episode (`tb_adf_multidrive.vhd`).
+A golden trace of the engine's complete io-channel word stream over an
+ADF-only workload, diffed against the engine as it was before the write
+datapath, came out byte-identical with no physical unit configured, and with
+one configured differed only in the announce's writable nibble.
 
 **The Copylock surface.** An iverilog bench instantiates the current
 `paula_floppy.v` beside a frozen copy of the pre-surface module, drives both
@@ -1187,7 +1193,9 @@ regime, and asserts all outputs bit-identical every cycle; a CPU model then
 polls `DSKBYTR` like the Copylock loop and must measure the 5 % timing ratio
 with the surface on and zero with it off. A separate bench proves the tap
 against the real FIFO and the real idle-drain pattern, red without the
-not-empty qualifier. <!-- TOOL: tb_paula_obs.v --> <!-- TOOL: tb_paula_floppy_a7ref.v --> <!-- TOOL: build_tb_paula_obs.sh --> <!-- TOOL: tb_hwf_obs_tap.vhd -->
+not-empty qualifier (`CORE/sim/minimig/run_paula_obs.sh` with
+`tb_paula_obs.v` and the frozen `paula_floppy_ref.v`; the tap bench is
+`CORE/sim/floppy/tb_hwf_obs_tap.vhd`).
 
 **The write datapath.** The write bench closes the loop Paula write model,
 real engine, real CDC FIFO, real writer, a live rotating flux model in 50 MHz
@@ -1211,15 +1219,18 @@ removed or over-applied, the ready threshold loosened, the precomp sign
 inverted, abort on the first foreign sample, the abort level never set, each
 interlock gate removed, the inheritance removed, the precomp threshold off by
 one) and requires every one to turn a verdict red, credited only if the cell
-is green on the unmutated design. <!-- TOOL: tb_fdd_write.vhd --> <!-- TOOL: td_write_check.py --> <!-- TOOL: run_write_matrix.sh --> <!-- TOOL: run_write_mutants.sh -->
+is green on the unmutated design (`tb_fdd_write.vhd`, the twin
+`models/td_write_check.py`, the runners `run_write_matrix.sh` and
+`run_write_mutants.sh`).
 
 **The diagnostics readout** is swept over all 128 addresses against a literal
 expectation table, with a latch-instant proof that the output really is
-registered. <!-- TOOL: tb_fdd_diag_ro.vhd -->
+registered (`tb_fdd_diag_ro.vhd`).
 
 **The regression gate** runs every read-side bench, the ownership bench, the
-tap bench, the pop-identity diff and the Paula golden diff in one script, and
-fails loudly on stale analysis. <!-- TOOL: run_fdd_regression.sh -->
+tap bench and the Paula golden diff in one script,
+`CORE/sim/floppy/run_fdd_regression.sh`. It tests a copy of the sources taken
+when it starts and fails loudly if a source changes during the run.
 
 **On hardware and in the field.** Reads: the referee for the seam fix was the
 community's shoebox, with originals from the late 1980s booting under
@@ -1231,9 +1242,10 @@ whole-disk with verify on, byte-identical to a proven reference; an A500
 3.2) reading core-written disks; a bootable Workbench disk written end to end
 by the core; a trackloader's high score surviving a power cycle; and flux
 analysis of Greaseweazle dumps showing the precomp step on the medium and the
-X-Copy tail fully written on both heads. An Amiga-side census tool that logs
-trackdisk's per-attempt error codes exists for the case where a tester has no
-JTAG console. <!-- TOOL: scp_flux/ --> <!-- TOOL: e1_census/tdcensus -->
+X-Copy tail fully written on both heads (the flux tools in `tools/flux/`,
+described in [Tools and testbenches](tools.md)). For a tester
+without a JTAG console, trackdisk's per-attempt error codes can also be
+logged on the Amiga side.
 
 ---
 

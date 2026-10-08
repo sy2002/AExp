@@ -246,6 +246,9 @@ notes; `doc/make_doc.py` builds both into the documentation website (see
 [`make_doc.md`](../make_doc.md)). `aexp_screen_cfg.py` and the
 `aexp_screen.cfg_*` presets in the repository root are the end-user tool and
 data for the screen adjustment (see [`screen_adjust.md`](../screen_adjust.md)).
+`tools/` holds the host-side checkers and the tools for floppy field reports,
+`CORE/sim/` the simulation testbenches; [Tools and testbenches](tools.md)
+describes both.
 
 ## 4. Clock domains and crossings
 
@@ -509,6 +512,16 @@ will contain the features that make these changes unnecessary. Moving AExp to
 it, dropping what V2.1.0 supersedes and carrying over the rest, is future work.
 Until then, treat `M2M/` as part of AExp. Do not update it from the M2M
 template, and do not make further changes there unless there is no other way.
+
+> **Do not merge a newer M2M release into `M2M/`.** A plain `git merge` or a
+> copy of a new framework version silently drops or breaks the changes AExp
+> depends on, and the `grep` above does not find all of them: some changes
+> carry no tag (sections [8.5](#85-osm-scale) and
+> [8.10](#810-other-differences-to-v201)). Moving to a newer framework is a
+> port, not a merge. Go through this section change by change, decide for
+> each one whether the new framework replaces it or whether it has to be
+> carried over, and test the result on hardware.
+
 Constraints for framework paths go into `CORE/CORE.xdc`; `M2M/common.xdc`
 stays as the framework ships it.
 
@@ -759,15 +772,16 @@ opinion, and Icarus Verilog for the Minimig sources.
 * Analyse and elaborate the VHDL with `nvc --std=2008`, in dependency order
   (the M2M packages first). `clk.vhd` and `mega65.vhd` need small stub
   packages for the Xilinx `unisim` and `xpm` libraries.
+  `CORE/sim/run_nvc_chain.sh` does both, with the stubs in `CORE/sim/stubs/`.
 * Check the Verilog with `iverilog -g2012 -t null`, with stubs for `dpram` and
   `fx68k`.
 * After any menu change, run the menu checker
-  `check_osm_menu.py` <!-- TOOL: check_osm_menu.py -->. It recomputes
+  `tools/check_osm_menu.py`. It recomputes
   `OPTM_SIZE`, the submenu structure, the dependency rules, the visible menu
   height, the heap demand and the help page geometry from `config.vhd`, and
   checks every `C_MENU_*` constant against the text of the line it points to.
 * After any firmware change, run the firmware checker
-  `check_firmware.py` <!-- TOOL: check_firmware.py -->. It checks the
+  `tools/check_firmware.py`. It checks the
   per-drive tables against the drive count, and it checks every `ADDC` and
   `SUBC` for a carry that comes from the right instruction. On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL` and
   `SHR` write the carry flag, and an address calculation inserted between a
@@ -776,9 +790,13 @@ opinion, and Icarus Verilog for the Minimig sources.
   syntax errors. Run `make_rom.sh` itself only where the QNICE tool chain was
   built for the operating system you are on.
 
-The floppy subsystem has its own testbenches; they are described in
-[floppy-adf.md](floppy-adf.md#11-how-we-verified-it) and
-[hardware-floppy.md](hardware-floppy.md).
+The testbenches live in `CORE/sim/`, one directory per area.
+`CORE/sim/run_all.sh` runs the two checkers, the nvc chain and every bench
+that finishes in minutes, and is the gate before a synthesis.
+[Tools and testbenches](tools.md) describes each tool and bench, what it
+verifies, how to run it and how long it takes. What the floppy benches
+prove is described in
+[hardware-floppy.md](hardware-floppy.md#11-how-it-was-verified).
 
 In the Vivado log, check that the 68000's `microrom.mem` and `nanorom.mem` were
 read successfully: a failure there is silent and produces a dead CPU.

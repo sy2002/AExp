@@ -63,6 +63,7 @@ appear in issues, commits and comments.
 | `CORE/Minimig_MiSTerMEGA65/README.md` | The fork's branch model and its list of modifications |
 | `doc/*.md` (user docs) | `drives.md`, `hardware_floppy.md`, `keyboard.md`, `audio.md`, `screen_adjust.md`, `retrotubes.md`, `RTC.md` |
 | `doc/make_doc.md` | The website builder `doc/make_doc.py` |
+| `doc/developers/tools.md` | The host tools in `tools/` (menu and firmware checkers, Hardware Floppy diagnostics decoder, ADF compare, flux analysis) and the testbenches in `CORE/sim/`: what each checks, how to run it, runtimes, the pre-synthesis gate |
 | [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) | The framework, the QNICE debug console |
 | [C64MEGA65](https://github.com/MJoergen/C64MEGA65) | The reference M2M port; origin of the mount-device, physical-drive and menu-dependency patterns. Consult it for any M2M integration pattern |
 
@@ -141,6 +142,9 @@ the numbering stable and append new rules at the end.
 7. **`OPTM_PAUSE` stays `false`**: the core does not implement `pause_i`.
 8. **`M2M/` is a modified framework; do not modify it further** unless there
    is no other way, and then only with the project owner's explicit sign-off.
+   Never merge or copy a newer M2M release into it: some AExp changes carry
+   no tag, so a framework upgrade is a change-by-change port along
+   `architecture.md` section 8, not a merge.
    Every sanctioned change carries an `M2M-UPSTREAM <name>` tag
    (`grep -rn 'M2M-UPSTREAM' M2M CORE`), and new framework inputs default to
    values that leave other M2M cores bit-identical. The nine named exceptions:
@@ -191,7 +195,7 @@ the numbering stable and append new rules at the end.
     `MENU_HEAP_SIZE` changes, subtract the same delta from both `HEAP_SIZE`
     constants (debug and release) so the combined totals stay put. A shortfall
     is loud (`ERR_FATAL_HEAP1`/`ERR_FATAL_HEAP2` at boot and on every menu
-    open), and the menu checker <!-- TOOL: check_osm_menu.py --> recomputes
+    open), and the menu checker `tools/check_osm_menu.py` recomputes
     the demand statically; the current numbers are in the comment above
     `MENU_HEAP_SIZE`. **Firmware variables count too:** they sit below `HEAP`,
     so every added word pushes `HEAP` up and comes out of the stack. Check in
@@ -222,7 +226,7 @@ the numbering stable and append new rules at the end.
     - The README's blind key sequence for switching DVI on depends on the
       menu layout above the HDMI submenu and on the drive defaults; re-derive
       it when either changes.
-    - After any menu change run <!-- TOOL: check_osm_menu.py --> and, if
+    - After any menu change run `tools/check_osm_menu.py` and, if
       `OPTM_SIZE` changed, generate a fresh settings file (section 4). Never
       copy an older `.cfg` forward: the firmware accepts a file on its length
       alone, so a used file silently restores old selections.
@@ -232,8 +236,8 @@ the numbering stable and append new rules at the end.
       "the X of Y"), and never split a quoted string across lines.
     - Only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL` and `SHR` write the carry flag;
       `MOVE` does not. Address arithmetic inserted between a 32-bit `ADD` and
-      its `ADDC` silently eats the carry. Run
-      <!-- TOOL: check_firmware.py --> after firmware changes.
+      its `ADDC` silently eats the carry. Run `tools/check_firmware.py`
+      after firmware changes.
     - Call monitor/OS functions (`MTH$`, `STR$`, `IO$`, …) through
       `SYSCALL(name, 1)`, never `RSUB` to the internal label, even when it
       resolves.
@@ -288,7 +292,9 @@ the numbering stable and append new rules at the end.
     of another OS, do not rebuild them in place and do not run `make_rom.sh`:
     the `asm` wrapper deletes `m2m-rom.out`/`.rom` first and then fails on the
     foreign binaries. Use the native recipe in section 4. (`build_all.sh`
-    rebuilds them via `./make_qasm.sh`, which is git-ignored, not tracked.)
+    runs an optional, git-ignored `CORE/make_qasm.sh` first if it exists and
+    is executable, and stops with a hint to `make-toolchain.sh` if the
+    assembler is missing or built for another OS.)
 
 ## 4. Build and verification
 
@@ -343,13 +349,14 @@ a second opinion, Icarus Verilog):
   `keyboard`, `clk`, `main`, `mega65`. `clk.vhd` and `mega65.vhd` need stub
   `unisim.vcomponents` (`MMCME2_ADV`, `BUFG`, `BUFGCE`, `BUFGMUX_CTRL`) and
   `xpm.vcomponents` (`xpm_cdc_async_rst`, `xpm_cdc_single`, `xpm_fifo_axis`)
-  packages. <!-- TOOL: run_nvc_chain.sh --> <!-- TOOL: nvc_stubs/ -->
+  packages. `CORE/sim/run_nvc_chain.sh` runs this chain with the stubs in
+  `CORE/sim/stubs/`.
 - **Verilog:** `iverilog -g2012 -t null` over the Minimig sources AExp uses,
   with stubs for `dpram` and `fx68k`. Known noise: forward references, fx68k
   unpacked structs, zero-width-concat follow-ons.
-- **Menu and firmware:** <!-- TOOL: check_osm_menu.py --> after any menu
-  change, <!-- TOOL: check_firmware.py --> after any firmware change. Both
-  must end with `all checks passed`.
+- **Menu and firmware:** `tools/check_osm_menu.py` after any menu change,
+  `tools/check_firmware.py` after any firmware change. Both must end with
+  `all checks passed`.
 - **Firmware assembly without the build host:** build the tools natively into
   a temp dir (`cc -O2 -o "$TMP"/qasm M2M/QNICE/assembler/qasm.c`, same for
   `qasm2rom.c`), then from `CORE/m2m-rom`:
@@ -357,21 +364,18 @@ a second opinion, Icarus Verilog):
   This needs the generated include files of rule 10 to exist (any earlier
   `make_rom.sh` run). Its first `END_OF_ROM` + 1 words are identical to the
   build host's trimmed `m2m-rom.rom`.
-- **Headless QNICE menu regression:** the pinned QNICE emulator has a batch
-  mode. Build the POSIX flavour from `M2M/QNICE/emulator` and run
-  `qnice -b 0x8000 M2M/QNICE/monitor/monitor.out <test>.out`. The `%`-label
-  regression test for `OPTM_SHOW` <!-- TOOL: menu_percent_test.asm --> must
-  print `PASS: percentage labels preserve later %s indices`; run it after any
-  change to `M2M/rom/menu.asm` or to menu labels that contain `%`.
-- **Testbenches:** the floppy families are described in `floppy-adf.md`
-  section 11 and `hardware-floppy.md` section 11 (regression runner
-  <!-- TOOL: run_fdd_regression.sh -->, write matrix and mutants
-  <!-- TOOL: run_write_matrix.sh --> <!-- TOOL: run_write_mutants.sh -->).
-  Others: drive-default cold boot <!-- TOOL: tb_cold_boot_init.vhd -->, the
-  Minimig backports <!-- TOOL: tb_cia_inmode.v -->
-  <!-- TOOL: tb_blitter_freeze.v --> <!-- TOOL: tb_beamcounter_readback.v -->,
-  keyboard <!-- TOOL: tb_keyboard.vhd -->, analog positioner
-  <!-- TOOL: tb_analog_positioner.vhd -->.
+- **Testbenches** live in `CORE/sim/`, one directory per area, each with its
+  runner; `doc/developers/tools.md` lists them with runtimes.
+  `CORE/sim/run_all.sh` is the pre-synthesis gate (both checkers, the nvc
+  chain and every bench that finishes in minutes, about 4 minutes);
+  `CORE/sim/run_long.sh` runs the full floppy regression, the write matrix,
+  the write mutants and the Minimig beam-counter golden diff, which take
+  hours serially (set `JOBS`). The floppy benches are described in
+  `hardware-floppy.md` section 11 (`CORE/sim/floppy/run_fdd_regression.sh`,
+  `run_write_matrix.sh`, `run_write_mutants.sh`). Others: drive-default cold
+  boot (`CORE/sim/misc/`), the Minimig backports and the Copylock surface
+  (`CORE/sim/minimig/`), keyboard, audio, analog positioner
+  (`CORE/sim/keyboard/`, `audio/`, `video/`).
 - **Testbench discipline:** every new check gets a red control (show it
   fails on a mutant or on the old code) before its green counts; a mutant
   counts as killed only if the same cell is green on the unmutated design and

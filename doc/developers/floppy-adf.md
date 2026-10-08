@@ -1209,12 +1209,12 @@ stress case; and, for the multi-drive part, two drives dirtied and flushed
 concurrently, a rejected duplicate mount, an eject of one drive while another is
 mid-flush, and an F1/F3 card switch with drives armed on both slots.
 
-**Menu-side cross-check:** the menu checker `check_osm_menu.py` <!-- TOOL: check_osm_menu.py -->
-recomputes the menu
-geometry and the heap budgets from `config.vhd` and verifies every `C_MENU_*`
-constant against the text of the line it addresses — which is what keeps the six
-flat menu-line constants (`C_MENU_DF{0,1,2}_MOUNT_LN` / `_HW_LN`) correct, since
-the firmware trusts them without rescanning the menu.
+**Menu-side cross-check:** the menu checker `tools/check_osm_menu.py`
+recomputes the menu geometry and the heap budgets from `config.vhd` and
+verifies every `C_MENU_*` constant against the text of the line it addresses —
+which is what keeps the six flat menu-line constants
+(`C_MENU_DF{0,1,2}_MOUNT_LN` / `_HW_LN`) correct, since the firmware trusts
+them without rescanning the menu.
 
 ---
 
