@@ -9,8 +9,21 @@ This core turns the MEGA65 into an Amiga 500 with the original OCS chipset
 expansion in the trapdoor slot (known as Slow RAM, this is what the classic
 Commodore A501 expansion did). The Amiga therefore has 1 MB of RAM in total.
 
-This is Version 1, the first official release. The core is feature complete
-and, as far as we can assess, rock solid: it runs 99.9% of all games and demos.
+And the MEGA65's built-in floppy drive becomes a real Amiga drive: put in a
+genuine Amiga disk, and the Amiga reads and writes it, copy-protected
+originals included.
+
+Beta 1 for Version 2
+--------------------
+
+We are currently beta testing Version 2 of the core. It would be great if you
+supported our efforts and used Beta 1 for Version 2 instead of the official
+stable version.
+
+[Download it here](https://sy2002.de/dl/AExp-WIP-V2-B1.zip).
+
+The core is feature complete and, as far as we can assess, rock solid: it
+runs 99.9% of all games and demos.
 
 ![Amiga500](doc/assets/a500_ocs.jpg)
 
@@ -37,21 +50,24 @@ Features
 * 512 KB Chip RAM plus 512 KB Slow RAM (trapdoor expansion), 1 MB in
   total; the Slow RAM can be switched off in the menu for the few games
   that need a chip-RAM-only A500
-* Up to three floppy drives (`df0:`, `df1:`, `df2:`), one of them — `df0:`
-  as a disk image — switched on by default: mount standard 880 KB `*.adf`
-  disk images via the on-screen-menu, read and write — and hand one of the
-  drives to the MEGA65's own internal 3.5" drive to read and write genuine
-  Amiga disks, copy-protected originals included
+* Real Amiga disks: the MEGA65's built-in 3.5" drive reads and writes
+  genuine Amiga disks, copy-protected originals included, and real Amigas
+  read the disks it writes
+* Up to three floppy drives (`df0:`, `df1:`, `df2:`; one by default), each
+  a read/write 880 KB `*.adf` disk image or the built-in drive
 * Kickstart 1.3
 * Real Amiga mouse in port 1, joystick in port 2, exactly like on a real
   Amiga — and either device works in either port, so dual-mouse and
   two-player (two-joystick) setups work too
 * MEGA65 keyboard mapped to the Amiga keyboard and raw Amiga keyboard mode
 * Interlace ("laced") modes with a built-in flicker fixer on HDMI
+* HDMI: flicker-free smooth motion, several resolutions and scaling filters,
+  and a DVI mode for displays that do not accept HDMI
 * Analog output in parallel to HDMI: scandoubled 31 kHz VGA or raw
   15 kHz RGB for CRTs (SCART), selectable in the menu
 * Adjustable picture, per Amiga screen mode: HDMI crop plus analog
-  position (pan) and analog overscan, via a config file and helper tool  
+  position (pan) and analog overscan, via a config file and helper tool
+* Authentic A500 sound: A500 and LED filters, stereo mix and master volume
 * Battery-backed real-time clock
 
 ### Kickstart ROM
@@ -85,8 +101,8 @@ on real hardware a part of the A501 — stays available either way.
 
 AExp gives the Amiga up to three floppy drives: `df0:`, `df1:` and `df2:`.
 Each one is either a **disk image** (an `*.adf` file on your SD card), the
-**Hardware Floppy** (the MEGA65's own internal 3.5" drive, reading genuine
-Amiga disks), or switched off. How many drives exist and what each of them
+**Hardware Floppy** (the MEGA65's own internal 3.5" drive, reading and writing
+genuine Amiga disks), or switched off. How many drives exist and what each of them
 is, you choose in the **Drive Settings** submenu of the options menu; a
 change there cold-boots the Amiga, because it has to re-detect its drives.
 Out of the box you get exactly one: `df0:` as a disk image drive. `df1:` and
@@ -460,8 +476,8 @@ fixes, neither a fault of AExp). The full walkthrough is in
 Constraints and roadmap
 -----------------------
 
-Version 1 is feature complete, so — among other things — the following known
-gaps remain in this release:
+The core is a faithful Amiga 500 by design, so — among other things — the
+following known gaps remain:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
 * No hard disk support
