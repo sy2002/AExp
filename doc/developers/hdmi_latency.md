@@ -1,39 +1,37 @@
 # HDMI latency vs. the analog output
 
-Side-by-side footage of a MEGA65 driving a CRT (analog out) and an HDMI
-flat panel shows the HDMI picture trailing the CRT by several frames —
-clearly visible when dragging the Workbench screen title bar. The same
-effect shows on the C64 core, which suggested a MiSTer2MEGA65 (M2M)
-framework cause. This note traces both video paths through the framework,
-measures the observed lag from the available footage, and attributes the
-delay to its actual sources.
+AExp's HDMI output is practically lag-free. With HDMI: Flicker-free on, the
+default, the HDMI picture leaves the MEGA65 less than 1 ms after the analog
+one. On most HDMI displays you cannot tell the HDMI picture and a CRT apart,
+so for most users latency is simply not an issue.
+
+The exception is a small group of displays with a native 60 Hz panel, the
+Checkmate monitor among them. They have to convert the Amiga's 50 Hz into
+their 60 Hz, and that conversion costs them 70–100 ms. The lag is made inside
+those displays; the same MEGA65 on another HDMI display shows nearly none.
 
 The short version:
 
-* The M2M HDMI pipeline is not a classic frame-buffered scaler. It
-  runs the ascal scaler in single-framebuffer ("Direct") mode: the
-  HDMI read beam races a few scanlines behind the core's write beam in
-  one shared HyperRAM buffer.
-* With HDMI: Flicker-free ON (the default in both AExp and
-  C64MEGA65), the core clock is servo-locked to the HDMI output and the
-  pipeline adds ≈0.3–1.3 ms, under one tenth of a frame. The
-  C64MEGA65 V5.1 release notes state this outright: flicker-free
-  "reduces our output latency on HDMI to less than 1 ms".
-* With Flicker-free OFF, the beams drift through each other: latency
-  slides between 0 and 2 frames (≈1 frame on average) and a horizontal
-  seam crawls through moving content once per beat period (every ~12.5 s
-  on the Amiga, ~8 s on the C64). Even this worst case is bounded by
-  ≈40 ms.
-* The lag measured in the test videos, on a Checkmate and another HDMI
-  panel, is 70–100 ms, far more than
-  the pipeline can produce in any configuration. The dominant share
-  sits inside the HDMI monitors, not in the FPGA design. A
-  cross-check with the same core on a Samsung HDMI TV
-  showed nearly no visible lag against the CRT, confirming the
-  attribution.
-* Consequently there is no meaningful in-pipeline latency left to
-  optimize. What remains are the standing regression checks (section
-  8), the monitor test protocol (section 7), and user guidance.
+* Under 1 ms, by design. The M2M HDMI pipeline is not a classic
+  frame-buffered scaler: it runs the ascal scaler in single-framebuffer
+  ("Direct") mode, with the HDMI read beam racing a few scanlines behind
+  the core's write beam in one shared HyperRAM buffer. With Flicker-free
+  on, the core clock is servo-locked to the HDMI output, and the pipeline
+  adds ≈0.3–1.3 ms, under one tenth of a frame. The C64MEGA65 V5.1 release
+  notes say the same: flicker-free "reduces our output latency on HDMI to
+  less than 1 ms".
+* Even with Flicker-free off, the latency stays below ≈40 ms: the beams
+  drift through each other, the latency slides between 0 and 2 frames
+  (≈1 frame on average), and a horizontal seam crawls through moving
+  content once per beat period (every ~12.5 s on the Amiga, ~8 s on the
+  C64).
+* The 70–100 ms seen in the test videos were measured on a Checkmate and
+  another 60 Hz panel. That is far more than the pipeline can produce in
+  any configuration. The same core on a Samsung HDMI TV shows nearly no
+  lag against the CRT.
+* There is no meaningful in-pipeline latency left to optimize. What
+  remains are the regression checks (section 8), the test protocol for
+  a display that lags (section 7), and user guidance.
 
 Everything below is the supporting detail.
 
