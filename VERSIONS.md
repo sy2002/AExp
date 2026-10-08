@@ -1,7 +1,11 @@
 Version 2 - MONTH DAY, YEAR
 ===========================
 
-WORK-IN-PROGRES see doc/inofficial.md
+Version 2 turns this core into a complete Amiga 500 experience: the MEGA65's
+built-in drive reads and writes real Amiga disks, including copy-protected
+originals, and up to three drives mix real disks and `*.adf` images. Together
+with the authentic A500 sound filters and four chipset fixes, this is a pure,
+faithful and field-tested Amiga 500.
 
 ## New Features
 
@@ -54,6 +58,28 @@ WORK-IN-PROGRES see doc/inofficial.md
   as interlaced. MiSTer
   [issue 231](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/issues/231),
   commit [`d16cd84`](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/commit/d16cd8458cf8e915c5622ecc7c12ce69d776753c).
+
+## Improved developer documentation
+
+* New developer documentation in `doc/developers`, also on the documentation
+  website: an architecture overview (including every change AExp made to its
+  copy of the MiSTer2MEGA65 V2.0.1 framework) and an in-depth design
+  document for the Hardware Floppy.
+
+* Documented how a build can miss timing by a few picoseconds in the HyperRAM
+  read path, why the IDELAY value must not change, and how `build_all.sh`
+  automatically re-rolls such a build.
+
+* The track engine's lineage is documented: it is a hardware port of MiSTer's
+  `minimig_fdd.cpp`. Reference copies of `minimig_fdd.cpp` and
+  `minimig_config.cpp` are included.
+
+* Testbenches and checker scripts are now part of the repository.
+
+* Source code comments reworked: they describe the current design, without
+  references to unpublished notes.
+  
+* `AGENTS.md` rewritten for AI coding assistants.
 
 Version 1 - July 26, 2026
 =========================
