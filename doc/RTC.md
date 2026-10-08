@@ -4,10 +4,10 @@ AExp can feed the simulated Amiga 500 the MEGA65's own battery-backed clock. Onc
 it is set up, Workbench shows the real date and time, and the files you create
 carry proper timestamps.
 
-Setup takes a minute. There are also two small surprises worth knowing about: on
-Kickstart 1.3 the year can come out wrong (stuck at 1978), and the time can be
-off by an hour. Both have simple fixes, and neither is a fault in AExp. A real
-Amiga 500 running Kickstart 1.3 behaves exactly the same way.
+Setup takes a minute. On Kickstart 1.3 the year can come out wrong (stuck at
+1978), and the time can be off by an hour. Both have simple fixes, and neither
+is a fault in AExp: a real Amiga 500 running Kickstart 1.3 behaves the same
+way.
 
 ---
 
@@ -57,8 +57,8 @@ than the Amiga's starting point of 1 January 1978, it gives up and falls back to
 correct while only the year looks wrong.
 
 AExp hands the Amiga the right value the whole time (the digits `2` and `6`). The
-century mix-up happens entirely inside that old `SetClock`. Commodore released a
-corrected version back in 1998, and that update is the whole fix.
+century mix-up happens entirely inside that old `SetClock`. A corrected version
+was released in 1998, and that update is the whole fix.
 
 ### Fix option A: replace the SetClock file
 
@@ -122,7 +122,7 @@ each time daylight saving time changes.
 
 ---
 
-## A few things worth knowing
+## Notes
 
 - The clock is read-only from the Amiga's side. Set the time on the MEGA65, not
   with `SetClock SAVE` inside the Amiga.
@@ -140,7 +140,7 @@ each time daylight saving time changes.
 
 ## Further reading
 
-For the full background, these are worth a look:
+For the full background:
 
 - [The Amiga and the year 2000](https://amiga.de/diary/developers/y2k.html):
   Olaf Barthel's original write-up, and the home of the SetClock 34.3 download.

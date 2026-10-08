@@ -1,99 +1,90 @@
 # Audio: volume, stereo and the Amiga's filters
 
 AExp plays the Amiga's sound on HDMI and on the MEGA65's 3.5 mm audio jack at
-the same time, and every setting described here affects both outputs equally.
-The one exception is the
+the same time, and every setting described here affects both outputs. The one
+exception is the
 [DVI (no sound)](../README.md#dvi-no-sound-when-the-screen-stays-black)
-option, which switches the HDMI half off and leaves the jack.
+option, which switches the HDMI audio off and leaves the jack.
 
-All settings live in the "Audio" section of the options menu (press Help). Out
-of the box, AExp sounds like a real Amiga 500 — including the machine's two
-famous audio filters, one of which is wired to the power LED. Really. The
-story is below.
+All settings are in the "Audio" section of the options menu (press Help). Out
+of the box, AExp sounds like a real Amiga 500, including the machine's two
+audio filters. One of them is coupled to the power LED, for reasons explained
+below.
 
 ## Volume
 
 The volume control works in 5% steps, and the percentages describe what you
 hear: 50% sounds half as loud as 100%, 25% a quarter as loud. At the default
-of 100% the control is completely transparent, and 0% is a true mute. Think
-of it as the volume knob on your monitor — it sits outside the simulated
-Amiga, so games and demos cannot tell it is there.
+of 100% the sound passes through unchanged, and 0% is a true mute. The
+control works like the volume knob on your monitor: it sits outside the
+simulated Amiga, so games and demos cannot tell it is there.
 
 ## Stereo Mix
 
-The Amiga has four sound channels, and they are hard-wired in a way that was
-common in the 1980s: channels 1 and 4 play entirely on the left, channels 2
-and 3 entirely on the right. On speakers standing on a desk this sounds fine,
-because the room blends the two sides for you. On headphones there is no
-room: an instrument that lives only in your left ear, while the drums hammer
-only in your right, gets tiring quickly — most Amiga music was simply not
-mixed for headphones.
+The Amiga has four sound channels, wired in a way that was common in the
+1980s: channels 1 and 4 play only on the left, channels 2 and 3 only on the
+right. On desk speakers this sounds fine, because the room blends the two
+sides. Headphones have no room, and an instrument that plays only in your
+left ear while the drums play only in your right gets tiring quickly. Most
+Amiga music was not mixed for headphones.
 
-The Stereo Mix setting blends a little of each side into the other, exactly
-like the MiSTer Amiga core does:
+The Stereo Mix setting blends some of each side into the other, the same way
+the MiSTer Amiga core does:
 
-* **Full Stereo** — the authentic hard-panned output (the default).
-* **Wide Stereo** — a gentle blend (87.5% own side, 12.5% opposite side).
-* **Narrow Stereo** — a stronger blend (75% / 25%).
-* **Mono** — both channels merged; useful for single-speaker setups.
+* **Full Stereo**: the authentic hard-panned output (the default).
+* **Wide Stereo**: a gentle blend (87.5% own side, 12.5% opposite side).
+* **Narrow Stereo**: a stronger blend (75% / 25%).
+* **Mono**: both channels merged, for single-speaker setups.
 
-If you listen on headphones, try Wide or Narrow Stereo — the music keeps its
-direction, but stops tearing at your ears.
+On headphones, try Wide or Narrow Stereo: the music keeps its direction but
+is easier on the ears.
 
 ## A500 Filter
 
 Paula, the Amiga's sound chip, plays digital samples: a rapid staircase of
 discrete values. A real A500 never sends that staircase to the line output
-directly — a simple, always-on analog low-pass filter (gently rolling off
-above roughly 4.4 kHz) rounds the hardest digital edges off first. That
-rounding is a big part of the warm, slightly soft signature sound people
-remember, and musicians of the day composed with it in place.
+directly. An always-on analog low-pass filter, rolling off gently above
+roughly 4.4 kHz, first rounds off the hardest edges. That filter is a large
+part of the warm, slightly soft sound people remember, and the musicians of
+the time composed with it in place.
 
-The **A500 Filter** switch recreates exactly that filter, and it is on by
-default. Switching it off removes the fixed filter from the path — which is
-not a fantasy configuration, by the way: it is essentially what Commodore
-itself did years later in the A1200, which shipped without this filter and
-is known for its brighter, crisper sound. So: on = classic A500, off =
-A1200-style freshness.
+The **A500 Filter** switch recreates that filter and is on by default.
+Switching it off removes the fixed filter from the path, which is essentially
+what Commodore did in the A1200: it shipped without this filter and is known
+for its brighter, crisper sound. On gives you the classic A500, off an
+A1200-like sound.
 
-## LED Filter — or: why does a filter have an LED?
+## LED Filter
 
-Fair question, because at first sight a power LED and a low-pass filter have
-absolutely nothing to do with each other. The connection is a lovely piece of
-1980s engineering pragmatism.
+Besides the fixed filter, the Amiga contains a second, much stronger
+low-pass filter (it cuts in around 3 kHz) that software can switch on and off
+at any time. A switchable filter needs a control line, and the pins of the
+Amiga's I/O chips were scarce. So Commodore connected the filter to a signal
+that already existed: the one that sets the brightness of the power LED.
 
-Beyond the fixed filter described above, the Amiga contains a second, much
-stronger low-pass filter (it cuts in around 3 kHz) that software can switch
-on and off at any time. A switchable filter needs a control wire, and control
-wires come from I/O chips whose pins were a scarce resource. Instead of
-spending a new pin, Commodore's engineers looked at one that was already
-there: the output that controls the brightness of the power LED. They simply
-connected the filter to the same signal. One wire, two jobs.
+On every real A500, therefore, **power LED bright means filter on, power LED
+dimmed means filter off.** When a game or demo switches the filter off for
+brighter music, the power LED dims at the same moment. Amiga musicians used
+this on purpose: ProTracker exposes it as its FILTER setting, songs can
+toggle it mid-tune with a command, and many games switch it off when their
+title music starts. After a reset the filter is on (LED bright) until
+software changes it.
 
-The result, on every real A500: **power LED bright = filter engaged, power
-LED dimmed = filter off.** You can literally see the sound change. When a
-game or demo switches the filter off for brighter music, the power LED
-visibly dims at that exact moment — and Amiga musicians used this
-deliberately. ProTracker exposes it as its FILTER setting, songs can toggle
-it mid-tune with a command, and countless games switch it off the moment
-their title music starts. After a reset the filter is always on (LED bright)
-until software decides otherwise.
-
-The **LED Filter** switch in the menu controls whether AExp honors this
-mechanism. On (the default), the simulated Amiga behaves exactly like real
-hardware: the software running inside decides, live, whether the filter is in
-the audio path. Off, the filter never engages, no matter what the software
-does. Note that the MEGA65's own power LED does not mirror the simulated one —
-you will hear the filter switching, but the light stays as it is.
+The **LED Filter** switch in the menu decides whether AExp honors this
+mechanism. On (the default), the simulated Amiga behaves like real hardware:
+the running software decides, live, whether the filter is in the audio path.
+Off, the filter never engages, whatever the software does. The MEGA65's own
+power LED does not mirror the simulated one, so you hear the filter switch
+but the light stays as it is.
 
 ## Which settings should I use?
 
-* **Authentic A500** — the defaults: A500 Filter on, LED Filter on, Full
-  Stereo. This is how the machine on your desk in 1989 sounded.
-* **Bright and modern** — A500 Filter off, LED Filter off. This is the raw,
-  unfiltered output of the sound chip: crisper and more "digital" than any
-  real A500 ever sounded through its own output stage.
-* **Headphones** — whatever else you choose, set Stereo Mix to Wide or
+* **Authentic A500**: the defaults, A500 Filter on, LED Filter on, Full
+  Stereo. This is how an A500 sounded in 1989.
+* **Bright and modern**: A500 Filter off, LED Filter off. This is the raw,
+  unfiltered output of the sound chip, crisper and more "digital" than any
+  real A500 sounded through its own output stage.
+* **Headphones**: whatever else you choose, set Stereo Mix to Wide or
   Narrow Stereo.
 
 Like all menu settings, the audio configuration is saved on the SD card

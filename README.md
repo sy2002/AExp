@@ -84,32 +84,30 @@ to obtain a legal copy yourself, for example from Cloanto's Amiga Forever.
 
 ### Slow RAM (A501)
 
-A small number of programs — typically early games — do not work correctly
-on an Amiga that has expansion RAM: they place their graphics in the
-expansion memory, which the Amiga's custom chips cannot display. **Rogue**
-is a well-known example: with Slow RAM switched on it fails to draw the
-dungeon and the player. On a real A500 the fix was to pull the trapdoor
-card out of the machine; here it is a menu item. Open the menu with
-<kbd>Help</kbd> and deselect **Slow RAM (A501)**: the Amiga automatically
-reboots as a 512 KB chip-RAM-only A500, authentic down to the detail that
-the expansion memory area behaves exactly like on a machine without the
-trapdoor card. The setting is remembered, so switch it back on for
-software that wants the full 1 MB. The battery-backed real-time clock —
-on real hardware a part of the A501 — stays available either way.
+A few programs, typically early games, do not work on an Amiga with
+expansion RAM: they put their graphics into the expansion memory, which the
+Amiga's custom chips cannot display. **Rogue** is an example: with Slow RAM
+switched on it fails to draw the dungeon and the player. On a real A500 the
+fix was to pull the trapdoor card out of the machine; here it is a menu
+item. Open the menu with <kbd>Help</kbd> and deselect **Slow RAM (A501)**:
+the Amiga reboots as a 512 KB chip-RAM-only A500, and the expansion memory
+area behaves exactly as on a machine without the trapdoor card. The setting
+is remembered, so switch it back on for software that wants the full 1 MB.
+The battery-backed real-time clock, on real hardware part of the A501,
+stays available either way.
 
 ### Floppy disks
 
 AExp gives the Amiga up to three floppy drives: `df0:`, `df1:` and `df2:`.
 Each one is either a **disk image** (an `*.adf` file on your SD card), the
 **Hardware Floppy** (the MEGA65's own internal 3.5" drive, reading and writing
-genuine Amiga disks), or switched off. How many drives exist and what each of them
-is, you choose in the **Drive Settings** submenu of the options menu; a
-change there cold-boots the Amiga, because it has to re-detect its drives.
-Out of the box you get exactly one: `df0:` as a disk image drive. `df1:` and
-`df2:` are off, and no drive is the Hardware Floppy — a number of games and
-demos misbehave when the Amiga sees more than one drive, so AExp starts with
-the configuration those titles expect. Switch the others on when you need
-them.
+genuine Amiga disks), or switched off. You choose how many drives exist and
+what each one is in the **Drive Settings** submenu of the options menu; a
+change there cold-boots the Amiga, because it detects its drives only at
+startup. Out of the box you get one: `df0:` as a disk image drive. `df1:`
+and `df2:` are off, and no drive is the Hardware Floppy, because a number of
+games and demos misbehave when the Amiga sees more than one drive. Switch
+the others on when you need them.
 
 Press <kbd>Help</kbd> to open the menu, which shows one line per existing
 drive: a disk image drive shows the mounted file name or `<Load>` when it is
@@ -119,39 +117,39 @@ disk image drive and press <kbd>Space</kbd> to open the file browser and
 that already holds a disk, that same <kbd>Space</kbd> **ejects** it, so one
 key both mounts and ejects.
 
-Disks are **read/write**: when the Amiga writes to a disk — saving a file,
-formatting, storing a high score — the change is written back to the
-`*.adf` file on your SD card. One rule surprises people: the same `*.adf`
-file cannot sit in two drives at the same time, and the core refuses the
-second mount. Each drive keeps its own copy of the disk and collects its
-own changes, so whichever drive saved last would quietly overwrite what the
-other one saved. If a program wants two disks, give it two files.
+Disks are **read/write**: when the Amiga writes to a disk (saving a file,
+formatting, storing a high score), the change is written back to the
+`*.adf` file on your SD card. The same `*.adf` file cannot sit in two drives
+at the same time; the core refuses the second mount. Each drive keeps its
+own copy of the disk and collects its own changes, so whichever drive saved
+last would quietly overwrite what the other one saved. If a program wants
+two disks, give it two files.
 
 Saving happens in the background, so the Amiga never stalls. The MEGA65's
-drive LED lights **green** during disk access — reading or writing — just like
-the drive light on a real Amiga. After a write it turns **yellow** while the
+drive LED lights **green** during disk access (reading or writing), like the
+drive light on a real Amiga. After a write it turns **yellow** while the
 change is being written back to the `*.adf` file on the SD card, and goes
-**off** once everything is safely saved. Please **wait until the LED has stayed
+**off** once everything is saved. Please **wait until the LED has stayed
 off for a few seconds** before you unmount a disk, swap disks, reset, or switch
-the machine off — the yellow light can briefly come back on as more data is
-flushed. Switching off while it is yellow loses the not-yet-saved changes,
-exactly like ejecting a real floppy while its drive light is still on.
+the machine off: the yellow light can briefly come back on as more data is
+flushed. Switching off while it is yellow loses the unsaved changes, just as
+ejecting a real floppy while its drive light is on would.
 
 The **Hardware Floppy** makes the MEGA65's built-in drive behave like a real
 Amiga drive: you put a genuine Amiga disk into the MEGA65 and the simulated
-Amiga reads **and writes** it. Originals boot — including copy-protected
-ones, such as the widespread Copylock scheme by Rob Northen Computing behind
-titles like Cannon Fodder, The Chaos Engine and Terminator 2 — and so do
-custom trackloader formats that never used AmigaDOS. Disks the core writes
-are read by real Amigas: an A500, an A500+ and an A1200 have all read back
-disks written here, including a bootable Workbench disk cloned end to end.
+Amiga reads **and writes** it. Originals boot, including copy-protected
+ones such as the widespread Copylock scheme by Rob Northen Computing (Cannon
+Fodder, The Chaos Engine, Terminator 2), and so do custom trackloader
+formats that never used AmigaDOS. Disks the core writes are read by real
+Amigas: an A500, an A500+ and an A1200 have all read back disks written
+here, including a bootable Workbench disk cloned end to end.
 
-Two things to know. It needs double-density (DD) media, which is what Amiga
-disks are; a PC-style mechanism physically cannot read Amiga HD disks. And
-because writing is real, **the disk's own write-protect tab is the only thing
-protecting it** — slide the tab open on anything irreplaceable before it goes
-near the slot. Only one drive can have the Hardware Floppy, since there is
-only one mechanism.
+It needs double-density (DD) media, which is what Amiga disks are; a
+PC-style mechanism physically cannot read Amiga HD disks. Because writing is
+real, **the disk's own write-protect tab is the only thing protecting it**:
+slide the tab open on anything irreplaceable before it goes near the slot.
+Only one drive can have the Hardware Floppy, since there is only one
+mechanism.
 
 The complete guide to the drives is in [doc/drives.md](doc/drives.md), and
 [doc/hardware_floppy.md](doc/hardware_floppy.md) explains reading and writing
@@ -160,27 +158,27 @@ media.
 
 ### Mouse and joystick
 
-Plug the mouse into **port 1** and the joystick into **port 2** — the usual
-setup, exactly like on a real Amiga. Both ports accept either device, though,
-so a mouse in each port, or a joystick in each port for two-player games, works
-just as well. The **original Amiga "Tank Mouse"** is the directly
-supported passive mouse; compatible active adapters are listed below.
+Plug the mouse into **port 1** and the joystick into **port 2**, as on a
+real Amiga. Both ports accept either device, so a mouse in each port, or a
+joystick in each port for two-player games, works as well. The **original
+Amiga "Tank Mouse"** is the directly supported passive mouse; compatible
+active adapters are listed below.
 Commodore C64 mice do **not** work: neither the 1350 ("joystick mouse") nor
 the 1351 (proportional mouse) speaks the Amiga's protocol. We may add support
 for them in a future version.
 
 The Amiga Tank Mouse works out of the box: movement and the **left button**
-behave just like on the original machine.
+behave as on the original machine.
 
-The **right mouse button** (in Workbench it pulls down the menu bar) is the
-tricky one. On a real Amiga the mouse signals it on a special line that the
+The **right mouse button** (in Workbench it pulls down the menu bar) is
+different. On a real Amiga the mouse signals it on a special line that the
 Amiga's Paula chip actively drives high. The MEGA65 can only *read* that
 line, not drive it, so it cannot sense the right button of an original Tank
 Mouse. This is a hardware property, identical on every MEGA65 model from R3
-to R6. The built-in answer is always available: **hold the <kbd>Run/Stop</kbd>
-key** as a right mouse button (hold it while moving the mouse to open the
-Workbench menus). This works when your keyboard is in the MEGA65 mode.
-In the positional Amiga keyboard mode this substitute moves to the
+to R6. The built-in substitute always works: **hold the <kbd>Run/Stop</kbd>
+key** as the right mouse button (hold it while moving the mouse to open the
+Workbench menus). This applies to the MEGA65 keyboard mode.
+In the positional Amiga keyboard mode the substitute moves to the
 <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), because
 there <kbd>Run/Stop</kbd> is the Amiga's <kbd>Esc</kbd>. Both keyboard modes are
 summarized in the Keyboard section below.
@@ -197,13 +195,13 @@ So what works depends on what you plug in:
 | Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)                |
 | Commodore 1351 (C64 "proportional mouse")                           | No                 | No (maybe supported later)                |
 
-(*) Note on the mouSTer: it emulates a real tank mouse so faithfully that it
-inherits the exact same limitation. Therefore you need to
-[download firmware version `3.23.5313`](https://github.com/willyvmm/mouSTer/releases/tag/3.23.5313)
-or newer. With new firmware, mouSTer supports a new setting in the
-`[mouse]` section: `activepotlines=true`. With that, you can use the right
-button on your mouse, without it, you need to stick to <kbd>Run/Stop</kbd>.
-Here is an example of a known-to-work [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
+(*) The mouSTer emulates a real tank mouse so faithfully that it has the
+same limitation. You need
+[firmware version `3.23.5313`](https://github.com/willyvmm/mouSTer/releases/tag/3.23.5313)
+or newer, which supports the setting `activepotlines=true` in the `[mouse]`
+section. With it, the right button of your mouse works; without it, use
+<kbd>Run/Stop</kbd>. Here is a known-to-work
+[MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
 **A simple DIY adapter makes the right button work**, even with an original
 Tank Mouse. The only missing piece is the pull-up that a real
@@ -214,18 +212,17 @@ pin 9 (right button) and another 2 kΩ from pin 7 to pin 5 (middle button).
 With that adapter in line, the right (and middle) button of any faithful
 passive mouse works natively.
 
-One heads-up for actively-driving adapters: if you unplug one while the Amiga
-is running, the right button can stay "stuck" for up to half a minute
-(Workbench shows its menu bar and stops redrawing) before it clears on its
-own. Just give it a moment after swapping devices.
+If you unplug an actively-driving adapter while the Amiga is running, the
+right button can stay "stuck" for up to half a minute (Workbench shows its
+menu bar and stops redrawing) before it clears on its own.
 
 #### No mouse? Drive the pointer from the keyboard
 
-Have no Amiga mouse or adapter at hand? You can still operate Workbench. The
+Without an Amiga mouse or adapter you can still operate Workbench. The
 Amiga's operating system can move the mouse pointer from the keyboard, and
-that feature works on this core too. It is provided by Intuition (the Amiga's
+that works on this core too. The feature belongs to Intuition (the Amiga's
 windowing system), so it is available in Workbench and other OS-friendly
-programs — but **not** in games or demos that take over the machine.
+programs, but **not** in games or demos that take over the machine.
 
 The MEGA65 keys map onto the Amiga's built-in combinations like this:
 
@@ -237,7 +234,7 @@ The MEGA65 keys map onto the Amiga's built-in combinations like this:
 | **Right** mouse button      | <kbd>Run/Stop</kbd> *(Amiga mode: <kbd>&uarr;</kbd> key)*               |
 
 <kbd>MEGA</kbd> is the Amiga's *left Amiga* key and <kbd>Alt</kbd> is its
-*left Alt*, so <kbd>MEGA</kbd> + <kbd>Alt</kbd> is exactly the Amiga's
+*left Alt*, so <kbd>MEGA</kbd> + <kbd>Alt</kbd> is the Amiga's
 built-in "left click". (In the positional Amiga keyboard mode the *left Alt* key
 moves to <kbd>F13</kbd>, so use <kbd>MEGA</kbd> + <kbd>F13</kbd> there.) The
 pointer keeps accelerating the longer you hold an arrow, so tap the keys for fine
@@ -245,22 +242,21 @@ positioning and hold them to cross the screen.
 
 ### Keyboard
 
-The MEGA65 keyboard drives the Amiga, and you choose **how**. Two mapping
-modes are available in the menu's **Keyboard** section:
+The menu's **Keyboard** section offers two mapping modes:
 
-* **MEGA65 mode** (default) — *the cap is law*: you get exactly the character
+* **MEGA65 mode** (default), *the cap is law*: you get the character
   printed on the MEGA65 keycap, including the front-face symbols typed with
   <kbd>MEGA</kbd> (so `{` is <kbd>MEGA</kbd>+<kbd>:</kbd>, `~` is
   <kbd>MEGA</kbd>+<kbd>,</kbd>, and so on). Best if the MEGA65 is the keyboard
   you know.
-* **Amiga mode** — *positional*: each key sends the Amiga key in the same
+* **Amiga mode**, *positional*: each key sends the Amiga key in the same
   place on a real Amiga keyboard, so the shifted number row and a few
   punctuation keys follow the Amiga's own labels. Best for Amiga muscle memory
   and for games such as Pinball Dreams that require the original Amiga
   mapping.
 
-The most important keys (the meanings below are for the default MEGA65 mode;
-where Amiga keyboard mode differs from the MEGA65 keyboard mode is noted in the right column):
+The most important keys (meanings for the default MEGA65 mode; where Amiga
+mode differs, the right column says so):
 
 | MEGA65 keyboard                                                       | Amiga                                         |
 |-----------------------------------------------------------------------|-----------------------------------------------|
@@ -275,28 +271,28 @@ where Amiga keyboard mode differs from the MEGA65 keyboard mode is noted in the 
 
 In the default **MEGA65 mode** <kbd>Esc</kbd>, <kbd>Tab</kbd> and
 <kbd>Caps Lock</kbd> work as expected. In **Amiga mode** the entire top row is
-positional — <kbd>Run/Stop</kbd> is Esc, <kbd>Esc</kbd> is F1, <kbd>Alt</kbd> is
-F2, <kbd>Caps Lock</kbd> is F3 … <kbd>F11</kbd> is F10 — the right mouse button
+positional (<kbd>Run/Stop</kbd> is Esc, <kbd>Esc</kbd> is F1, <kbd>Alt</kbd> is
+F2, <kbd>Caps Lock</kbd> is F3 … <kbd>F11</kbd> is F10), the right mouse button
 moves to the <kbd>&uarr;</kbd> symbol key (left of <kbd>RESTORE</kbd>), and
 <kbd>F13</kbd> becomes Left Alt. The full per-key breakdown is in the guide below.
 
-By default <kbd>Help</kbd> opens the menu, but you can reassign it — to
-<kbd>F11</kbd>, <kbd>F13</kbd> or <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd> — in the
-Keyboard menu, which reserves <kbd>Help</kbd> solely for the Amiga. In MEGA65
+By default <kbd>Help</kbd> opens the menu. In the Keyboard menu you can move
+the menu to <kbd>F11</kbd>, <kbd>F13</kbd> or <kbd>MEGA</kbd>+<kbd>Run/Stop</kbd>,
+which leaves <kbd>Help</kbd> to the Amiga alone. In MEGA65
 mode, <kbd>F11</kbd> and <kbd>F13</kbd> are clean menu keys that send nothing to
 the Amiga. In Amiga mode they also send F10 and Left Alt respectively; see the
 guide for the effect of every menu-key choice.
 
-**The full keyboard guide — complete per-mode tables for typing, special keys,
-menu keys, and steering the mouse from the keyboard — is in
+**The full keyboard guide, with per-mode tables for typing, special keys,
+menu keys and steering the mouse from the keyboard, is in
 [doc/keyboard.md](doc/keyboard.md).**
 
 ### Video: HDMI
 
 HDMI outputs 720p at 50 Hz (16:9) by default. The first `HDMI:` menu
-entry offers the other 50 Hz modes — 576p at 50 Hz in 4:3 or 5:4 — plus the
-DVI switch that rescues displays which show nothing at all (see the end of
-this section).
+entry offers the other 50 Hz modes (576p at 50 Hz in 4:3 or 5:4) and the
+DVI switch for displays that show nothing at all (see the end of this
+section).
 
 **An OCS PAL Amiga is a 50 Hz machine**, so only faithful 50 Hz modes are
 offered. 
@@ -315,14 +311,13 @@ the scaling filter:
 | CRT (S-Video)   | scanlines plus a slightly softened picture, like S-Video  |
 | CRT (Composite) | scanlines plus heavy horizontal blur, like an antenna or composite cable |
 
-These two features both fight "flicker", but they cure two entirely
-different things — one the shimmer of interlaced screens, the other a
-periodic hitch in smooth motion:
+The next two features both fight "flicker", but different kinds: the
+shimmer of interlaced screens, and a periodic hitch in smooth motion.
 
 #### Interlace flicker fixer (automatic)
 
 Laced screens such as the 640x512 Workbench or the interlaced pictures that
-demos love are woven into a stable, full-resolution HDMI picture — the same
+demos love are woven into a stable, full-resolution HDMI picture, the same
 job the A3000's "Amber" chip or an Indivision does on real hardware. This
 runs automatically; there is no menu entry for it. Demos that flicker *on
 purpose* (alternating two images at 50 Hz to fake extra colors, transparency
@@ -331,24 +326,22 @@ softens it.
 
 #### Flicker-free: smooth motion (menu entry)
 
-The third `HDMI:` menu entry, **Flicker-free** (on by default), keeps the
-HDMI picture perfectly smooth. An Amiga runs a hair below 50 Hz while HDMI
-is locked to exactly 50 Hz, so without correction the picture drops or
-repeats one frame roughly every twelve seconds — a small judder or tear,
-most visible on horizontal scrollers. Flicker-free nudges the Amiga clock
-by a fraction of a percent so its frame rate averages exactly 50 Hz and
-the seam disappears. **Turn it off for the analog VGA / 15 kHz outputs**:
-there it would make the sync frequency step, which analog monitors
-dislike. (With it on, the machine also runs about 0.16 % fast, so software
-clocks gain a few seconds per hour — turn it off if you need authentic
-timing.)
+The third `HDMI:` menu entry, **Flicker-free** (on by default), keeps
+motion on HDMI smooth. An Amiga runs a hair below 50 Hz while HDMI is locked
+to exactly 50 Hz, so without correction the picture drops or repeats one
+frame roughly every twelve seconds: a small judder or tear, most visible on
+horizontal scrollers. Flicker-free speeds up the Amiga clock by a fraction
+of a percent so its frame rate averages exactly 50 Hz and the seam
+disappears. **Turn it off for the analog VGA / 15 kHz outputs**: there it
+would make the sync frequency step, which analog monitors dislike. (With it
+on, the machine also runs about 0.16 % fast, so software clocks gain a few
+seconds per hour; turn it off if you need authentic timing.)
 
 #### Latency on the Checkmate Retro Monitor
 
-Because the Checkmate is a popular choice, it deserves a note of its own.
-The monitor appears to use a native 60 Hz panel and introduces considerable
-latency when displaying the 50 Hz output of our PAL AExp core, although
-scrolling remains smooth with Flicker-free enabled. We suspect that the
+The Checkmate appears to use a native 60 Hz panel and introduces
+considerable latency when displaying the 50 Hz output of our PAL AExp core,
+although scrolling remains smooth with Flicker-free enabled. We suspect that the
 latency comes from the internal conversion required to display a 50 Hz
 signal on a 60 Hz panel. Deft recorded 
 [several videos demonstrating the effect (click here)](https://github.com/sy2002/MiSTer2MEGA65/issues/72),
@@ -364,15 +357,15 @@ monitor behind a passive HDMI-to-DVI adapter cannot decode them at all, and
 some older monitors, cheap scalers and capture boxes reject the whole stream
 instead of ignoring the parts they do not understand. The symptoms are a
 black screen, a "no signal" or "unsupported format" message, or a picture
-that keeps dropping out — while the very same core runs fine on a different
+that keeps dropping out, while the same core runs fine on a different
 display.
 
 **DVI (no sound)**, at the bottom of the first `HDMI:` menu just above
-**Back to main menu**, is the cure. It strips the signal down to plain DVI:
-the pixels, the timing and the resolution stay exactly what they were, and
-only the sound and those extra packets disappear. As the name warns, that costs you the sound over the
-cable — use the MEGA65's 3.5 mm audio jack instead, which carries the same
-audio at the same time anyway.
+**Back to main menu**, strips the signal down to plain DVI: the pixels, the
+timing and the resolution stay as they were, and only the sound and those
+extra packets disappear. As the name says, you lose the sound over the
+cable; the MEGA65's 3.5 mm audio jack carries the same audio at the same
+time.
 
 Leave it off unless you need it. And if you do need it, your display is
 showing nothing right now, so here is how to switch it on blind. Turn the
@@ -412,8 +405,8 @@ The VGA connector always carries the picture in parallel to HDMI. The
 `VGA:` menu selects one of three modes:
 
 * **Standard** (default): the Amiga's 15.6 kHz picture is line-doubled to
-  31 kHz so that VGA monitors accept it. Note that it is still a 50 Hz
-  signal, which not every flat panel likes.
+  31 kHz so that VGA monitors accept it. It is still a 50 Hz signal, which
+  not every flat panel accepts.
 * **15 kHz with HS/VS**: the raw 15.6 kHz RGB signal with separate
   horizontal and vertical sync, for retro monitors with a VGA-style
   input.
@@ -422,11 +415,11 @@ The VGA connector always carries the picture in parallel to HDMI. The
 
 On a 15 kHz CRT you get the most authentic Amiga picture possible:
 interlace is displayed natively by the tube (no flicker fixer needed) and
-the intentional flicker effects of demos melt on the phosphor exactly as
-their authors intended.
+the intentional flicker effects of demos blend on the phosphor as their
+authors intended.
 
-For how to connect real CRT monitors — BNC, SCART and DB9 RGB, including
-important safety cautions — see [doc/retrotubes.md](doc/retrotubes.md).
+For how to connect real CRT monitors (BNC, SCART and DB9 RGB), including
+important safety cautions, see [doc/retrotubes.md](doc/retrotubes.md).
 
 The on-screen menu is oversized in both raw 15 kHz modes. Open the
 **`OSM: 100%`** menu entry (the percentage changes with your selection) and
@@ -435,15 +428,15 @@ comfortably. This changes only the menu, not the Amiga picture. The setting
 is global, so it also changes the menu size on HDMI and in Standard VGA mode.
 
 Careful: a regular VGA monitor shows **no picture at all** in the 15 kHz
-modes — including the on-screen-menu. If you locked yourself out, connect
+modes, not even the on-screen menu. If you locked yourself out, connect
 an HDMI display and switch back there; both outputs share the same menu.
 
 ### Screen adjustment
 
-The Amiga's picture may not sit perfectly on your screen — an old quirk that
-every faithful Amiga recreation shares. AExp fixes it: drop a small 
-`aexp_screen.cfg` file into `/amiga` and the core adjusts the
-picture, automatically per Amiga screen mode. Three independent controls are
+The Amiga's picture may not sit perfectly on your screen, an old quirk that
+every faithful Amiga recreation shares. Put a small `aexp_screen.cfg` file
+into `/amiga`, and the core adjusts the picture automatically per Amiga
+screen mode. Three independent controls are
 available: **HDMI crop** re-frames the picture on HDMI; **analog position**
 moves the complete analog picture (OSM included) left/right/up/down in all
 three VGA modes; **analog overscan** hides or reveals the Amiga border edges,
@@ -455,35 +448,33 @@ one that looks best, or fine-tune your own with the included
 
 ### Audio
 
-Audio is available on HDMI and on the 3.5 mm jack simultaneously — unless
-you switch on **DVI (no sound)**, which drops the HDMI audio and leaves the
-jack. By default
-AExp sounds like a real A500: the machine's fixed output filter and its
-software-switchable "LED filter" are both simulated, and the options menu adds
-a loudness-true master volume plus a stereo mix that makes hard-panned Amiga
-music pleasant on headphones. The full story — including why a sound filter
-is coupled to the power LED — is in [doc/audio.md](doc/audio.md).
+Audio plays on HDMI and on the 3.5 mm jack at the same time, unless you
+switch on **DVI (no sound)**, which drops the HDMI audio and leaves the
+jack. By default AExp sounds like a real A500: the machine's fixed output
+filter and its software-switchable "LED filter" are both simulated, and the
+options menu adds a loudness-true master volume plus a stereo mix that makes
+hard-panned Amiga music pleasant on headphones. The details, including why a
+sound filter is coupled to the power LED, are in [doc/audio.md](doc/audio.md).
 
 ### Real-time clock
 
 AExp can feed the Amiga the MEGA65's own battery-backed clock, so Workbench
-shows the real date and time and your files get proper timestamps. It takes a
-minute to set up, and Kickstart 1.3 has two quirks worth knowing about (the
-year can come out as 1978, and the time can be an hour off — both with simple
-fixes, neither a fault of AExp). The full walkthrough is in
-[doc/RTC.md](doc/RTC.md).
+shows the real date and time and your files get proper timestamps. Setup
+takes a minute. Kickstart 1.3 has two quirks: the year can come out as 1978,
+and the time can be an hour off. Both have simple fixes, and neither is a
+fault of AExp. The full walkthrough is in [doc/RTC.md](doc/RTC.md).
 
 Constraints and roadmap
 -----------------------
 
-The core is a faithful Amiga 500 by design, so — among other things — the
-following known gaps remain:
+The core is a faithful Amiga 500 by design, so these known gaps, among
+others, remain:
 
 * Kickstart ROM size limited to 256 KB, so no Kickstart newer than 1.3.x
 * No hard disk support
 * OCS and PAL only: no ECS, no AGA, no NTSC, no Fast RAM
 
-The development history — all the alpha and beta work-in-progress builds — is
+The development history, with all alpha and beta work-in-progress builds, is
 documented in [doc/inofficial.md](doc/inofficial.md).
 
 Installation
@@ -510,6 +501,8 @@ via JTAG). Then:
    `m65 -q yourbitstream.bit`.
 7. Press <kbd>Help</kbd> as soon as the core is running to mount a disk
    and to configure the core.
+
+If something does not work as expected, see the [FAQ](doc/faq.md).
 
 Developers
 ----------

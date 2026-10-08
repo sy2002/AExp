@@ -11,8 +11,8 @@ is displayed natively by the tube (no flicker fixer involved) and the
 intentional flicker effects of demos melt on the phosphor exactly as their
 authors intended.
 
-**Important cautions** — ignoring these rules can destroy your retro
-device:
+**Important cautions**: ignoring these rules can destroy your retro
+device.
 
 1. Only connect a retro device while having the 15 kHz retro VGA mode active.
    Never connect using the "Standard" mode, which yields 31 kHz. High
@@ -40,10 +40,8 @@ Configure the core *before* you connect your retro monitor:
 
 * Turn off **HDMI: Flicker-free**.
 
-Important: Switch from the Standard mode to the retro 15 kHz mode before
-turning on the CRT. Providing the CRT with a 31 kHz signal could potentially
-damage your equipment. Exercise caution and ensure the correct setting is
-selected to avoid damage to the monitor.
+Important: switch from the Standard mode to a retro 15 kHz mode before
+turning on the CRT. A 31 kHz signal can damage the monitor.
 
 Helpful hints:
 
@@ -51,8 +49,8 @@ Helpful hints:
   **`OSM: 100%`** menu entry (the percentage changes with your selection) to
   choose a smaller size until the menu fits your tube comfortably.
 
-* A regular VGA monitor shows no picture at all in the 15 kHz modes —
-  including the on-screen-menu. If you locked yourself out, connect an HDMI
+* A regular VGA monitor shows no picture at all in the 15 kHz modes, not
+  even the on-screen menu. If you locked yourself out, connect an HDMI
   display and switch back there; both outputs share the same menu.
 
 * Since the HDMI output always runs in parallel, a second HDMI display is
@@ -85,8 +83,6 @@ For CSYNC, you can use the white lead, while the black lead can be left
 unconnected. Connect the R (Red), G (Green), and B (Blue) signals to their
 respective analog inputs on the device or monitor. Take the CSYNC lead and
 connect it to the "external sync" input to the composite input panel.
-By following these instructions, you will ensure the proper connection of the
-RGB signals and CSYNC for correct functionality.
 
 ![vga-to-bnc-cable](assets/bnc-connect.jpg)
 
@@ -104,7 +100,7 @@ adjustments to the configuration.
 ## SCART and DB9 RGB
 
 Connecting the MEGA65 running the Amiga 500 core to retro tubes such as
-Commodore and Philips RGB monitors is more straight forward than on
+Commodore and Philips RGB monitors is more straightforward than on
 professional monitors. Make sure you are configuring the core as described
 above: [VGA: 15 kHz with CSYNC](#configuring-the-amiga-500-core)
 
