@@ -99,14 +99,15 @@ Both outputs are always active and show the same core picture:
                                        vga_to_hdmi, serializers
 ```
 
-**Analog path** (`M2M/vhdl/av_pipeline/analog_pipeline.vhd`): the MiSTer
-`video_mixer` optionally line-doubles 15.625 kHz to 31.25 kHz (one
-scanline of buffering), the OSM overlay and the analog positioner add a
-handful of clock cycles, and the output registers add half a video
-clock. Total: **≈1–2 scanlines, ≈0.1 ms** in Standard VGA mode, and
-practically zero in the two retro 15 kHz modes. A CRT displays the
-electron beam as it arrives, so the analog picture is the real-time
-reference — this is why the analog output exists in the first place.
+**Analog path** (`M2M/vhdl/av_pipeline/analog_pipeline.vhd`): in
+Standard VGA mode the MiSTer `video_mixer` line-doubles 15.625 kHz to
+31.25 kHz with its plain line doubler, which buffers one input line
+(64 µs); the OSM overlay and the analog positioner add a handful of clock
+cycles, and the output registers add half a video clock. Total: **≈0.1 ms**
+in Standard VGA mode, and practically zero in the two retro 15 kHz modes,
+which have no line buffer. A CRT displays the electron beam as it arrives,
+so the analog picture is the real-time reference — this is why the analog
+output exists in the first place.
 
 **HDMI path** (`M2M/vhdl/av_pipeline/digital_pipeline.vhd`): the core
 picture is written into a HyperRAM framebuffer by the ascal scaler's

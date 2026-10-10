@@ -488,9 +488,13 @@ architecture synthesis of main is
    signal vid_vs           : std_logic;                       -- active high vsync
 
    -- Frame-locked pixel clock enable, taken from the ce_out generator of
-   -- MiSTer's Minimig.sv and moved onto the single core clock. There is no
-   -- 28 MHz (SHRES) rate: OCS has no SHRES mode, and the M2M pipeline could
-   -- not take it (video_mixer LINE_LENGTH=768, ascal IHRES=1024).
+   -- MiSTer's Minimig.sv and moved onto the single core clock. MiSTer runs
+   -- that generator at 113.5 MHz; here the hires rate is half of video_clk,
+   -- which the analog scandoubler only accepts as a plain line doubler
+   -- (VGA_LINEDOUBLER in globals.vhd). There is no 28 MHz (SHRES) rate: OCS
+   -- has no SHRES mode, and the M2M pipeline could not take it (the line
+   -- doubler needs two clocks per pixel, ascal accepts at most IHRES=1024
+   -- pixels per line).
    signal fs_res           : std_logic_vector(1 downto 0) := "00";
    signal frame_hires      : std_logic := '0';
    signal vid_vs_d         : std_logic := '0';
@@ -1105,7 +1109,10 @@ begin
    video_vblank_o <= vid_vblank;
 
    -- frame-locked pixel clock enable: 7.09 MHz for all-lores frames,
-   -- 14.19 MHz for frames that contained any hires line
+   -- 14.19 MHz for frames that contained any hires line. 14.19 MHz is half of
+   -- video_clk, so the analog scandoubler runs as a plain line doubler
+   -- (VGA_LINEDOUBLER in globals.vhd); MiSTer's Hq2x needs four clocks per
+   -- pixel and would drop every second hires pixel.
    video_ce_proc : process (clk_main_i)
    begin
       if rising_edge(clk_main_i) then

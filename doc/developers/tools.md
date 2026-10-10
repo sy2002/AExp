@@ -37,11 +37,14 @@ A synthesis takes a long time, so check locally first:
     `python3 tools/check_firmware.py`.
 * Before every synthesis: `CORE/sim/run_all.sh`. It runs both checkers, the
     nvc analysis of all CORE VHDL and every bench that finishes in minutes,
-    about 4 minutes in all.
+    about 6 minutes in all.
 * After a change to the floppy stack (`adf_track_engine.vhd`,
     `physical_fdd/`, `paula_floppy.v`, the drive parts of `main.vhd` and
     `mega65.vhd`): also `CORE/sim/run_long.sh`, or at least the suite that
     covers the change.
+* After a change to the analog video path (`video_mixer.sv`,
+    `scandoubler.v`, `hq2x.sv`, the pixel enable in `main.vhd`): also
+    `CORE/sim/video/run_scandoubler.sh full`.
 
 ```bash
 python3 tools/check_osm_menu.py
@@ -57,13 +60,15 @@ JOBS=8 CORE/sim/run_long.sh
 | `check_osm_menu`, `check_firmware` | the two checkers below | under a second each |
 | `nvc_chain` | `CORE/sim/run_nvc_chain.sh` | a few seconds |
 | `audio`, `video`, `misc` | the audio, analog positioner and cold-boot benches | about 30 s together |
+| `scandoubler` | the quick subset of the scandoubler bench | about 1.5 minutes, under 1 with `JOBS=3` |
 | `keyboard` | the three keyboard benches | about 75 s |
 | `cia_inmode`, `blitter_freeze` | the two fast Minimig golden diffs | about 75 s together |
 | `fdd_quick` | the floppy regression without the splice cells | about 40 s, 11 s with `JOBS=4` |
 
 `run_long.sh` runs the full floppy regression, the full write matrix, the
-write mutants and the beam-counter golden diff: about three and a half hours
-with `JOBS=1` and about an hour with `JOBS=8`.
+write mutants, the beam-counter golden diff and the full scandoubler matrix:
+about four and a quarter hours with `JOBS=1` and a little over an hour with
+`JOBS=8`.
 
 ## How the runners behave
 
@@ -82,18 +87,19 @@ with `JOBS=1` and about an hour with `JOBS=8`.
     result, so a cell that never ran counts as failed. The last line is a
     summary.
 * `JOBS=<n>` runs independent cells in parallel where a runner supports it
-    (the floppy suites, the blitter mutants). Every parallel cell gets its own
-    directory and its own nvc library. The cells are compute-bound, so use at
-    most the number of physical cores.
-* The three floppy runners copy the HDL, the benches and the Python twins
-    into the work directory when they start, and every cell uses that copy,
-    so all cells of one run test the same tree even if a file is edited
-    while the suite runs. At the end a source that no longer matches its
-    copy fails the run as CHANGED: the results then describe the tree as it
-    was at the start. The other runners read the tree directly and finish
-    in minutes; there, nvc's "older than its source file" warning fails a
-    cell as STALE. Do not edit a runner while it runs: bash reads a script
-    as it goes.
+    (the floppy suites, the blitter mutants, the scandoubler bench). Every
+    parallel cell gets its own directory and, in the VHDL benches, its own
+    nvc library. The cells are compute-bound, so use at most the number of
+    physical cores.
+* The three floppy runners and the scandoubler runner copy the HDL, the
+    benches and their Python checkers into the work directory when they
+    start, and every cell uses that copy, so all cells of one run test the
+    same tree even if a file is edited while the suite runs. At the end a
+    source that no longer matches its copy fails the run as CHANGED: the
+    results then describe the tree as it was at the start. The other
+    runners read the tree directly and finish in minutes; there, nvc's
+    "older than its source file" warning fails a cell as STALE. Do not edit
+    a runner while it runs: bash reads a script as it goes.
 
 ## Host tools (`tools/`)
 
@@ -288,6 +294,126 @@ the original in nothing else.
 These golden diffs pin the behaviour of individual upstream ports. When a
 later submodule update changes one of these files on purpose, update the
 bench with it.
+
+### Scandoubler (`CORE/sim/video/run_scandoubler.sh`)
+
+The analog Standard VGA path doubles the lines in M2M's copy of MiSTer's
+`video_mixer.sv`. Its Hq2x scandoubler needs four clocks per pixel; AExp
+gives it two in frames with a hires line, so Hq2x shows every second hires
+pixel. `LINEDOUBLER = 1` (`VGA_LINEDOUBLER` in `CORE/vhdl/globals.vhd`)
+replaces Hq2x with a plain line doubler that works at two clocks per pixel.
+The bench compiles the real `video_mixer.sv`, `scandoubler.v`, `hq2x.sv`,
+`video_freezer.sv` and `gamma_corr.sv` with Icarus Verilog, instantiated as
+in `analog_pipeline.vhd`, once with `LINEDOUBLER = 1` and once with
+`LINEDOUBLER = 0`, the Hq2x path, as the control. Two benches feed it, both
+with a unique ID in every input pixel:
+
+* `tb_scandoubler.v`: modelled rasters. The Amiga raster of 1816 clocks
+    per line in hires and lowres, interlaced, switched from lowres to hires
+    and back at the start of vsync, with hblank delayed by 1 to 3 clocks (as
+    the analog soft blank does) and with a window widened outward, plus
+    generic rasters with 2, 3, 5 and 8 clocks per pixel. In two more kinds of
+    raster the hblank edges move from line to line, so that an input line can
+    be longer than the one before it: a seeded random delay of 0 to 3 clocks
+    per line, and a one-time step of 5 or 7 clocks, as in the frame in which
+    the soft-blank geometry changes. And in one more kind the vblank edges
+    trail the hblank falling edge by 1 or 3 clocks, as the analog soft blank
+    makes them.
+* `tb_scandoubler_minimig.v`: the raster of the Minimig submodule's
+    `amiga_clk.v` and `agnus_beamcounter.v` with the frame-locked enable of
+    `main.vhd` (`frame_hires` latched at the start of vsync), in lowres,
+    hires and mixed frames, across the switches, with hblank or the pixels
+    delayed. Icarus cannot bind six names that `agnus_beamcounter.v` uses
+    before declaring them; the runner moves those declarations in a copy in
+    the work directory and proves that nothing else changed.
+
+`check_scandoubler.py` judges the traces. Its reference comes from the
+mixer input alone: an input pixel is a run of one ID, an input line a run
+of HBlank low. The docstring of the script defines every check exactly.
+Each check prints one result line:
+
+* `lines`, with `LINEDOUBLER = 1`: every output line shows one complete
+    input line, every column exactly once and for half its input clocks;
+    every input line outside vblank appears on two consecutive, identical
+    output lines, in order, none left out; no X or Z; a constant output HS
+    period. The rasters whose hblank moves use the checker's
+    `--moving-window` mode, described below. A window that starts with
+    pixels of the previous input line and continues with the right one (the
+    line doubler swapped its halves after the window had opened) is reported
+    as wrong-half. The rasters with a late vblank edge use `--vertical`: an
+    input line counts as active if VBlank is low during most of its active
+    part, and every output frame must show exactly the active input lines,
+    no first line missing and no blanking line below them (a window one line
+    late is reported as such).
+* `same`, for the lowres-type rasters: the `LINEDOUBLER = 1` output equals
+    the `LINEDOUBLER = 0` output one output line later, clock for clock in
+    HS, VS, DE, `CE_PIXEL` and RGB under DE, and the same comparison one
+    clock off must differ. On the Minimig raster it covers the two
+    lowres-rate frames before the switch to hires.
+* `red`, the control: with `LINEDOUBLER = 0` at hires the `lines` check
+    must fail, and only with the decimation signature (every hires line
+    shows every second pixel, for two output clocks). The red check passes
+    only if the control fails exactly that way, so a checker that cannot
+    fail cannot pass.
+
+Some effects are not held against the line doubler:
+
+* In the first frame after a switch to hires the core's enable still runs
+    at the lowres rate and undersamples the hires content itself; the
+    Minimig bench flags those pixels and the checker skips their lines.
+* At 3 clocks per pixel the output window holds one pixel of the
+    neighbouring blanking at an edge, because the scandoubler delays the
+    window at its uneven `ce_x4o` rate and `video_mixer` moves DE to
+    `CE_PIXEL` edges. Hq2x cannot run at that ratio, so there is no
+    reference for it; for odd periods only, the checker accepts one such
+    pixel per edge and counts the lines as `odd_edge`. AExp itself uses 2
+    and 4 clocks per pixel.
+* When the hblank edges move from line to line, the scandoubler's output
+    windows move with them (`--moving-window`). It predicts the start of
+    the next window from the length of the previous input line, so after a
+    longer line the first copy of the next line opens early: it shows the
+    whole line and then pixels of the blanking after it. And it takes the
+    window length from `hde_end`, measured at the end of every input line;
+    the end of line L+1 falls inside the second copy of line L, so that copy
+    has the length of line L+1 and ends early when L+1 is shorter. The Hq2x
+    path shares this timing and shows the same. The checker therefore
+    requires the whole line in the first copy and lets the second end short
+    by at most the difference of the two line lengths in pixels, rounded up
+    (`short_second`); blanking pixels at either end are accepted and the two
+    copies may differ there. Pixels of another input line never are.
+
+```bash
+CORE/sim/video/run_scandoubler.sh quick
+JOBS=3 CORE/sim/video/run_scandoubler.sh full
+```
+
+`MIXER_DIR=<dir>` takes `video_mixer.sv`, `scandoubler.v`, `hq2x.sv`,
+`video_freezer.sv` and `gamma_corr.sv` from another directory, for a red
+control against an older or mutated scandoubler. Against a line doubler that
+swaps its halves only at the input active start, even when the window opened
+earlier, the jitter and step cells fail with the wrong-half signature; against
+one that takes the vblank state of a line only at its hblank falling edge, the
+cells with a late vblank edge fail with the one-line-late signature.
+
+* `quick`, the `scandoubler` step of `run_all.sh`: eleven checks on the
+    model rasters with 48-line frames (hires, lowres, interlaced hires, a
+    switch, a delayed hblank, 3 clocks per pixel, hblank jitter and a late
+    vblank edge in hires, an identity check and the red control) and on one
+    hires frame of the Minimig raster. About 1.5 minutes, under 1 with
+    `JOBS=3`.
+* `full`, the default and the `scandoubler` suite of `run_long.sh`: the
+    quick checks plus every model raster at PAL height, an identity check
+    for every lowres-type raster, the red control in hires and interlaced
+    hires, and the Minimig raster from lowres to hires and back, in a mixed
+    frame, with hblank delayed by 1 to 3 clocks and with the pixels delayed
+    by one clock, and its own red control, plus hblank jitter in hires and
+    lowres, hblank steps of 5 and 7 clocks in hires and 7 in lowres, and
+    vblank edges 1 and 3 clocks late in hires and lowres and 1 clock late
+    with hblank delayed by 2: 57 checks, about 50 minutes, about 18 with
+    `JOBS=3`.
+* A simulation writes a trace of up to about 90 MB, a full run about
+    1 GB in all. The runner deletes the traces of passing checks at the end;
+    `KEEP_TRACES=1` keeps them.
 
 ### Audio, keyboard, video, cold boot
 

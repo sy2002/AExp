@@ -491,20 +491,27 @@ in `config.vhd` must stay `false`.
 
 The framework wants active-high syncs (Minimig's are active low, so
 `main.vhd` inverts them), blanking signals that cover the syncs, and a pixel
-clock enable that is locked to the frame: 7.09 MHz, or 14.19 MHz while a
-frame contains hires lines. Never use the full 28 MHz as pixel clock enable:
-the scandoubler's line buffer holds 768 pixels and ascal accepts at most 1024
-input pixels per line. The scandoubler is on (`qnice_scandoubler_o = '1'`) in
-the standard VGA mode, because the core outputs 15 kHz video, and off only in
-the two 15 kHz analog modes.
+clock enable that is locked to the frame. The video clock is `main_clk`
+(28.375 MHz). The enable runs at 7.09 MHz, every fourth clock, in frames with
+only lowres lines, and at 14.19 MHz, every second clock, while a frame
+contains hires lines. MiSTer's scandoubler doubles the lines with its Hq2x
+filter, which needs at least four clocks per input pixel; at two clocks it
+keeps only every second hires pixel. AExp therefore sets `VGA_LINEDOUBLER` in
+`globals.vhd`, and the scandoubler uses the plain line doubler of section
+[8.10](#810-line-doubler), which needs two clocks per pixel. Never use the
+full 28 MHz as pixel clock enable: the line doubler would get only one clock
+per pixel, and ascal accepts at most 1024 input pixels per line. The
+scandoubler is on (`qnice_scandoubler_o = '1'`) in the standard VGA mode,
+because the core outputs 15 kHz video, and off only in the two 15 kHz analog
+modes.
 
 ## 8. The modified M2M framework
 
 AExp V2 is built on MiSTer2MEGA65 V2.0.1, but not on an unmodified copy. The
-framework in `M2M/` carries nine AExp changes that the core needs and that
+framework in `M2M/` carries ten AExp changes that the core needs and that
 V2.0.1 does not offer. Each change is marked in the code with a comment
 `M2M-UPSTREAM <name>`, so this command finds all of them, together with the
-two tagged bug fixes of section [8.10](#810-other-differences-to-v201):
+two tagged bug fixes of section [8.11](#811-other-differences-to-v201):
 
 ```
 grep -rn 'M2M-UPSTREAM' M2M CORE
@@ -520,7 +527,7 @@ template, and do not make further changes there unless there is no other way.
 > copy of a new framework version silently drops or breaks the changes AExp
 > depends on, and the `grep` above does not find all of them: some changes
 > carry no tag (sections [8.5](#85-osm-scale) and
-> [8.10](#810-other-differences-to-v201)). Moving to a newer framework is a
+> [8.11](#811-other-differences-to-v201)). Moving to a newer framework is a
 > port, not a merge. Go through this section change by change, decide for
 > each one whether the new framework replaces it or whether it has to be
 > carried over, and test the result on hardware.
@@ -667,9 +674,61 @@ builds.
   (M2M V2.0.1 has no flag for that).
 * Other cores: purely additive; nothing else calls it.
 
-### 8.10 Other differences to V2.0.1
+### 8.10 `line-doubler`
 
-Besides the nine changes of sections 8.1 to 8.9, AExp differs from M2M V2.0.1
+* What: a parameter `LINEDOUBLER` of MiSTer's `scandoubler.v` (default 0, the
+  original Hq2x path) and a new module `linedoubler` in the same file, which
+  replaces Hq2x when the parameter is 1. `video_mixer.sv` passes the parameter
+  on; `analog_pipeline.vhd` and `av_pipeline.vhd` carry it as the generic
+  `G_VGA_LINEDOUBLER` (default `false`), and `framework.vhd` sets that generic
+  from the constant `VGA_LINEDOUBLER` in the core's `globals.vhd`, the way it
+  takes `VGA_DX`.
+* Files: `controllers/MiSTer/scandoubler.v`,
+  `controllers/MiSTer/video_mixer.sv`, `av_pipeline/analog_pipeline.vhd`,
+  `av_pipeline/av_pipeline.vhd`, `framework.vhd`.
+* Why: Hq2x spends four clock enables on every input pixel, so it needs a
+  video clock of at least four times the pixel rate. MiSTer's Minimig runs its
+  video at 113.5 MHz and always meets that. AExp runs the video at `main_clk`,
+  which is four times the lowres rate but only twice the hires rate (section
+  [7.10](#710-what-the-framework-expects-from-the-video)); there Hq2x keeps
+  only every second hires pixel, and hires screens on the analog Standard VGA
+  output lose every second pixel column. The line doubler needs one clock to
+  write an input pixel and one to read an output pixel, so two clocks per
+  pixel are enough.
+* How: the line doubler writes one pixel per input pixel enable into one half
+  of a two-line buffer while it reads the other half, the previous input line,
+  twice, one pixel per output pixel enable. The halves swap when the output
+  window of a line's first copy opens: normally at the start of the active
+  part of the input line, a few clocks earlier when an input line is longer
+  than the one before it (while the analog overscan changes), because the
+  scandoubler times its output windows from the previous line's length.
+  Each half holds 1024 pixels of 24 bits
+  in distributed RAM: a whole hires line including its blanking, also when an
+  outward analog overscan widens the active window. The latency is one input
+  line (64 µs) instead of Hq2x's one and a half, so the scandoubler takes its
+  vsync and vblank outputs one output line earlier, and the Standard VGA
+  picture leaves the MEGA65 32 µs sooner. In this mode the scandoubler also
+  measures the pixel period in the vertical blanking lines, so a pixel rate
+  that changes at vsync is in effect from the first active pixel on, and it
+  samples the vertical blanking a second time 16 clocks into each line: the
+  analog soft blank of section [8.3](#83-screen-center) changes vblank one
+  clock after its hblank falls, and without the second sample the picture
+  would show one line too late within the window. An outward left overscan
+  of more than 15 clocks puts the core's vblank edge beyond that second
+  sample; there the picture still shows one line late, as it does with
+  Hq2x. There is
+  no Hq2x filter in this mode (AExp never switches it on), no new clock and no
+  clock-domain crossing; HDMI and the two 15 kHz modes do not pass the
+  scandoubler and are unchanged. Hq2x's block RAM (5.5 tiles) is gone; the
+  line doubler uses LUTRAM.
+* Other cores: the parameter and both generics default to the original Hq2x
+  path, but `framework.vhd` reads `VGA_LINEDOUBLER` from the core's
+  `globals.vhd`, so another core that uses this copy of the framework has to
+  add that constant (`false` keeps its behaviour).
+
+### 8.11 Other differences to V2.0.1
+
+Besides the ten changes of sections 8.1 to 8.10, AExp differs from M2M V2.0.1
 in four more places. Three of them are in `M2M/`, the fourth in AExp's own
 firmware.
 

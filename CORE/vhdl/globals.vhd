@@ -74,6 +74,13 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 constant VGA_DX               : natural := 720;
 constant VGA_DY               : natural := 576;
 
+-- Analog Standard VGA mode (scandoubler on): the framework's scandoubler runs
+-- on video_clk_o = main_clk (28.375 MHz), and hires frames use a 14.19 MHz
+-- pixel enable, only 2 x below the clock. MiSTer's Hq2x line doubling needs
+-- 4 x and would drop every second hires pixel, so the scandoubler uses its
+-- plain line doubler instead (M2M-UPSTREAM line-doubler).
+constant VGA_LINEDOUBLER      : boolean := true;
+
 --    FONT_*  size of one OSM character
 constant FONT_FILE            : string  := "../font/Anikki-8x8-m2m.rom";
 constant FONT_DX              : natural := 16;

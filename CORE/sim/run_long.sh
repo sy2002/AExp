@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# The long simulation suites, for changes to the floppy stack and before a
-# release: the full floppy regression (including the four splice cells), the
-# full write matrix with the independent twin, the write mutant matrix, and
-# the Minimig beam-counter golden diff.
+# The long simulation suites, for changes to the floppy stack or the analog
+# video path and before a release: the full floppy regression (including the
+# four splice cells), the full write matrix with the independent twin, the
+# write mutant matrix, the Minimig beam-counter golden diff, and the full
+# scandoubler matrix (CORE/sim/video/run_scandoubler.sh).
 #
 # Usage: CORE/sim/run_long.sh [workdir]
 #   workdir defaults to a fresh temporary directory; every suite works in its
 #   own subdirectory and leaves its log there. Set JOBS to the number of
 #   physical cores: the suites are compute-bound and their cells independent.
-# Runtime: about 3.5 hours with JOBS=1, about an hour with JOBS=8 (see
-# doc/developers/tools.md).
+# Runtime: about 4.25 hours with JOBS=1, a little over an hour with JOBS=8
+# (see doc/developers/tools.md).
 # Exit status: the number of failed suites (0 = all passed).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -46,6 +47,7 @@ suite fdd_regression  "$HERE/floppy/run_fdd_regression.sh" "$BASE/fdd_regression
 suite write_matrix    "$HERE/floppy/run_write_matrix.sh" "$BASE/write_matrix" full
 suite write_mutants   "$HERE/floppy/run_write_mutants.sh" "$BASE/write_mutants"
 suite beamcounter     "$HERE/minimig/run_tb_beamcounter_readback.sh" "$BASE/beamcounter"
+suite scandoubler     "$HERE/video/run_scandoubler.sh" "$BASE/scandoubler" full
 
 echo "-------------------------------------------"
 if [ "$fails" -eq 0 ]; then

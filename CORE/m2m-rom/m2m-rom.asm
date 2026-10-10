@@ -2349,7 +2349,7 @@ _SLS_MAG        RSUB    _SCR_LOGDEC, 1
 ;                    there): M2M V2.0.1 lacks it. Delete this copy when AExp
 ;                    moves to M2M V2.1.0; the assembler then reports the
 ;                    duplicate label. See doc/developers/architecture.md,
-;                    section 8.10 (Other differences to V2.0.1).
+;                    section 8.11 (Other differences to V2.0.1).
 ;
 ; Input:  R8 = pointer to a 256-word horizontal coefficient table
 ;         R9 = pointer to a 256-word vertical   coefficient table

@@ -15,7 +15,7 @@ ADF images](floppy-adf.md) covers the *simulated* drives; the parts the two
 features share (the track engine, the Paula host channel, unit ownership, the
 drive index) are explained there and only referenced here.
 
-The design described is the one in the current tree (`WIP-V2-B1`, diagnostics
+The design described is the one in the current tree (`WIP-V2-B2`, diagnostics
 map `0x000D`).
 
 ## Table of contents

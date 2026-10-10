@@ -23,7 +23,7 @@ appear in issues, commits and comments.
 - Boards: MEGA65 R3/R3A, R4, R5, R6, one Vivado project each.
 - **Status:** Version 1 is released (tag `V1`, commit `46ef60c`, July 2026).
   Version 2 is in beta; the current build is the one named by `CORE_VERSION`
-  in `CORE/vhdl/config.vhd` (`WIP-V2-B1` at the time of writing).
+  in `CORE/vhdl/config.vhd` (`WIP-V2-B2` at the time of writing).
   `VERSIONS.md` is the authoritative feature list per release, and
   everything it lists is shipped and works: among others the simulated ADF
   drives (read and write), up to three drives, the Hardware Floppy reading
@@ -132,11 +132,16 @@ the numbering stable and append new rules at the end.
    Framework timing fixes go into `CORE/CORE.xdc`, never into
    `M2M/common.xdc` or the board XDCs.
 6. **Video into the framework:** syncs active-high (Minimig's are active-low
-   and inverted in `main.vhd`); blanks must cover the syncs; the video clock
-   enable is frame-locked 7.09 MHz (14.19 MHz for frames with hires lines) and
-   **never** 28 MHz (`video_mixer` `LINE_LENGTH` 768, ascal `IHRES` 1024).
-   `qnice_scandoubler_o` is `'1'` for Standard VGA and `'0'` in the two 15 kHz
-   modes, decoded from the VGA radio in `mega65.vhd`. Keep
+   and inverted in `main.vhd`); blanks must cover the syncs. The video clock is
+   `main_clk` (28.375 MHz); the pixel enable is frame-locked, 7.09 MHz (4
+   clocks per pixel) in all-lowres frames and 14.19 MHz (2 clocks per pixel)
+   in frames with hires lines. MiSTer's Hq2x line doubling needs at least 4
+   and drops every second hires pixel at 2, so the analog scandoubler runs as
+   a plain line doubler: keep `VGA_LINEDOUBLER` in `globals.vhd` `true`
+   (rule 8, `line-doubler`). The enable is **never** 28 MHz: the line doubler
+   needs two clocks per pixel, and ascal accepts at most `IHRES` 1024 pixels
+   per line. `qnice_scandoubler_o` is `'1'` for Standard VGA and `'0'` in the
+   two 15 kHz modes, decoded from the VGA radio in `mega65.vhd`. Keep
    `qnice_ascal_triplebuf_o` at `'0'`: triple buffering grows the frame buffer
    to 6 MB, overwrites the ADF pools and breaks flicker-free.
 7. **`OPTM_PAUSE` stays `false`**: the core does not implement `pause_i`.
@@ -147,7 +152,7 @@ the numbering stable and append new rules at the end.
    `architecture.md` section 8, not a merge.
    Every sanctioned change carries an `M2M-UPSTREAM <name>` tag
    (`grep -rn 'M2M-UPSTREAM' M2M CORE`), and new framework inputs default to
-   values that leave other M2M cores bit-identical. The nine named exceptions:
+   values that leave other M2M cores bit-identical. The ten named exceptions:
    - `interlace` — `video_fl_i` field flag through to ascal `i_fl`,
      `INTER => true` (HDMI weave deinterlacing);
    - `core-io-hook` — `HANDLE_CORE_IO`, an extra mandatory firmware callback
@@ -162,12 +167,16 @@ the numbering stable and append new rules at the end.
      the core, read pins and the write pins `f_wdata`/`f_wgate` alike;
    - `osm-deps` — menu-line dependencies (`OPTM_DEP`/`OPTM_DEP2`,
      `optm_deps.asm`);
-   - `live-text` — `OPTM_LIVE_TEXT`, in-place repaint of part of a menu line.
+   - `live-text` — `OPTM_LIVE_TEXT`, in-place repaint of part of a menu line;
+   - `line-doubler` — a plain line doubler in place of Hq2x in the analog
+     scandoubler (`LINEDOUBLER` in `scandoubler.v`), selected by the core
+     constant `VGA_LINEDOUBLER` in `globals.vhd`; needs only 2 clocks per
+     pixel (rule 6).
 
    Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
    `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
    `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
-   section 8.10. Never re-sync `M2M/` from the template; moving to M2M V2.1.0
+   section 8.11. Never re-sync `M2M/` from the template; moving to M2M V2.1.0
    is planned future work.
 9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
    `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
@@ -370,15 +379,16 @@ a second opinion, Icarus Verilog):
 - **Testbenches** live in `CORE/sim/`, one directory per area, each with its
   runner; `doc/developers/tools.md` lists them with runtimes.
   `CORE/sim/run_all.sh` is the pre-synthesis gate (both checkers, the nvc
-  chain and every bench that finishes in minutes, about 4 minutes);
+  chain and every bench that finishes in minutes, about 6 minutes);
   `CORE/sim/run_long.sh` runs the full floppy regression, the write matrix,
-  the write mutants and the Minimig beam-counter golden diff, which take
-  hours serially (set `JOBS`). The floppy benches are described in
-  `hardware-floppy.md` section 11 (`CORE/sim/floppy/run_fdd_regression.sh`,
-  `run_write_matrix.sh`, `run_write_mutants.sh`). Others: drive-default cold
-  boot (`CORE/sim/misc/`), the Minimig backports and the Copylock surface
-  (`CORE/sim/minimig/`), keyboard, audio, analog positioner
-  (`CORE/sim/keyboard/`, `audio/`, `video/`).
+  the write mutants, the Minimig beam-counter golden diff and the full
+  scandoubler matrix, which take hours serially (set `JOBS`). The floppy
+  benches are described in `hardware-floppy.md` section 11
+  (`CORE/sim/floppy/run_fdd_regression.sh`, `run_write_matrix.sh`,
+  `run_write_mutants.sh`). Others: drive-default cold boot
+  (`CORE/sim/misc/`), the Minimig backports and the Copylock surface
+  (`CORE/sim/minimig/`), keyboard, audio, analog positioner and the analog
+  scandoubler (`CORE/sim/keyboard/`, `audio/`, `video/`).
 - **Testbench discipline:** every new check gets a red control (show it
   fails on a mutant or on the old code) before its green counts; a mutant
   counts as killed only if the same cell is green on the unmutated design and
@@ -476,12 +486,15 @@ Full picture: `architecture.md` sections 2, 4 and 5.
 ## 7. Open work
 
 Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
-`WIP-V2-B1`:
+`WIP-V2-B2`:
 
 - **Version 2 release:** the beta is in field test; the release date in
   `VERSIONS.md` is still a placeholder. Documentation issues #31 (developer
   docs), #27 (user docs) and #26 (Minimig README + `minimig_fdd.cpp`) are open
   for V2.
+- **#35/#36 hires on analog Standard VGA** (every second pixel column lost):
+  fixed in `WIP-V2-B2` by the `line-doubler` framework change (rule 8),
+  pending field confirmation.
 - **#24 File browser failure** after many warm starts with large ADF
   collections (seen on V1; a long reset press clears it). Unclassified until
   the reporter supplies the exact fatal-error text and code.

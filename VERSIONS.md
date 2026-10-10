@@ -64,6 +64,15 @@ faithful and field-tested Amiga 500.
   [issue 231](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/issues/231),
   commit [`d16cd84`](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/commit/d16cd8458cf8e915c5622ecc7c12ce69d776753c).
 
+## Bugfixes
+
+* The analog VGA output shows hires screens (640 pixels wide) in full detail
+  in the "Standard VGA" mode. It used to drop every second pixel column of
+  hires content such as the Workbench or the text of The Guild of Thieves,
+  which made thin fonts unreadable. HDMI and the two 15 kHz modes were not
+  affected. GitHub issues [#35](https://github.com/sy2002/AExp/issues/35) and
+  [#36](https://github.com/sy2002/AExp/issues/36).
+
 ## Improved developer documentation
 
 * New developer documentation in `doc/developers`, also on the documentation

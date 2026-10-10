@@ -887,7 +887,10 @@ begin
          G_VGA_DY                => VGA_DY,
          G_FONT_FILE             => FONT_FILE,
          G_FONT_DX               => FONT_DX,
-         G_FONT_DY               => FONT_DY
+         G_FONT_DY               => FONT_DY,
+         -- M2M-UPSTREAM line-doubler (AExp 2026-10-10): the core selects the
+         -- scandoubler's plain line doubler in its globals.vhd
+         G_VGA_LINEDOUBLER       => VGA_LINEDOUBLER
       )
       port map (
          -- Input from Core

@@ -84,12 +84,12 @@ Operating-system hints for the `bash` tool chain:
 
     ```bash
     cd CORE/CORE-R3.runs/impl_1
-    coretool -B AExp-WIP-V2-B1-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V2-B1"
+    coretool -B AExp-WIP-V2-B2-R3.cor --bit mega65_r3.bit --target mega65r3 --bit-name "Amiga 500 for MEGA65" --bit-version "WIP-V2-B2"
     ```
 
     Use the target string that matches your board — `mega65r3`, `mega65r4`,
     `mega65r5` or `mega65r6` — and the version string from the `CORE_VERSION`
-    constant in `CORE/vhdl/config.vhd` (`WIP-V2-B1` in this example). Unlike
+    constant in `CORE/vhdl/config.vhd` (`WIP-V2-B2` in this example). Unlike
     the C64 core, the Amiga core registers no MEGA65 file type (ADFs are
     mounted from inside its own menu), so no `--flags` or `--caps` arguments
     are needed.
@@ -147,7 +147,7 @@ argument reads the required size straight from `config.vhd`:
 
 ```bash
 cd M2M/tools
-./make_config.sh aexp-WIP-V2-B1.cfg auto
+./make_config.sh aexp-WIP-V2-B2.cfg auto
 ```
 
 Run it from inside `M2M/tools` — the `auto` argument reads the required
@@ -170,7 +170,7 @@ if `coretool` is not installed), creates the settings file and collects the
 documentation and the screen-adjustment files into one folder:
 
 ```bash
-python3 make_release.py WIP-V2-B1 /tmp/builds
+python3 make_release.py WIP-V2-B2 /tmp/builds
 ```
 
 The version must match `CORE_VERSION`. A work-in-progress build (`WIP-*`)

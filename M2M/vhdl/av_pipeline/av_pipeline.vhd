@@ -27,7 +27,12 @@ entity av_pipeline is
       G_VGA_DY                : natural;
       G_FONT_FILE             : string;
       G_FONT_DX               : natural;
-      G_FONT_DY               : natural
+      G_FONT_DY               : natural;
+      -- M2M-UPSTREAM line-doubler (AExp 2026-10-10): true = the analog
+      -- scandoubler doubles the lines with its plain line doubler (needs
+      -- video_clk_i >= 2 x the pixel rate of video_ce_i) instead of MiSTer's
+      -- Hq2x (needs 4 x). false keeps the original behaviour.
+      G_VGA_LINEDOUBLER       : boolean := false
    );
    port (
       -- From CORE
@@ -658,7 +663,8 @@ begin
          G_VGA_DY                => G_VGA_DY,
          G_FONT_FILE             => G_FONT_FILE,
          G_FONT_DX               => G_FONT_DX,
-         G_FONT_DY               => G_FONT_DY
+         G_FONT_DY               => G_FONT_DY,
+         G_VGA_LINEDOUBLER       => G_VGA_LINEDOUBLER   -- M2M-UPSTREAM line-doubler
       )
       port map (
          -- Input from Core (video and audio)

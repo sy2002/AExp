@@ -66,7 +66,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- down) and by CFG_FILE (the on-SD-card config filename further down). Update
 -- this one line when releasing a new version; make_release.py parses it and
 -- uses it as the official version string for that release.
-constant CORE_VERSION : string := "V2";
+constant CORE_VERSION : string := "WIP-V2-B2";
 
 -- Never shown (WELCOME_ACTIVE is false), but WHS array position 0 must exist,
 -- so the welcome screen is a single line to keep the string ROM small.
