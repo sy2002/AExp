@@ -379,14 +379,17 @@ close timing, or fails in a way that is hard to trace back.
 
 ### 7.1 Block RAM is full
 
-The core uses 364 of the 365 block RAM tiles of the XC7A200T. The Amiga
-memories alone take 320 tiles (Chip RAM 128, Slow RAM 128, Kickstart 64), and
-that is an exact mapping with nothing left to save. Any new buffer must go
-into HyperRAM or into distributed RAM, which is why the disk images live in
-HyperRAM and why the floppy engine's sector buffers are LUTRAM. Vivado
-routinely reports `Synth 8-5835` (block RAM over-utilized, falls back to
-LUTRAM); that is only a real failure if implementation then cannot place the
-design. Re-enabling IDE would need 8 more tiles and does not fit.
+The core uses 364 or 365 of the 365 block RAM tiles of the XC7A200T, depending
+on the build. The Amiga memories alone take 320 tiles (Chip RAM 128, Slow RAM
+128, Kickstart 64), and that is an exact mapping with nothing left to save.
+Any new buffer must go into HyperRAM or into distributed RAM, which is why the
+disk images live in HyperRAM and why the floppy engine's sector buffers are
+LUTRAM. The design asks for more block RAM than the chip has: Vivado routinely
+reports `Synth 8-5835` (block RAM over-utilized, counted in half tiles) and
+implements the excess in LUTRAM. That is only a real failure if implementation
+then cannot place the design. It also means that removing a block RAM user
+does not lower the count: Vivado moves memories from LUTRAM into the freed
+tiles. Re-enabling IDE would need 8 more tiles and does not fit.
 
 ### 7.2 No QNICE ports on spread-out block RAM
 
@@ -413,7 +416,7 @@ re-rolls such a board and why the HyperRAM IDELAY value must not be changed.
 
 M2M maps its 4k-word device window at `0x7000-0x7FFF`, so only 28,672 words of
 the QNICE ROM are usable. `make_rom.sh` checks the assembled image against
-this limit and fails the build loudly if it is exceeded. `WIP-V2-B1` uses
+this limit and fails the build loudly if it is exceeded. `WIP-V2-B2` uses
 27,533 words. Vivado prints `Shell ROM: N/28672 words.` during synthesis.
 
 ### 7.5 Every growth of the menu needs a heap budget check
@@ -719,8 +722,10 @@ builds.
   Hq2x. There is
   no Hq2x filter in this mode (AExp never switches it on), no new clock and no
   clock-domain crossing; HDMI and the two 15 kHz modes do not pass the
-  scandoubler and are unchanged. Hq2x's block RAM (5.5 tiles) is gone; the
-  line doubler uses LUTRAM.
+  scandoubler and are unchanged. The line doubler uses LUTRAM. Without Hq2x
+  the scandoubler needs none of its 5.5 block RAM tiles; Vivado fills them
+  with memories it would otherwise implement in LUTRAM (section
+  [7.1](#71-block-ram-is-full)), so the block RAM stays full.
 * Other cores: the parameter and both generics default to the original Hq2x
   path, but `framework.vhd` reads `VGA_LINEDOUBLER` from the core's
   `globals.vhd`, so another core that uses this copy of the framework has to

@@ -103,7 +103,10 @@ the numbering stable and append new rules at the end.
    check `Block RAM Tile` in `*_utilization_placed.rpt`). New buffers go into
    HyperRAM or distributed LUTRAM, never block RAM. The 320 Amiga tiles are an
    exact mapping with nothing left to squeeze; re-enabling IDE (+8 tiles) does
-   not fit.
+   not fit. The design asks for more block RAM than the chip has and Vivado
+   puts the excess into LUTRAM (`Synth 8-5835`), so removing a block RAM user
+   does not lower the count: Vivado moves memories from LUTRAM into the freed
+   tiles.
 4. **No QNICE ports on spread-out block RAM.** QNICE devices are accessed on
    the falling clock edge, a 10 ns half-period budget, and the address bus
    cannot reach 256 tiles spread over the die in time (it once cost
@@ -214,7 +217,7 @@ the numbering stable and append new rules at the end.
 12. **The firmware ROM must end below `0x7000`.** M2M maps the device window
     at `0x7000`–`0x7FFF`, so 28672 words are usable. `make_rom.sh` enforces it,
     with `END_OF_ROM` as the last ROM item before `.ORG 0x8000`; the build log
-    prints `Shell ROM: N/28672 words.` (27533 at `WIP-V2-B1`).
+    prints `Shell ROM: N/28672 words.` (27533 at `WIP-V2-B2`).
 13. **Menu structure (`config.vhd`):**
     - A line's position is the bit number that carries its state; inserting a
       line shifts every `C_MENU_*` constant behind it, by hand. The HDMI filter
