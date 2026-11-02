@@ -60,6 +60,7 @@ JOBS=8 CORE/sim/run_long.sh
 | `check_osm_menu`, `check_firmware` | the two checkers below | under a second each |
 | `nvc_chain` | `CORE/sim/run_nvc_chain.sh` | a few seconds |
 | `audio`, `video`, `misc` | the audio, analog positioner and cold-boot benches | about 30 s together |
+| `voc_reset` | the reset bench of the HDMI clock generator, with its red control | about 15 s |
 | `scandoubler` | the quick subset of the scandoubler bench | about 1.5 minutes, under 1 with `JOBS=3` |
 | `keyboard` | the three keyboard benches | about 75 s |
 | `cia_inmode`, `blitter_freeze` | the two fast Minimig golden diffs | about 75 s together |
@@ -436,6 +437,16 @@ cells with a late vblank edge fail with the one-line-late signature.
     analog screen position) over five rasters, progressive and interlaced,
     native and line-doubled: exact bypass at zero offset, both directions,
     pulse widths, interlace phase, clamps, mode changes and reset. About 25 s.
+* `CORE/sim/video/run_voc_reset.sh`: `video_out_clock.vhd`, the
+    reprogrammable HDMI pixel-clock MMCM, under a long reset press and at
+    power-up, against behavioural models of the MMCM (outputs stop in reset,
+    wrong period until `LOCKED`, DRP) and of the glitch-free clock multiplexer
+    (switches only on a falling edge of the selected input). The pixel clock
+    must keep running, `rsto` must be high during the press, no edge of the
+    unlocked MMCM may reach the scaler's released output stage, and the final
+    state must be the configured mode. The red control undoes the two
+    functional edits of the `hdmi-clock-reset` change and must fail. About
+    15 s.
 * `CORE/sim/misc/run.sh`: `amiga_cold_boot.vhd` must not cold-boot the Amiga
     at power-on with the default drive map, must with a different map, and a
     deliberately wrong expectation must fail. A few seconds.

@@ -80,6 +80,13 @@ faithful and field-tested Amiga 500.
   this release contains an improved version of his fix. GitHub issue
   [#40](https://github.com/sy2002/AExp/issues/40).
 
+* The HDMI picture comes back after a long press (1.5 seconds or more) of the
+  reset button. The HDMI clock generator used to restart while the picture scaler was already
+  running again, which could leave the HDMI output black or showing repeated
+  lines until the next short press of the reset button or a power cycle; the
+  analog output and the on-screen menu were not affected. GitHub issue
+  [#39](https://github.com/sy2002/AExp/issues/39).
+
 ## Improved developer documentation
 
 * New developer documentation in `doc/developers`, also on the documentation

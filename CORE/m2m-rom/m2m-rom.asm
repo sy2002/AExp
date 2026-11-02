@@ -2349,7 +2349,7 @@ _SLS_MAG        RSUB    _SCR_LOGDEC, 1
 ;                    template lacks it. If the routine is ever ported into
 ;                    M2M/rom/tools.asm of this repository, delete this copy;
 ;                    the assembler then reports the duplicate label. See
-;                    doc/developers/architecture.md, section 8.11 (Other
+;                    doc/developers/architecture.md, section 8.12 (Other
 ;                    differences to V2.0.1).
 ;
 ; Input:  R8 = pointer to a 256-word horizontal coefficient table

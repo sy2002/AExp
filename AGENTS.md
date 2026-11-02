@@ -163,7 +163,7 @@ the numbering stable and append new rules at the end.
    `M2M-UPSTREAM <name>` tag (`grep -rn 'M2M-UPSTREAM' M2M CORE`), describe
    it in `architecture.md` section 8, and give new inputs defaults that keep
    the template behaviour, so that the change stays portable to another
-   core. The ten named changes:
+   core. The eleven named changes:
    - `interlace` — `video_fl_i` field flag through to ascal `i_fl`,
      `INTER => true` (HDMI weave deinterlacing);
    - `core-io-hook` — `HANDLE_CORE_IO`, an extra mandatory firmware callback
@@ -182,12 +182,16 @@ the numbering stable and append new rules at the end.
    - `line-doubler` — a plain line doubler in place of Hq2x in the analog
      scandoubler (`LINEDOUBLER` in `scandoubler.v`), selected by the core
      constant `VGA_LINEDOUBLER` in `globals.vhd`; needs only 2 clocks per
-     pixel (rule 6).
+     pixel (rule 6);
+   - `hdmi-clock-reset` — a reset (`rsti`) of the HDMI pixel-clock MMCM in
+     `video_out_clock.vhd` goes through the backup-clock path like a
+     video-mode change, so a long reset press never stops the HDMI clock or
+     restarts it unlocked under the scaler (#39).
 
    Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
    `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
    `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
-   section 8.11.
+   section 8.12.
 9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
    `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
    across individual machines. Do not force or re-route the RWDS strobe and do
@@ -397,8 +401,8 @@ a second opinion, Icarus Verilog):
   (`CORE/sim/floppy/run_fdd_regression.sh`, `run_write_matrix.sh`,
   `run_write_mutants.sh`). Others: drive-default cold boot
   (`CORE/sim/misc/`), the Minimig backports and the Copylock surface
-  (`CORE/sim/minimig/`), keyboard, audio, analog positioner and the analog
-  scandoubler (`CORE/sim/keyboard/`, `audio/`, `video/`).
+  (`CORE/sim/minimig/`), keyboard, audio, and the video benches (analog positioner, analog
+  scandoubler, HDMI clock reset) (`CORE/sim/keyboard/`, `audio/`, `video/`).
 - **Testbench discipline:** every new check gets a red control (show it
   fails on a mutant or on the old code) before its green counts; a mutant
   counts as killed only if the same cell is green on the unmutated design and
@@ -505,6 +509,10 @@ Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
 - **#35/#36 hires on analog Standard VGA** (every second pixel column lost):
   fixed in `WIP-V2-B2` by the `line-doubler` change in `M2M/` (rule 8),
   pending field confirmation.
+- **#39 HDMI black or garbled after a long reset press** (the HDMI MMCM
+  restarted unlocked under the running scaler): fixed in `WIP-V2-B3` by the
+  `hdmi-clock-reset` change in `M2M/` (rule 8), pending field confirmation.
+  On older builds a short press clears the symptom.
 - **#40 Apidya hangs from ADF** (a loader that reads one sector per DMA
   never got the odd sectors): fixed in `WIP-V2-B3` by the rotation
   continuation of `adf_track_engine.vhd`, which serves a sector again when

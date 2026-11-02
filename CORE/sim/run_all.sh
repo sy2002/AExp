@@ -51,6 +51,7 @@ step nvc_chain       "$HERE/run_nvc_chain.sh" "$BASE/nvc_chain"
 step audio           "$HERE/audio/run.sh" "$BASE/audio"
 step keyboard        "$HERE/keyboard/run.sh" "$BASE/keyboard"
 step video           "$HERE/video/run.sh" "$BASE/video"
+step voc_reset       "$HERE/video/run_voc_reset.sh" "$BASE/voc_reset"
 step scandoubler     "$HERE/video/run_scandoubler.sh" "$BASE/scandoubler" quick
 step misc            "$HERE/misc/run.sh" "$BASE/misc"
 step cia_inmode      "$HERE/minimig/run_tb_cia_inmode.sh" "$BASE/cia_inmode"

@@ -515,10 +515,10 @@ framework: the copy in `M2M/` belongs to this project and is changed like the
 rest of the code whenever the core needs it, without a sign-off. The word
 "framework" in this document and in the code names that layer of the design
 (`framework.vhd` and the files in `M2M/`), not a dependency. The copy carries
-ten AExp changes that the core needs and that V2.0.1 does not offer. Each
+eleven AExp changes that the core needs and that V2.0.1 does not offer. Each
 change is marked in the code with a comment `M2M-UPSTREAM <name>`, so this
 command finds all of them, together with the two tagged bug fixes of section
-[8.11](#811-other-differences-to-v201):
+[8.12](#812-other-differences-to-v201):
 
 ```
 grep -rn 'M2M-UPSTREAM' M2M CORE
@@ -533,7 +533,7 @@ it, and documented here like the changes below.
 > copy of a new M2M version silently drops or breaks the changes AExp
 > depends on, and the `grep` above does not find all of them: some changes
 > carry no tag (sections [8.5](#85-osm-scale) and
-> [8.11](#811-other-differences-to-v201)). Taking over an improvement from a
+> [8.12](#812-other-differences-to-v201)). Taking over an improvement from a
 > newer M2M version is a port of that change, not a merge. Go through this
 > section, decide for each AExp change whether the new code replaces it or
 > whether it has to be carried over, and test the result on hardware.
@@ -734,11 +734,55 @@ builds.
   `globals.vhd`, so another core that uses this copy of the framework has to
   add that constant (`false` keeps its behaviour).
 
-### 8.11 Other differences to V2.0.1
+### 8.11 `hdmi-clock-reset`
 
-Besides the ten changes of sections 8.1 to 8.10, AExp differs from M2M V2.0.1
-in four more places. Three of them are in `M2M/`, the fourth in AExp's own
-firmware.
+* What: the reset input `rsti` of `video_out_clock.vhd`, the reprogrammable
+  HDMI pixel-clock MMCM, takes the route of a video-mode change. While `rsti`
+  is high the state machine selects the 50 MHz backup clock `clki_div`
+  (`clk_mux` low) and parks in `RESET_WAIT`; after the release it resets and
+  reprograms the MMCM, waits for `LOCKED` and switches back. `mmcm_rst` is the
+  state machine's `cfg_rst` alone; the template ORs `rsti` into it. The
+  registers `clk_mux`, `cfg_rst` and `clki_div` carry their hardware initial
+  value explicitly, so that the bench simulates the power-up path.
+* Files: `controllers/HDMI/video_out_clock.vhd`.
+* Why: issue #39, a black or garbled HDMI picture after a long press of the
+  reset button that only a short press or a power cycle cleared. The template
+  asserts the MMCM reset at once when `rsti` rises, while the glitch-free
+  multiplexer still selects the MMCM output. The pixel clock therefore stops
+  for as long as `rsti` is high (`rsto`, synchronized with that clock, freezes
+  too), and after the release the MMCM restarts and runs unlocked for up to
+  about 100 µs. The scaler's reset (`reset_na` in `digital_pipeline.vhd`)
+  follows `hr_rst`, which is released about 60 ns after `rsti` falls (six
+  `hr_clk` synchronizer stages in `clk_m2m.vhd`), so ascal's output stage
+  clocks on the restarting MMCM while the HDMI encoder and the serializers are
+  reset only once `rsto` propagates. ascal's read machinery (`o_readlev`,
+  `o_copylev`, `o_state`, `o_copy`) has no recovery from a corrupted state:
+  the frame buffer is never read again and the line buffers repeat, while the
+  on-screen menu overlay and the analog output keep working. Power-up
+  (`clk_mux` starts at zero) and video-mode changes (`IDLE` to `RESET_WAIT`)
+  already had this protection from upstream commit `b0e97d6` ("the HDMI clock
+  would flicker ... This caused the ascaler to freeze"); the `rsti` branch did
+  not.
+* How: while `rsti` is high the MMCM keeps its configuration, the multiplexer
+  switches to the backup clock within two edges (both inputs running, as the
+  `BUFGMUX_CTRL` requires), and `rsto` holds the encoder and the serializers in
+  reset. After the release `RESET_WAIT` counts three cycles and asserts
+  `cfg_rst`; the DRP table is written while the MMCM is held in reset, and
+  `LOCK_WAIT` releases `cfg_rst`, waits for `LOCKED`, clears `rsto_req` and
+  sets `clk_mux` back to the MMCM. The bench `CORE/sim/video/run_voc_reset.sh`
+  checks this against behavioural cell models, with the template behaviour as
+  its red control (section [12](#12-checking-your-work-before-a-vivado-run)).
+* Other cores: every core built from M2M V2.0.1 has the same race. The change
+  is confined to the one file and alters nothing for a short press, a running
+  system or a video-mode change; the generated clock on `clki_div_reg` and the
+  `set_case_analysis` on `clk_mux_reg` in `common.xdc` still find their
+  registers.
+
+### 8.12 Other differences to V2.0.1
+
+Besides the eleven changes of sections 8.1 to 8.11, AExp differs from M2M
+V2.0.1 in four more places. Three of them are in `M2M/`, the fourth in
+AExp's own firmware.
 
 * HyperRAM read watchdog (tag `qnice2hyperram-watchdog`, ported from
   C64MEGA65). QNICE waits for the answer to every HyperRAM read. If the
