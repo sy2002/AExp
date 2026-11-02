@@ -21,6 +21,7 @@ can be checked in the "About & Help" menu of the core.
 | WIP-V2-A10    | 09/22/26 | e6546d9 | Added DVI option (issue #25). Only one drive (df0: in ADF mode) per default for maximum compatibility (issue #29).
 | WIP-V2-B1     | 10/07/26 | f820f75 | First Version 2 beta. Four chipset fixes backported from the MiSTer Minimig core: CIA timer count modes, blitter fill-mode freeze, VHPOSR beam-position readback, interlace field flag (issue #28).
 | WIP-V2-B2     | 10/11/26 | f4b5fdb | Second Version 2 beta. Hires screens (Workbench, text adventures) in full detail on analog VGA in the Standard VGA mode (issues #35, #36).
+| WIP-V2-B3     | 11/02/26 | 748f162 | Third Version 2 beta. Apidya loads from a disk image: a sector that the read DMA never reached is served again instead of skipped (issue #40, found and fixed by Johan Smolinski in Megamiga).
 
 ## Version 1
 
