@@ -37,10 +37,10 @@ Credits
 * The CPU is [fx68k](https://github.com/ijor/fx68k) by Jorge Cwik, a cycle
   accurate implementation of the 68000.
 * [sy2002](http://www.sy2002.de) ported the core to the MEGA65 in 2026.
-* The core uses the [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65)
-  framework and [QNICE-FPGA](https://github.com/sy2002/QNICE-FPGA) for
-  FAT32 support (loading the Kickstart ROM, mounting disks) and for the
-  on-screen-menu.
+* The core is built from the
+  [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) template and uses
+  [QNICE-FPGA](https://github.com/sy2002/QNICE-FPGA) for FAT32 support
+  (loading the Kickstart ROM, mounting disks) and for the on-screen-menu.
 
 Features
 --------
@@ -509,7 +509,7 @@ Developers
 
 Want to build the core from source? In [doc/developers.md](doc/developers.md)
 you will find the whole path from a fresh clone to a `*.cor` file. This core
-is built on the [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) (M2M)
-framework, whose [Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) is the
+is built from the [MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) (M2M)
+template, whose [Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) is the
 authoritative reference for the build environment and its
 operating-system specific details.

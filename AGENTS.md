@@ -18,8 +18,12 @@ appear in issues, commits and comments.
 - Kickstart comes from the SD card, `/amiga/kick.rom` (raw 256 KB dump, no
   byte swapping) and is **mandatory**: without it the core stops at a fatal
   error screen (`C_CRTROMTYPE_MANDATORY` in `CORE/vhdl/globals.vhd`).
-- Built on the MiSTer2MEGA65 (M2M) framework **V2.0.1, in a modified copy**
-  that lives in `M2M/` as part of this repository (rule 8).
+- Built from the MiSTer2MEGA65 (M2M) **template, version V2.0.1**. M2M is a
+  template, not a framework: the copy in `M2M/` is part of this repository,
+  belongs to this project and is changed like any other code here, without
+  a sign-off and without merging or re-basing on newer M2M versions (rule 8).
+  The word "framework" in code and docs names the M2M layer of the design
+  (`framework.vhd` and the files in `M2M/`), not a dependency.
 - Boards: MEGA65 R3/R3A, R4, R5, R6, one Vivado project each.
 - **Status:** Version 1 is released (tag `V1`, commit `46ef60c`, July 2026).
   Version 2 is in beta; the current build is the one named by `CORE_VERSION`
@@ -34,10 +38,11 @@ appear in issues, commits and comments.
 - **Version names:** releases are `V<n>` (`V<n>.<m>` for a point release);
   alphas are `WIP-V<n>-A<k>`, betas `WIP-V<n>-B<k>` (`make_release.py` also
   accepts an `X<m>` suffix). Git tags use exactly these names.
-- **Tag trap:** `V1.0.0`, `V2.0.0`, `V2.0.1` and similar are **M2M framework**
+- **Tag trap:** `V1.0.0`, `V2.0.0`, `V2.0.1` and similar are **M2M template**
   releases, never AExp releases. If you add sy2002/MiSTer2MEGA65 as a remote
   to compare, set `remote.<name>.tagOpt --no-tags` so that its tags never
-  enter this repository. Any "V2.0.1" in a comment means the framework.
+  enter this repository. Any "V2.0.1" in a comment means the template
+  version.
 - **`CORE_VERSION` is the single version source.** The welcome and help
   screens, `CORENAME` and the settings file `/amiga/aexp-<CORE_VERSION>.cfg`
   (`CFG_FILE`) derive from it. A new version therefore needs a new settings
@@ -53,7 +58,7 @@ appear in issues, commits and comments.
 | `VERSIONS.md` | Release notes per version. Maintained by the project owner; change it only when asked |
 | `doc/inofficial.md` | List of WIP builds (name, date, commit, summary). Maintained by the project owner; change it only when asked |
 | `doc/developers.md` | Building from source, the settings file |
-| `doc/developers/architecture.md` | **Start here.** Layering, repository layout, clock domains and CDC, QNICE devices, HyperRAM map, firmware callbacks, the core rules, every modification of the M2M framework (section 8), the Minimig submodule, the MiSTer HPS code AExp replaces, mouse and joystick (POT-line buttons, presence latch), local checks |
+| `doc/developers/architecture.md` | **Start here.** Layering, repository layout, clock domains and CDC, QNICE devices, HyperRAM map, firmware callbacks, the core rules, every change to the M2M template copy (section 8), the Minimig submodule, the MiSTer HPS code AExp replaces, mouse and joystick (POT-line buttons, presence latch), local checks |
 | `doc/developers/floppy-adf.md` | Simulated ADF drives: MFM, the engine, three drives, write-back, the arm-state invariant, verification |
 | `doc/developers/hardware-floppy.md` | The MEGA65's internal drive as a real Amiga drive: read chain, data separators, framing hold, Copylock/`DSKBYTR`, write datapath and its safety, diagnostics device `0x0104`, the field-report protocols |
 | `doc/developers/timing_closure.md` | The HyperRAM read-capture hold miss, why the IDELAY is fixed, the build re-roll |
@@ -64,8 +69,8 @@ appear in issues, commits and comments.
 | `doc/*.md` (user docs) | `drives.md`, `hardware_floppy.md`, `keyboard.md`, `audio.md`, `screen_adjust.md`, `retrotubes.md`, `RTC.md` |
 | `doc/make_doc.md` | The website builder `doc/make_doc.py` |
 | `doc/developers/tools.md` | The host tools in `tools/` (menu and firmware checkers, Hardware Floppy diagnostics decoder, ADF compare, flux analysis) and the testbenches in `CORE/sim/`: what each checks, how to run it, runtimes, the pre-synthesis gate |
-| [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) | The framework, the QNICE debug console |
-| [C64MEGA65](https://github.com/MJoergen/C64MEGA65) | The reference M2M port; origin of the mount-device, physical-drive and menu-dependency patterns. Consult it for any M2M integration pattern |
+| [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) | The template: build environment, the QNICE debug console |
+| [C64MEGA65](https://github.com/MJoergen/C64MEGA65) | The reference core built from M2M; origin of the mount-device, physical-drive and menu-dependency patterns. Consult it for any M2M integration pattern, and read its `M2M/` copy before porting one of its changes |
 
 **Before touching X, read Y:**
 
@@ -132,9 +137,9 @@ the numbering stable and append new rules at the end.
      `i_clk_fast` makes these silently match nothing; `build_bitstream.tcl`
      fails such a build with `GATE` lines.
 
-   Framework timing fixes go into `CORE/CORE.xdc`, never into
+   Timing fixes for M2M paths go into `CORE/CORE.xdc`, never into
    `M2M/common.xdc` or the board XDCs.
-6. **Video into the framework:** syncs active-high (Minimig's are active-low
+6. **Video into the M2M pipeline (`framework.vhd`):** syncs active-high (Minimig's are active-low
    and inverted in `main.vhd`); blanks must cover the syncs. The video clock is
    `main_clk` (28.375 MHz); the pixel enable is frame-locked, 7.09 MHz (4
    clocks per pixel) in all-lowres frames and 14.19 MHz (2 clocks per pixel)
@@ -148,14 +153,17 @@ the numbering stable and append new rules at the end.
    `qnice_ascal_triplebuf_o` at `'0'`: triple buffering grows the frame buffer
    to 6 MB, overwrites the ADF pools and breaks flicker-free.
 7. **`OPTM_PAUSE` stays `false`**: the core does not implement `pause_i`.
-8. **`M2M/` is a modified framework; do not modify it further** unless there
-   is no other way, and then only with the project owner's explicit sign-off.
-   Never merge or copy a newer M2M release into it: some AExp changes carry
-   no tag, so a framework upgrade is a change-by-change port along
-   `architecture.md` section 8, not a merge.
-   Every sanctioned change carries an `M2M-UPSTREAM <name>` tag
-   (`grep -rn 'M2M-UPSTREAM' M2M CORE`), and new framework inputs default to
-   values that leave other M2M cores bit-identical. The ten named exceptions:
+8. **`M2M/` is this project's own code, copied from the M2M V2.0.1 template.**
+   Change it when the core needs it, like `CORE/`; no sign-off is required.
+   Never merge or copy a newer M2M release into it, and never re-sync it from
+   the template: some AExp changes carry no tag, and the template carries
+   none of them, so taking over an improvement from a newer M2M version or
+   from another core is a change-by-change port along `architecture.md`
+   section 8, not a merge. Mark every change to template code with an
+   `M2M-UPSTREAM <name>` tag (`grep -rn 'M2M-UPSTREAM' M2M CORE`), describe
+   it in `architecture.md` section 8, and give new inputs defaults that keep
+   the template behaviour, so that the change stays portable to another
+   core. The ten named changes:
    - `interlace` — `video_fl_i` field flag through to ascal `i_fl`,
      `INTER => true` (HDMI weave deinterlacing);
    - `core-io-hook` — `HANDLE_CORE_IO`, an extra mandatory firmware callback
@@ -179,8 +187,7 @@ the numbering stable and append new rules at the end.
    Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
    `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
    `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
-   section 8.11. Never re-sync `M2M/` from the template; moving to M2M V2.1.0
-   is planned future work.
+   section 8.11.
 9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
    `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
    across individual machines. Do not force or re-route the RWDS strobe and do
@@ -413,7 +420,7 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   PAL), dithered through a `BUFGMUX_CTRL` with the flicker-free twin
   28.4375 MHz (`i_clk_fast`) so that the average frame rate is exactly 50 Hz;
   `qnice_clk` 50 MHz (QNICE, ADF mount devices, the whole Hardware Floppy
-  front end and writer); `hr_clk` 100 MHz (HyperRAM); framework video and
+  front end and writer); `hr_clk` 100 MHz (HyperRAM); M2M video and
   audio clocks. There is no 113.5 MHz clock.
 - **Amiga memory bus:** with a 68000 and no Fast RAM, all CPU and DMA traffic
   goes through Minimig's single SRAM-style port (`ram_addr[22:1]` word
@@ -433,7 +440,7 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   `0xF9` joystick swap, `0xF2` audio mix, `0xF1` release). `IO_FPGA` is
   Paula's floppy channel, served by `adf_track_engine.vhd`; `main.vhd`
   multiplexes the bus between the two.
-- **HyperRAM** (8 MB, 8 KB windows, `C_HMAP_*`): `0x000`–`0x1FF` framework
+- **HyperRAM** (8 MB, 8 KB windows, `C_HMAP_*`): `0x000`–`0x1FF` M2M
   (ascal frame buffer in the first 2 MB), `0x200`/`0x280`/`0x300` the
   `df0`/`df1`/`df2` image pools (115 windows + guard window each), `0x3FF` top
   guard. `mega65.vhd` asserts the ordering at elaboration time. Core access
@@ -478,7 +485,7 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   Kickstart and trackdisk disassembly, copy-protection analysis (Copylock)
   and flux reverse engineering are in scope.
 - **People:**
-  - sy2002 — author of the M2M framework and of this port.
+  - sy2002 — author of the M2M template and of this port.
   - deft — MEGA65 project lead and Amiga demo author; provides test content
     and calibration data. Communicate with him in German; documents for him
     are German PDFs made with pandoc + xelatex (strip any English context
@@ -496,7 +503,7 @@ Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
   docs), #27 (user docs) and #26 (Minimig README + `minimig_fdd.cpp`) are open
   for V2.
 - **#35/#36 hires on analog Standard VGA** (every second pixel column lost):
-  fixed in `WIP-V2-B2` by the `line-doubler` framework change (rule 8),
+  fixed in `WIP-V2-B2` by the `line-doubler` change in `M2M/` (rule 8),
   pending field confirmation.
 - **#40 Apidya hangs from ADF** (a loader that reads one sector per DMA
   never got the odd sectors): fixed in `WIP-V2-B3` by the rotation
@@ -519,8 +526,9 @@ Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
   WhichAmiga 1.4 and xSysInfo 0.6). `Main_MiSTer`'s September 2026 changes to
   the two reference `.cpp` files are not reconciled; diff against the copies
   in `doc/developers/` first.
-- **Framework:** migrating to M2M V2.1.0 and dropping what it supersedes
-  (rule 8). A third flicker-free clock for content above 50 Hz is designed
-  (`clk.vhd` header) but not built.
+- **`M2M/`:** no move to a newer M2M version is planned; improvements made
+  in upstream M2M or in C64MEGA65 are ported change by change when the core
+  needs them (rule 8). A third flicker-free clock for content above 50 Hz is
+  designed (`clk.vhd` header) but not built.
 - **Hardware Floppy:** DD media only; HD disks are out of scope on this
   mechanism.

@@ -2,8 +2,8 @@ Developers
 ----------
 
 Want to build the core from source? Here is the whole path from a fresh
-clone to a `*.cor` file. This core is built on the
-[MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) (M2M) framework,
+clone to a `*.cor` file. This core is built from the
+[MiSTer2MEGA65](https://github.com/sy2002/MiSTer2MEGA65) (M2M) template,
 whose [Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) is the
 authoritative reference for the build environment and its
 operating-system specific details. If you want to understand or change the
@@ -36,8 +36,8 @@ Operating-system hints for the `bash` tool chain:
 
 ### Build the core
 
-1. **Clone with all submodules** (the Minimig core and QNICE-FPGA; the M2M
-    framework is part of this repository):
+1. **Clone with all submodules** (the Minimig core and QNICE-FPGA; the copy
+    of the M2M template is part of this repository):
 
     ```bash
     git clone --recursive https://github.com/sy2002/AExp.git
@@ -183,8 +183,8 @@ some boards.
 * [Architecture overview](developers/architecture.md): what the core
   simulates, how it is layered from the board top down to Minimig, the
   repository layout, clock domains, QNICE devices and HyperRAM map, the rules
-  to respect when you change something, the changes to the M2M framework and
-  to the Minimig core, and the MiSTer software the core replaces.
+  to respect when you change something, the changes to the M2M template copy
+  and to the Minimig core, and the MiSTer software the core replaces.
 * [Floppy drives with ADF images](developers/floppy-adf.md): how the
   simulated drives read and write `*.adf` images, from the Amiga disk format
   to the write-back to the SD card.

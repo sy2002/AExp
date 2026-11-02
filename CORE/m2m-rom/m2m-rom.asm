@@ -2345,11 +2345,12 @@ _SLS_MAG        RSUB    _SCR_LOGDEC, 1
 ;                    the core.
 ;
 ;                    Copy of the routine from the M2M V2.1.0 development
-;                    line (the framework copy in C64MEGA65, M2M/rom/tools.asm
-;                    there): M2M V2.0.1 lacks it. Delete this copy when AExp
-;                    moves to M2M V2.1.0; the assembler then reports the
-;                    duplicate label. See doc/developers/architecture.md,
-;                    section 8.11 (Other differences to V2.0.1).
+;                    line (C64MEGA65, M2M/rom/tools.asm there): the V2.0.1
+;                    template lacks it. If the routine is ever ported into
+;                    M2M/rom/tools.asm of this repository, delete this copy;
+;                    the assembler then reports the duplicate label. See
+;                    doc/developers/architecture.md, section 8.11 (Other
+;                    differences to V2.0.1).
 ;
 ; Input:  R8 = pointer to a 256-word horizontal coefficient table
 ;         R9 = pointer to a 256-word vertical   coefficient table

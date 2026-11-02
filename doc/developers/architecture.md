@@ -22,7 +22,7 @@ text explains it or points to the glossary in
 5. [QNICE devices and the HyperRAM map](#5-qnice-devices-and-the-hyperram-map)
 6. [The QNICE firmware](#6-the-qnice-firmware)
 7. [Rules you have to know](#7-rules-you-have-to-know)
-8. [The modified M2M framework](#8-the-modified-m2m-framework)
+8. [The M2M template copy](#8-the-m2m-template-copy)
 9. [The Minimig submodule](#9-the-minimig-submodule)
 10. [The MiSTer HPS code and its replacements](#10-the-mister-hps-code-and-its-replacements)
 11. [Mouse and joystick](#11-mouse-and-joystick)
@@ -236,7 +236,7 @@ notes; `doc/inofficial.md` lists the alpha and beta builds, and
 ### `M2M/`: the framework
 
 The framework is part of this repository, not a submodule (section
-[8](#8-the-modified-m2m-framework) explains what AExp changed in it). Inside it,
+[8](#8-the-m2m-template-copy) explains what AExp changed in it). Inside it,
 `M2M/QNICE` is a submodule with the QNICE CPU, its tool chain and its monitor
 and FAT32 library, and `M2M/tools/make_config.sh` creates the menu settings
 file.
@@ -349,7 +349,7 @@ settings. It calls back into the core-specific firmware in
   Image mode), reset the core when Slow RAM is toggled, load the HDMI filter
   coefficients, reload the screen configuration.
 * `HANDLE_CORE_IO`, a callback AExp added to the framework (section
-  [8](#8-the-modified-m2m-framework)): called in every iteration of the Shell's
+  [8](#8-the-m2m-template-copy)): called in every iteration of the Shell's
   main loop and of all its wait loops. It handles the SPACE key that ejects a
   disk, detects Amiga screen-mode changes for the screen adjustment, runs the
   background write-back of changed ADF tracks to the SD card, reseeds the
@@ -367,8 +367,8 @@ The QNICE submodule tracks the `dev-V1.61` branch of QNICE-FPGA (set in
 `.gitmodules`), not the commit that M2M V2.0.1 pins. That branch carries two
 fixes to the FAT32 library that the ADF write-back depends on: the shared
 sector buffer is written back before `DIR_OPEN` or `FILE_OPEN` reuse it, and
-the 32-bit sector address overflow check. If you ever sync the framework from
-the M2M template, make sure the submodule pointer does not move back. Update it
+the 32-bit sector address overflow check. If you ever copy files from the M2M
+template again, make sure the submodule pointer does not move back. Update it
 with `git submodule update --remote M2M/QNICE`; the next synthesis reassembles
 the firmware against the new monitor.
 
@@ -508,38 +508,41 @@ scandoubler is on (`qnice_scandoubler_o = '1'`) in the standard VGA mode,
 because the core outputs 15 kHz video, and off only in the two 15 kHz analog
 modes.
 
-## 8. The modified M2M framework
+## 8. The M2M template copy
 
-AExp V2 is built on MiSTer2MEGA65 V2.0.1, but not on an unmodified copy. The
-framework in `M2M/` carries ten AExp changes that the core needs and that
-V2.0.1 does not offer. Each change is marked in the code with a comment
-`M2M-UPSTREAM <name>`, so this command finds all of them, together with the
-two tagged bug fixes of section [8.11](#811-other-differences-to-v201):
+AExp V2 is built from MiSTer2MEGA65 V2.0.1. M2M is a template, not a
+framework: the copy in `M2M/` belongs to this project and is changed like the
+rest of the code whenever the core needs it, without a sign-off. The word
+"framework" in this document and in the code names that layer of the design
+(`framework.vhd` and the files in `M2M/`), not a dependency. The copy carries
+ten AExp changes that the core needs and that V2.0.1 does not offer. Each
+change is marked in the code with a comment `M2M-UPSTREAM <name>`, so this
+command finds all of them, together with the two tagged bug fixes of section
+[8.11](#811-other-differences-to-v201):
 
 ```
 grep -rn 'M2M-UPSTREAM' M2M CORE
 ```
 
-The AExp V2 release is not reconciled with M2M V2.1.0. That framework release
-will contain the features that make these changes unnecessary. Moving AExp to
-it, dropping what V2.1.0 supersedes and carrying over the rest, is future work.
-Until then, treat `M2M/` as part of AExp. Do not update it from the M2M
-template, and do not make further changes there unless there is no other way.
+The copy is never updated from the template, and no move to a newer M2M
+version is planned. An improvement made in upstream M2M or in another core
+(C64MEGA65 is the usual source) is ported change by change when the core needs
+it, and documented here like the changes below.
 
 > **Do not merge a newer M2M release into `M2M/`.** A plain `git merge` or a
-> copy of a new framework version silently drops or breaks the changes AExp
+> copy of a new M2M version silently drops or breaks the changes AExp
 > depends on, and the `grep` above does not find all of them: some changes
 > carry no tag (sections [8.5](#85-osm-scale) and
-> [8.11](#811-other-differences-to-v201)). Moving to a newer framework is a
-> port, not a merge. Go through this section change by change, decide for
-> each one whether the new framework replaces it or whether it has to be
-> carried over, and test the result on hardware.
+> [8.11](#811-other-differences-to-v201)). Taking over an improvement from a
+> newer M2M version is a port of that change, not a merge. Go through this
+> section, decide for each AExp change whether the new code replaces it or
+> whether it has to be carried over, and test the result on hardware.
 
-Constraints for framework paths go into `CORE/CORE.xdc`; `M2M/common.xdc`
-stays as the framework ships it.
+Constraints for M2M paths go into `CORE/CORE.xdc`; `M2M/common.xdc` stays as
+the template ships it.
 
 If you add the M2M repository as a git remote to compare, remember that its
-tags (`V1.0.0`, `V2.0.0`, `V2.0.1` and so on) are framework releases, not AExp
+tags (`V1.0.0`, `V2.0.0`, `V2.0.1` and so on) are template releases, not AExp
 releases. AExp's own tags are `V1`, `V2` and the `WIP-*` work-in-progress
 builds.
 
@@ -631,7 +634,7 @@ builds.
   produces pulses faster than a 1 ms filter lets through, so the pointer
   freezes and jumps (section [11.1](#111-movement)).
 * Other cores: this one is not default-off. Every core using this copy gets
-  raw joystick lines. Upstream it should become a framework option.
+  raw joystick lines. In a port to another core it should become an option.
 
 ### 8.7 `floppy-pins`
 
@@ -740,7 +743,7 @@ firmware.
 * HyperRAM read watchdog (tag `qnice2hyperram-watchdog`, ported from
   C64MEGA65). QNICE waits for the answer to every HyperRAM read. If the
   answer is lost, for example because the reset button resets the HyperRAM
-  side in the middle of a read, QNICE would otherwise wait until a framework
+  side in the middle of a read, QNICE would otherwise wait until an M2M
   reset (reset button held for 1.5 s) or a power cycle. The watchdog in
   `qnice2hyperram.vhd` sends the read again every 0.65 ms until an answer
   arrives.
@@ -768,10 +771,10 @@ firmware.
 
 * A routine borrowed from the M2M V2.1.0 development line, kept in AExp's
   firmware rather than in `M2M/`. `m2m-rom.asm` carries a copy of
-  `M2M$LOAD_POLYPHASE` from that line (C64MEGA65's copy of the framework,
-  `M2M/rom/tools.asm` there), which V2.0.1 lacks; it loads the coefficients
-  of the HDMI scaling filters. Delete this copy when AExp moves to M2M
-  V2.1.0; the assembler then reports the duplicate label.
+  `M2M$LOAD_POLYPHASE` from that line (C64MEGA65's `M2M/rom/tools.asm`),
+  which V2.0.1 lacks; it loads the coefficients of the HDMI scaling filters.
+  If the routine is ever ported into `M2M/rom/tools.asm` of this repository,
+  delete this copy; the assembler then reports the duplicate label.
 
 ## 9. The Minimig submodule
 
