@@ -73,15 +73,11 @@ faithful and field-tested Amiga 500.
   affected. GitHub issues [#35](https://github.com/sy2002/AExp/issues/35) and
   [#36](https://github.com/sy2002/AExp/issues/36).
 
-* Apidya loads from a disk image. Its loader reads one sector per DMA, with
-  a length of one sector plus one word, and re-arms right after each
-  transfer. The simulated drive used to skip the sector in which such a
-  transfer ended, so the loader saw only every other sector of the track and
-  waited forever, with the drive light on. A sector that a running DMA never
-  reached is now served again, as a real drive brings it under the head once
-  more; other loaders of this kind benefit as well. Found, analysed and fixed
-  by Johan Smolinski in [Megamiga](https://github.com/johansmolinski/Megamiga),
-  a fork of this core. GitHub issue
+* Apidya loads from a disk image. Its loader reads one sector at a time, and
+  the simulated drive used to skip a sector after each of these reads, so the
+  game waited forever with the drive light on. Other loaders that read one
+  sector at a time benefit as well. Found and first fixed by Johan Smolinski;
+  this release contains an improved version of his fix. GitHub issue
   [#40](https://github.com/sy2002/AExp/issues/40).
 
 ## Improved developer documentation
