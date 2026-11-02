@@ -334,6 +334,17 @@ What AExp changed or added:
    speed and without the Copy Lock substitution, exports the live `DSKSYNC` to
    the front end, and feeds Paula's write data to the physical write path (see
    [hardware-floppy.md](hardware-floppy.md)).
+9. **A sector the DMA never reached is served again.** MiSTer's `ReadTrack`
+   counts every sector it has sent, so a DMA that expires in the two preamble
+   words of a sector, before its sync, moves the rotation pointer past a
+   sector the Amiga never saw, and the next DMA, which Paula can only start
+   at a later poll, begins one sector too far. A loader that reads one sector
+   per DMA with a length of one sector plus one word (the stage-2 loader of
+   Apidya) then sees only every other sector of the track and waits forever.
+   The engine watches Paula's answers on the io channel instead: when the DMA
+   carried over from the previous frame and had already stopped at this
+   frame's first sync word, the pointer stays on that sector
+   ([§7.2](#72-serve-adf_track_engine)).
 
 Upstream has changed `minimig_fdd.cpp` since the port, in September 2026:
 external floppy drives, SCP and IPF flux images, and clock bits in its own
@@ -620,10 +631,10 @@ handshake. Three word-response pairs carry the state:
 
 | Word sent | Response meaning |
 |---|---|
-| `w0` | status: `{sel[1:0], drives[1:0], "00", trackwr, trackrd & ~fifo_full, track[7:0]}` |
+| `w0` | status: `{sel[1:0], drives[1:0], "00", trackwr, trackrd & ~fifo_cnt[10], track[7:0]}` |
 | `w1` | `dsksync` (the live sync register) |
 | `w2` | `{dmaen, dsklen[14:0]}` on read / write-FIFO status on write |
-| `w3+` | FIFO data words |
+| `w3+` | FIFO data words; the response is `{dmaen, dsklen[14:0]}` while the read DMA runs, `0` once it has stopped |
 
 `sel[1:0]` in `w0` is what tells the engine which unit this poll is about, and
 [§6.3](#63-unit-ownership) explains why it is latched
@@ -663,6 +674,26 @@ data checksum on the fly as it fetches. It also reproduces MiSTer's "Copy Lock"
 sync substitution and the sector-rotation continuation that some trackloaders
 depend on. The track clamp and the rotation continuation both read the *serving
 unit's* track count and rotation state, never a global one.
+
+**The rotation continuation across the end of a DMA** is the one refinement
+over the reference. Paula answers every data word of a sector frame with
+`{dmaen, dsklen}` while its read DMA runs and with `0` once it has stopped, and
+the answer to a word carries the length still to store *before* that word. So
+the engine sees at the last word of a frame whether the DMA carries over into
+the next frame (two or more words still to store) and at the next frame's first
+sync word whether it has already expired in the two preamble words. Both
+together mean that the sector was not read: the pointer stays on it, and the
+next DMA, which Paula can only start at a later poll, gets that sector instead
+of the one after it, as on a real drive, where the sector comes under the head
+again. A DMA that starts inside a frame consumes the sync and advances the
+pointer as before, and a re-served frame ends with Paula idle, so two stays
+never chain. A loader that reads one sector per DMA with DSKLEN `$821E`, one
+sector after its first sync plus one word, and re-arms right after DSKBLK
+(the stage-2 loader of Apidya) would otherwise see only every other sector of
+the track, forever: the DMA that ends in the gap after sector 10 keeps the
+cycle on the even sectors. `tb_adf_rotation.vhd` drives exactly that loader
+against a cycle-level model of Paula's receiver and disk DMA
+([tools.md](tools.md#floppy-coresimfloppy)).
 
 **The Avalon read chain** is the C64 REU pattern: the engine issues single-word
 reads into an `avm_cache` (8-word cache line) → `avm_fifo` (main → HyperRAM CDC)

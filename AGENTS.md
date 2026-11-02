@@ -23,7 +23,7 @@ appear in issues, commits and comments.
 - Boards: MEGA65 R3/R3A, R4, R5, R6, one Vivado project each.
 - **Status:** Version 1 is released (tag `V1`, commit `46ef60c`, July 2026).
   Version 2 is in beta; the current build is the one named by `CORE_VERSION`
-  in `CORE/vhdl/config.vhd` (`WIP-V2-B2` at the time of writing).
+  in `CORE/vhdl/config.vhd` (`WIP-V2-B3` at the time of writing).
   `VERSIONS.md` is the authoritative feature list per release, and
   everything it lists is shipped and works: among others the simulated ADF
   drives (read and write), up to three drives, the Hardware Floppy reading
@@ -489,7 +489,7 @@ Full picture: `architecture.md` sections 2, 4 and 5.
 ## 7. Open work
 
 Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
-`WIP-V2-B2`:
+`WIP-V2-B3`:
 
 - **Version 2 release:** the beta is in field test; the release date in
   `VERSIONS.md` is still a placeholder. Documentation issues #31 (developer
@@ -498,6 +498,11 @@ Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
 - **#35/#36 hires on analog Standard VGA** (every second pixel column lost):
   fixed in `WIP-V2-B2` by the `line-doubler` framework change (rule 8),
   pending field confirmation.
+- **#40 Apidya hangs from ADF** (a loader that reads one sector per DMA
+  never got the odd sectors): fixed in `WIP-V2-B3` by the rotation
+  continuation of `adf_track_engine.vhd`, which serves a sector again when
+  the running DMA expired in its preamble (`floppy-adf.md` section 7.2,
+  bench `tb_adf_rotation.vhd`), pending field confirmation.
 - **#24 File browser failure** after many warm starts with large ADF
   collections (seen on V1; a long reset press clears it). Unclassified until
   the reporter supplies the exact fatal-error text and code.

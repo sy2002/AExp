@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Regression suite of the floppy stack: every read-side bench of the
 # Hardware Floppy front end and engine, the multi-drive ownership bench,
-# the DSKBYTR observation-tap bench and the paula_floppy.v golden diff.
+# the rotation-continuation bench of the ADF read service, the DSKBYTR
+# observation-tap bench and the paula_floppy.v golden diff.
 #
 # Usage: CORE/sim/floppy/run_fdd_regression.sh [workdir] [quick|full]
 #   full   every cell (default); the four tb_fdd_splice cells take
-#          10-15 min each, everything else finishes in seconds
-#   quick  skips the tb_fdd_splice cells
+#          10-15 min each, the rotation_throttle cell about 20 s,
+#          everything else finishes in seconds
+#   quick  skips the tb_fdd_splice cells and rotation_throttle
 #   JOBS=n runs n cells in parallel (default 1)
 #
 # workdir must be an existing directory or a path containing a slash (for
@@ -60,7 +62,7 @@ PF="$ROOT/CORE/vhdl/physical_fdd"
 SRC_FILES="physical_fdd_pkg.vhd physical_fdd_inputs.vhd physical_fdd_mfm_gaps.vhd
   physical_fdd_mfm_quantise.vhd physical_fdd_bits.vhd physical_fdd_wfifo.vhd
   physical_fdd_writer.vhd physical_fdd_diag.vhd physical_fdd_top.vhd
-  adf_track_engine.vhd tb_physical_fdd_top.vhd tb_fdd_margin.vhd
+  adf_track_engine.vhd tb_adf_rotation.vhd tb_physical_fdd_top.vhd tb_fdd_margin.vhd
   tb_fdd_diag_ro.vhd tb_fdd_dpll.vhd tb_fdd_splice.vhd tb_engine_paula.vhd
   tb_adf_multidrive.vhd tb_hwf_obs_tap.vhd"
 src_orig() {
@@ -144,11 +146,23 @@ if [ "$MODE" = full ]; then
     "splice_fl|tb_fdd_splice|-gG_LEGACY=true"
     "splice_xf|tb_fdd_splice|-gG_FIXED=true"
     "splice_xl|tb_fdd_splice|-gG_FIXED=true -gG_LEGACY=true"
+    # a DMA of 541 + 544 + 1 words at the real drain pace: its third frame
+    # follows a FIFO throttle and a re-poll, and its sector must still be
+    # served again (about 20 s)
+    "rotation_throttle|tb_adf_rotation|-gG_DSKLEN=33854 -gG_EXPECT=3 -gG_NDMA=12"
   )
 fi
 cells+=(
   "engine_paula|tb_engine_paula|"
   "multidrive|tb_adf_multidrive|"
+  # the rotation continuation across the end of a read DMA (issue #40): the
+  # one-sector-plus-one-word loader itself, one-word DMAs under WORDSYNC off,
+  # a DMA that consumes the first sync of the next sector, and a CPU abort
+  # followed by one-word DMAs
+  "rotation_step|tb_adf_rotation|-gG_DSKLEN=33310 -gG_SLOT_CYC=8 -gG_NDMA=12"
+  "rotation_tiny|tb_adf_rotation|-gG_DSKLEN=32769 -gG_WORDSYNC=false -gG_NDMA=12"
+  "rotation_sync3|tb_adf_rotation|-gG_DSKLEN=33312 -gG_EXPECT=2 -gG_SLOT_CYC=8 -gG_NDMA=12"
+  "rotation_abort|tb_adf_rotation|-gG_DSKLEN=32769 -gG_ABORT_AT=700 -gG_NDMA=9"
   "obs_tap|tb_hwf_obs_tap|"
 )
 

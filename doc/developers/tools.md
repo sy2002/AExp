@@ -233,6 +233,7 @@ ADF drives.
 | `tb_fdd_splice.vhd` | The write-splice sync seam through the real front end, judged by an independent model of the Kickstart 1.3 trackdisk read decode: realign-always framing fails, the framing hold and a constant-framing model of a real Paula decode; with `WORDSYNC` on, the hold stays off |
 | `tb_engine_paula.vhd` | The engine's physical delivery against a line-by-line model of Paula's receiver and disk DMA: two attempts stored word for word, a buffer that starts at the sync word, a co-selection click |
 | `tb_adf_multidrive.vhd` | Multi-drive ownership: no drive writes into another drive's image, physical writes never commit, the `df0:` select ambiguity, a busy writer, a reset inside a write episode |
+| `tb_adf_rotation.vhd` | The rotation continuation across the end of a read DMA (issue #40): a loader that reads one sector per DMA against a cycle-level model of Paula's receiver, FIFO and disk DMA. A DMA that expires in a sector's preamble gets that sector next, one that consumes the first sync word does not, tiny DMAs keep advancing, a CPU abort leaves the pointer clean, and the FIFO throttle of a longer read does not lose the decision. Red control: with the frame-end decision disabled the served sequence is 0, 2, 4, ..., 10, 0 |
 | `tb_hwf_obs_tap.vhd` | The `DSKBYTR` observation tap publishes exactly the real read-FIFO pops, with no phantom pop while the engine drains the FIFO |
 | `tb_fdd_write.vhd` | The write datapath, closed loop from a Paula write model through the real engine, CDC FIFO and writer into a rotating flux model and back through the real read chain, judged by the trackdisk decode model, a constant-framing Paula model and a per-sector byte compare. Twelve scenarios: full tracks over speed, separator and framing, precomp, X-Copy cadence, the write-protect tab, aborts, every gate term, the tail, co-selection, `df0:`, reset hygiene, the busy interlock |
 
@@ -248,7 +249,8 @@ Three runners:
 * `run_fdd_regression.sh [workdir] [quick|full]` runs every bench above
     except `tb_fdd_write`, plus the `paula_floppy.v` golden diff from
     `CORE/sim/minimig/`. `quick` skips the four splice cells, which take 10
-    to 15 minutes each; the other ten cells take about 40 s together.
+    to 15 minutes each, and the rotation throttle cell, which takes about
+    20 s; the other fourteen cells take about 50 s together.
 * `run_write_matrix.sh [workdir] [quick|full|fullonly]` runs the write
     bench over 42 short-transfer cells (`quick`, the default), the 35
     full-track cells (`fullonly`) or all 77 (`full`), then checks every flux

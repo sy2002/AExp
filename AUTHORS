@@ -14,6 +14,10 @@ testing and debugging hardware floppy disk reading.
 Special thanks to dejavu4u2 for testing and debugging hardware floppy disk
 reading and writing.
 
+Special thanks to Johan Smolinski (Megamiga, a fork of AExp) for finding,
+analysing and fixing the sector skip that stalled Apidya when loading from a
+disk image (issue #40).
+
 AExp:
 -----
 
