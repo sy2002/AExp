@@ -76,15 +76,15 @@ faithful and field-tested Amiga 500.
 * Apidya loads from a disk image. Its loader reads one sector at a time, and
   the simulated drive used to skip a sector after each of these reads, so the
   game waited forever with the drive light on. Other loaders that read one
-  sector at a time benefit as well. Found and first fixed by Johan Smolinski;
-  this release contains an improved version of his fix. GitHub issue
+  sector at a time benefit as well. GitHub issue
   [#40](https://github.com/sy2002/AExp/issues/40).
 
 * The HDMI picture comes back after a long press (1.5 seconds or more) of the
-  reset button. The HDMI clock generator used to restart while the picture scaler was already
-  running again, which could leave the HDMI output black or showing repeated
-  lines until the next short press of the reset button or a power cycle; the
-  analog output and the on-screen menu were not affected. GitHub issue
+  reset button aka hard reset. The HDMI clock generator used to restart while
+  the picture scaler was already running again, which could leave the HDMI
+  output black or showing repeated lines until the next short press of the
+  reset button or a power cycle; the analog output and the on-screen menu
+  were not affected. GitHub issue
   [#39](https://github.com/sy2002/AExp/issues/39).
 
 ## Improved developer documentation
