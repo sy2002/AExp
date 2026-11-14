@@ -416,7 +416,7 @@ re-rolls such a board and why the HyperRAM IDELAY value must not be changed.
 
 M2M maps its 4k-word device window at `0x7000-0x7FFF`, so only 28,672 words of
 the QNICE ROM are usable. `make_rom.sh` checks the assembled image against
-this limit and fails the build loudly if it is exceeded. `WIP-V2-B2` uses
+this limit and fails the build loudly if it is exceeded. Version 2 uses
 27,533 words. Vivado prints `Shell ROM: N/28672 words.` during synthesis.
 
 ### 7.5 Every growth of the menu needs a heap budget check
@@ -851,7 +851,7 @@ summarises the modifications. In short:
   time the disk. With the Hardware Floppy switched off, the controller behaves
   exactly like the upstream one.
 * Four upstream fixes that MiSTer made after AExp forked, backported in
-  `WIP-V2-B1`: the CIA timers' `CNT` input (MiSTer PR 230, `cia_timera.v`,
+  Version 2: the CIA timers' `CNT` input (MiSTer PR 230, `cia_timera.v`,
   `cia_timerb.v`, `ciaa.v`, `ciab.v`), the blitter freeze when fill mode is
   switched off mid-blit (PR 236, `agnus_blitter.v`), the exact `VHPOSR`
   readback (PR 234, `agnus_beamcounter.v`), and the field flag that is only

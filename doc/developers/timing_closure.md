@@ -44,7 +44,8 @@ Everything else in the path is fixed silicon: the pins, the IDDR and IDELAY
 sites and the constraints are identical on R3, R4, R5 and R6. The route is
 not fixed. It depends on where the placer puts the fabric loads of the
 strobe, and it moves by a few tenths of a nanosecond from build to build
-(0.87 to 1.55 ns have been seen). The WIP-V2-A10 build is a typical case:
+(0.87 to 1.55 ns have been seen). A build from the development of Version 2
+is a typical case:
 R3 closed with DQ4's branch at 1.356 ns (hold +0.187 ns). R6 placed the same
 netlist so that the branch grew to 1.552 ns (hold −0.008 ns), and a re-roll
 with the `ExtraTimingOpt` placer directive brought it to 1.285 ns

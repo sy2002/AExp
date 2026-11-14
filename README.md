@@ -13,17 +13,8 @@ And the MEGA65's built-in floppy drive becomes a real Amiga drive: put in a
 genuine Amiga disk, and the Amiga reads and writes it, copy-protected
 originals included.
 
-Beta 3 for Version 2
---------------------
-
-We are currently beta testing Version 2 of the core. It would be great if you
-supported our efforts and used Beta 3 for Version 2 instead of the official
-stable version.
-
-[Download it here](https://sy2002.de/dl/AExp-WIP-V2-B3.zip).
-
-The core is feature complete and, as far as we can assess, rock solid: it
-runs 99.9% of all games and demos.
+This is Version 2. The core is feature complete and, as far as we can
+assess, rock solid: it runs 99.9% of all games and demos.
 
 ![Amiga500](doc/assets/a500_ocs.jpg)
 
