@@ -12,14 +12,15 @@
 --    kbd_mouse_data[7:0] : bits 6:0 = raw Amiga keycode, bit 7 = 0:key pressed ("make"),
 --                                                                1:key released ("break")
 --    kbd_mouse_type[1:0] : 2 = keyboard event (0/1 = mouse deltas, 3 = OSD key - both unused here:
---                          mouse is a later milestone, the M2M framework has its own OSD)
+--                          a real Amiga mouse is read through the joystick port lines, and the
+--                          M2M framework has its own OSD)
 --    kms_level           : toggles once per event (level change = strobe)
 -- The only consumer of type-2 events inside rtl/minimig.v is CIA-A (rtl/ciaa.v): whenever it sees
 -- kms_level change while kbd_mouse_type = 2 (sampled with clk7n_en, i.e. every 4 clk28 cycles),
 -- it latches ~{kbd_mouse_data[6:0], kbd_mouse_data[7]} into its serial data register SDR and
 -- raises the SP (serial port) interrupt - the rotate-left-by-one plus inversion mimics exactly
 -- the data frame that a real Amiga keyboard shifts out on the KDAT line (keycode bits 6..0 first,
--- up/down flag last, everything active low). rtl/userio.v does NOT snoop keyboard events (it only
+-- up/down flag last, everything active low). rtl/userio.v does not snoop keyboard events (it only
 -- consumes mouse types 0/1), and kbd_mouse_type = 3 is only used by MiSTer's top level Minimig.sv,
 -- which is not compiled in this port. Hence this module replaces the HPS entirely by translating
 -- the MEGA65 keyboard scan into the very same kbd_mouse_data/kbd_mouse_type/kms_level protocol.
@@ -31,14 +32,14 @@
 --
 -- Behavior of this module: We mirror the state of all 80 MEGA65 keys in a register. As soon as the
 -- scanner reports a state that differs from the mirror (i.e. exactly one event per press edge and
--- one per release edge), the key is RESOLVED (see below) into an Amiga keycode plus the Amiga-side
+-- one per release edge), the key is resolved (see below) into an Amiga keycode plus the Amiga-side
 -- modifier state it needs, and - if it maps to an Amiga key - an event is pushed into a small FIFO.
--- The FIFO is drained with send-then-wait-for-acknowledge FLOW CONTROL, exactly as a real Amiga
+-- The FIFO is drained with send-then-wait-for-acknowledge flow control, exactly as a real Amiga
 -- keyboard blocks on the CPU handshake before shifting out the next code: a code goes on
--- kbd_mouse_data_o (bit 7 = release flag) with a kms_level_o toggle, and the NEXT code is held back
+-- kbd_mouse_data_o (bit 7 = release flag) with a kms_level_o toggle, and the next code is held back
 -- until a minimum 1 ms gap has elapsed AND the Amiga has consumed the current code - signalled by
 -- kbd_ack_i, a CPU read of the keycode SDR ($BFEC01) - or a ~143 ms deadlock timeout fires. This
--- never overwrites the single-byte CIA-A SDR before the reader has taken the previous code, for ANY
+-- never overwrites the single-byte CIA-A SDR before the reader has taken the previous code, for any
 -- reader speed: a fast reader (Kickstart's interrupt-driven keyboard.device) still paces at the 1 ms
 -- floor, a slow raw-CIA reader (e.g. VATestprogram's keyboard test) is paced at its own read rate,
 -- and a non-reading consumer is released by the timeout. See the "Pacing" constants and the pacer
@@ -46,40 +47,41 @@
 -- minimig_syscontrol.v stretches the internal reset by 4 frames (~80 ms PAL).
 --
 -- =====================================================================================================
--- TWO KEYBOARD MAPPING MODES (issue #6), selected by keyboard_mode_i (an OSM radio, static):
+-- Two keyboard mapping modes, selected by keyboard_mode_i (an OSM radio, static; GitHub #6):
 --
---   keyboard_mode_i = '0' : MEGA65 mode (default) - SEMANTIC, "the cap is law". You get exactly the
---                           character printed on the MEGA65 keycap in all THREE positions: unshifted
+--   keyboard_mode_i = '0' : MEGA65 mode (default) - semantic, "the cap is law". You get exactly the
+--                           character printed on the MEGA65 keycap in all three positions: unshifted
 --                           (primary), Shift+key (upper legend) and MEGA(C=)+key (the front-face
 --                           ASCII symbols ~ | \ { } _ ` printed on the caps). The Amiga's own keymap
 --                           differs (its Shift+2 is '@' not '"', and it has no MEGA-symbol layer), so
 --                           the core redirects keycodes and synthesizes/suppresses the Amiga-side
 --                           Shift and Left-Amiga modifiers to land the printed character.
---   keyboard_mode_i = '1' : Amiga mode - PURE POSITIONAL. Each MEGA65 key sends the raw Amiga keycode
---                           of the key in the geometrically-corresponding slot (deft's "custom caps"
---                           layout); Shift passes through 1:1 (so Shift+2 = '@' etc., the Amiga-native
---                           symbols). No semantic remap, no MEGA-symbol layer, MEGA = Left-Amiga.
+--   keyboard_mode_i = '1' : Amiga mode - pure positional. Each MEGA65 key sends the raw Amiga keycode
+--                           of the key in the geometrically-corresponding slot (deft's British A600
+--                           layout, doc/assets/keyboard.png); Shift passes through 1:1 (so Shift+2 =
+--                           '@' etc., the Amiga-native symbols). No semantic remap, no MEGA-symbol
+--                           layer, MEGA = Left-Amiga.
 --
 -- Mode-independent behaviour (warm boot, the right-mouse-button substitute, keyboard pacing) stays
--- active in BOTH modes. The Shift+F1..F9 -> F2..F10 substitution is MEGA65-mode-only now: Amiga mode
+-- active in both modes. The Shift+F1..F9 -> F2..F10 substitution is MEGA65-mode-only: Amiga mode
 -- gives every Amiga F-key (F1..F10) its own MEGA65 key via the top-row remap below, so it needs no
 -- Shift trick. The right-mouse-button substitute uses a different source key per mode (see its note).
 --
 -- Amiga-mode positional keymap (C_KEYMAP_AMIGA) - each MEGA65 key sends the raw Amiga keycode of the
--- key in the geometrically-corresponding slot of deft's "custom caps" A600 layout. Two groups differ
--- from the MEGA65-mode base keymap (C_KEYMAP_MEGA65):
+-- key in the geometrically-corresponding slot of the A600 layout above. Two groups differ from the
+-- MEGA65-mode base keymap (C_KEYMAP_MEGA65):
 --
---   (a) THE TOP FUNCTION-KEY ROW maps positionally onto the Amiga's Esc + F1..F10 row. The MEGA65 row
+--   (a) The top function-key row maps positionally onto the Amiga's Esc + F1..F10 row. The MEGA65 row
 --       is longer (five extra keys left of F1), so those extras fill in Esc/F1..F4 and the printed
 --       F-keys slide right by two:
 --         MEGA65 : RUN/STOP  ESC  ALT  CAPSLOCK  NOSCRL | F1  F3  F5  F7  F9  F11 | ... HELP  F13
 --         Amiga  : Esc       F1   F2   F3        F4     | F5  F6  F7  F8  F9  F10 | ... Help  L.Alt
 --       so RUN/STOP=Esc $45, ESC=F1 $50, ALT=F2 $51, CAPSLOCK=F3 $52, NOSCRL=F4 $53, F1=F5 $54,
 --       F3=F6 $55, F5=F7 $56, F7=F8 $57, F9=F9 $58, F11=F10 $59, HELP=Help $5F, F13=Left Alt $64.
---       CAPS LOCK -> F3 is taken from the CPLD's MOMENTARY caps key (matrix 78, m65_capslock_mom) so
---       F3 is a normal momentary key; the latched caps LEVEL (key 72) is left unmapped in this mode.
+--       CAPS LOCK -> F3 is taken from the CPLD's momentary caps key (matrix 78, m65_capslock_mom) so
+--       F3 is a normal momentary key; the latched caps level (key 72) is left unmapped in this mode.
 --
---   (b) THE PUNCTUATION / MODIFIER cells that follow the Amiga's own labelling rather than the MEGA65's:
+--   (b) The punctuation / modifier cells that follow the Amiga's own labelling rather than the MEGA65's:
 --         #  MEGA65 key      Amiga key (code)           MEGA65-mode base (for reference)
 --          0 INS/DEL         Del          ($46)         Backspace ($41)
 --         40 + (plus)        - _  ($0B, Amiga '-' key)  Keypad +  ($5E)
@@ -94,17 +96,17 @@
 -- $20.., Z-row $31..), Return $44, Space $40, cursor keys $4C..$4F, TAB $42, CTRL $63, L/R Shift
 -- $60/$61, MEGA=Left Amiga $66, the ,./ cluster $38/$39/$3A, the : ; @ cluster $29/$2A/$1A, GBP=\ $0D.
 --
--- Two Amiga functions have NO home in Amiga mode, both from MEGA65 keyboard-hardware limits (not a
--- choice - see the deep notes in doc/keyboard.md):
+-- Two Amiga functions have no home in Amiga mode, both because of MEGA65 keyboard-hardware limits
+-- (see doc/keyboard.md, section Amiga mode):
 --   * Amiga CAPS LOCK ($62): the top-row CAPS LOCK key is F3 here, and the home-row SHIFT LOCK key -
 --     which sits exactly where the Amiga's Caps Lock is - is merged by the keyboard CPLD with the
---     Z-row LEFT SHIFT into ONE matrix key (15); the raw shift-lock is never transmitted, so it cannot
+--     Z-row LEFT SHIFT into one matrix key (15); the raw shift-lock is never transmitted, so it cannot
 --     drive Caps Lock without also turning LEFT SHIFT into Caps Lock. Engaging SHIFT LOCK therefore
 --     just holds Amiga Left Shift (a shift-lock). Amiga Caps Lock stays reachable in MEGA65 mode.
 --   * F11/F13 leak an Amiga keycode here (F10 / Left Alt), so - unlike MEGA65 mode - they are no
 --     longer "clean" OSM-open keys; opening the menu with one also sends its keycode (accepted).
 --
--- MEGA65-mode SEMANTIC resolution (function resolve() below) - the cap character per legend:
+-- MEGA65-mode semantic resolution (function resolve() below) - the cap character per legend:
 --   symbol keys (all three legends):
 --     key   unshifted        Shift+key         MEGA(C=)+key
 --     ----  ---------------  ----------------  -----------------
@@ -123,43 +125,42 @@
 --     Shift+2 -> " = Sh+$2A     Shift+7 -> ' = $2A (shift DROPPED)
 --     Shift+6 -> & = Sh+$07     Shift+8 -> ( = Sh+$09     Shift+9 -> ) = Sh+$0A
 --     Shift+1/3/4/5 = ! # $ % already match the Amiga; Shift+0 has no cap symbol -> nothing.
---   Kept creative (both the printed cap and sy2002's choices): <- primary '_', ^ primary '^',
+--   Design choices beyond the printed caps: <- primary '_', ^ primary '^',
 --   GBP -> '\' ($0D), INS/DEL -> Backspace, CLR/HOME -> Del, keypad + and *.
 --   The four graphic-only shifted caps (Shift+@ / Shift+* / Shift+^ / Shift+0) have no Amiga
 --   character and send nothing.
 --
 -- MEGA (C=) key - dual role in MEGA65 mode (function of the co-pressed key):
 --   * MEGA + a front-face symbol key (<- , . / : ; =) -> the printed front-face symbol above;
---     Left-Amiga is NOT sent for that combo (the symbol key transiently suppresses it).
+--     Left-Amiga is not sent for that combo (the symbol key transiently suppresses it).
 --   * MEGA + anything else (letters, digits, ...) -> Left-Amiga + that key (so LAmiga+N/M screen
 --     depth and Intuition menu shortcuts survive).
 --   * MEGA tapped alone -> Left-Amiga (make on release-with-no-cokey, then break = a clean tap).
---   Implementation: MEGA make is DEFERRED (no $66 emitted yet); the first non-symbol co-key engages
+--   Implementation: MEGA make is deferred (no $66 emitted yet); the first non-symbol co-key engages
 --   Left-Amiga ($66 make queued before that key's make); a symbol co-key marks the hold as "used as
 --   symbol modifier" so releasing MEGA does not tap. In Amiga mode MEGA is a plain $66 key (immediate
 --   make/break, no deferral, no symbol layer).
 --
--- THE TRANSLATION ENGINE (per-key, transient - the correction the adversarial review of the spec
--- demanded over a whole-shift-hold latch):
---   resolve(key, shift, mega, mode) yields, at the MAKE edge, an Amiga chord = (keycode, valid,
+-- Translation engine (per key and transient, instead of a latch over the whole Shift hold):
+--   resolve(key, shift, mega, mode) yields, at the make edge, an Amiga chord = (keycode, valid,
 --   f1, f0, is_sym):
---     * f1 : while this key is held, the Amiga-side Shift must read ASSERTED (target needs Shift but
+--     * f1 : while this key is held, the Amiga-side Shift must read asserted (target needs Shift but
 --            the user is not holding it - e.g. ':' -> ':' = Sh+$29, or ~ = Sh+$00).
---     * f0 : while this key is held, the Amiga-side Shift must read RELEASED (target must have no
---            Shift but the user IS holding it - e.g. Shift+: -> '[' = $1A, Shift+7 -> ''' = $2A, and
+--     * f0 : while this key is held, the Amiga-side Shift must read released (target must have no
+--            Shift but the user is holding it - e.g. Shift+: -> '[' = $1A, Shift+7 -> ''' = $2A, and
 --            a substituted Shift+F1 -> F2).
 --     * is_sym : a MEGA65-mode front-face symbol key (drives the MEGA/Left-Amiga handling above).
---   The chord is LATCHED per key at the make edge (key_code/key_valid/key_f1/key_f0/key_sla), so the
+--   The chord is latched per key at the make edge (key_code/key_valid/key_f1/key_f0/key_sla), so the
 --   matching break uses the exact same keycode and a later Shift change while the key is held does
---   NOT retro-change the character (matches real hardware "resolve once, at the make edge").
+--   not retro-change the character (matches real hardware "resolve once, at the make edge").
 --   The Amiga-side Shift (shift_l_sent/shift_r_sent) and Left-Amiga (la_sent) are each driven by a
---   small CONVERGENCE block towards a desired state computed from the currently-held keys' latched
+--   small convergence block towards a desired state computed from the currently-held keys' latched
 --   requirements PLUS the one make edge that is still waiting for its modifiers (wait_*). Because
 --   these codes are queued into the same FIFO, ordering is exact: the Shift make/break and the
 --   Left-Amiga make/break land before the keycode make (the make is held back - mirror not updated,
 --   retried on the next 1 kHz sweep - until its required modifier state is reached) and the keycode
 --   break lands before the modifiers converge back to the physically-held state. The suppression is
---   thus SCOPED to the override key being held (v_any_f0/f1/sla is an OR over held keys, gated per
+--   thus scoped to the override key being held (v_any_f0/f1/sla is an OR over held keys, gated per
 --   key), so inline shifted punctuation stays correct: holding Shift to type "[HELLO]" retracts Shift
 --   only around the '[' and ']' keycodes and restores it for H E L L O. The keyboard handshake
 --   (kbd_ack_i) delivers every one of these codes reliably, so a raw CIA reader sees each of them.
@@ -167,44 +168,46 @@
 --   pressing another that forces it down - are not real typing; they resolve serially and self-heal
 --   when the conflicting key is released, delaying only that one key, never freezing the keyboard.)
 --
--- SHIFTED F-KEYS (F1/F3/F5/F7/F9 + Shift -> F2/F4/F6/F8/F10, MEGA65 MODE ONLY): unified into the engine
+-- Shifted F-keys (F1/F3/F5/F7/F9 + Shift -> F2/F4/F6/F8/F10, MEGA65 mode only): unified into the engine
 -- above. Shift+F1 resolves to code $51 (base+1) with f0='1' (the Amiga must not see Shift together
 -- with the substituted F-key). The Shift is retracted before the F2 make and re-made after the F2
 -- break iff still physically held - all reliably delivered by the handshake, so raw CIA readers see
 -- clean isolated make/break pairs with no stuck F-key and no hanging Shift. Shift+F2 (etc.) cannot
 -- be typed (the Shift is consumed by the substitution); the Shift must lead the F-key by at least one
--- scan sweep (~1 ms); F11/F13 are unmapped in MEGA65 mode (Amiga F10 = Shift+F9). In AMIGA mode this
--- whole substitution is SKIPPED: the top-row remap gives every F-key its own MEGA65 key (F11=F10,
+-- scan sweep (~1 ms); F11/F13 are unmapped in MEGA65 mode (Amiga F10 = Shift+F9). In Amiga mode this
+-- whole substitution is skipped: the top-row remap gives every F-key its own MEGA65 key (F11=F10,
 -- F13=Left Alt), so Shift passes straight through the F-keys there.
 --
--- WARM BOOT (July 2026): Ctrl+LAmiga+RAmiga = CTRL+MEGA+RESTORE is detected here by MIRROR state and
+-- Warm boot: Ctrl+LAmiga+RAmiga = CTRL+MEGA+RESTORE is detected here by mirror state and
 -- pulses core_reset_o (one shot; re-armed only after the combo has been released for several scan
--- sweeps). It reads the physical mirror, so it fires in BOTH modes even though RESTORE maps
+-- sweeps). It reads the physical mirror, so it fires in both modes even though RESTORE maps
 -- differently. main.vhd ORs this into amiga_rst (CPU+chipset reset, memories kept - the real
--- keyboard MCU's reset line). The FSM deliberately survives reset_i (it is the source of that reset).
+-- keyboard MCU's reset line). The FSM is not cleared by reset_i, because it is the source of that
+-- reset.
 -- Keys still held after the boot are re-delivered as plain make codes once the 100 ms holdoff
 -- expires; Kickstart ignores them.
 --
--- RIGHT MOUSE BUTTON substitute (July 2026): a held key is exported as a level on mouse_rmb_o; main.vhd
--- ORs it into Minimig's mouse_btn(1). The SOURCE key is mode-dependent: RUN/STOP (key 63) in MEGA65
+-- Right mouse button substitute: a held key is exported as a level on mouse_rmb_o; main.vhd
+-- ORs it into Minimig's mouse_btn(1). The source key is mode-dependent: RUN/STOP (key 63) in MEGA65
 -- mode, but the ARROW-UP symbol key (key 54, left of RESTORE) in Amiga mode - where RUN/STOP is
 -- repurposed as Esc. In each mode the chosen key has no Amiga keycode (mirror-only), so the substitute
 -- cannot interfere with the keycode stream. On a real Amiga the mouse right button shorts DB9 pin 9
--- (POTX) to GND while PAULA drives the pot lines high - the MEGA65's paddle circuit can only drain the
--- line, so a GND-shorting button is electrically invisible to it (verified with two Amiga tank mice on
--- real R3 hardware, 2026-07-03).
+-- (POTX in the MEGA65 schematics) to GND while Paula drives the pot lines high - the MEGA65's paddle
+-- circuit can only drain the line, so a GND-shorting button is electrically invisible to it (verified
+-- with real Amiga mice on MEGA65 hardware; see doc/developers/architecture.md, section Mouse and
+-- joystick).
 --
--- Known limitations (by design): Amiga keys with no MEGA65 counterpart cannot be typed (in MEGA65
--- mode: the numeric pad except the borrowed '+'/'*', the international keys $2B/$30; Right Alt is on
+-- Known limitations: Amiga keys with no MEGA65 counterpart cannot be typed (in MEGA65 mode: the
+-- numeric pad except the borrowed '+'/'*', the international keys $2B/$30; Right Alt is on
 -- NO SCROLL, and Left Amiga/Right Amiga/Left Alt map as usual).
 --
--- CAPS LOCK: the MEGA65 keyboard CPLD exposes this key TWO ways - a LATCHED lock LEVEL at key 72
--- (m65_capslock) and a RAW MOMENTARY press at key 78 (m65_capslock_mom). In MEGA65 mode key 72 -> Amiga
+-- CAPS LOCK: the MEGA65 keyboard CPLD exposes this key two ways - a latched lock level at key 72
+-- (m65_capslock) and a raw momentary press at key 78 (m65_capslock_mom). In MEGA65 mode key 72 -> Amiga
 -- Caps Lock $62: a real Amiga keyboard sends a single make $62 when the lock turns ON and a single break
 -- $E2 when it turns OFF - nothing while held, and the CPLD's latched level reproduces that exactly
 -- through the generic edge-to-make/break translation (no special casing). In Amiga mode key 72 is
 -- unused and key 78 -> F3, so F3 is an ordinary momentary key (press = make, release = break).
--- NOTE: the keycap's lock latch AND its LED are owned by the keyboard CPLD (LED_CAPS <= caps_lock,
+-- Note: the keycap's lock latch and its LED are owned by the keyboard CPLD (LED_CAPS <= caps_lock,
 -- with no path from the main-FPGA serial stream - it carries only the 4 RGB power/drive LEDs), so
 -- pressing CAPS LOCK for F3 still flips the LED on/off. The core cannot suppress it: it is a keyboard-
 -- CPLD-firmware limit, unreachable by the core or by any M2M change.
@@ -225,8 +228,8 @@ entity keyboard is
       kb_key_num_i         : in  integer range 0 to 79;      -- cycles through all MEGA65 keys
       kb_key_pressed_n_i   : in  std_logic;                  -- low active: debounced feedback: is kb_key_num_i pressed right now?
 
-      -- Keyboard mapping mode (issue #6): '1' = Amiga (pure positional), '0' = MEGA65 (semantic,
-      -- default). A static OSM radio bit, already in this (core) clock domain - used directly.
+      -- Keyboard mapping mode: '1' = Amiga (pure positional), '0' = MEGA65 (semantic, default).
+      -- A static OSM radio bit, already in this (core) clock domain - used directly.
       keyboard_mode_i      : in  std_logic;
 
       -- Interface to Minimig (rtl/minimig.v, consumed by rtl/ciaa.v):
@@ -235,17 +238,18 @@ entity keyboard is
       kbd_mouse_type_o     : out std_logic_vector(1 downto 0); -- constant 2 = keyboard event
       kms_level_o          : out std_logic;                    -- toggles once per event
 
-      -- Flow-control back-channel from CIA-A (rtl/ciaa.v via minimig/minimig_m65): HIGH while
+      -- Flow-control back-channel from CIA-A (rtl/ciaa.v via minimig/minimig_m65): high while
       -- the Amiga reads the keycode SDR ($BFEC01) = "this code has been consumed". The pacer
       -- waits for this before sending the next code - the real keyboard-to-CIA handshake. It is
-      -- a LEVEL held for the whole multi-cycle read, so it must be rising-edge-detected (see the
+      -- a level held for the whole multi-cycle read, so it must be rising-edge-detected (see the
       -- flow-control note in the header and the pacer process below).
       kbd_ack_i            : in  std_logic;
 
       -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot (one-shot pulse, see header)
       core_reset_o         : out std_logic;
 
-      -- RUN/STOP held = Amiga right mouse button substitute (level, active high, see header)
+      -- Amiga right mouse button substitute (level, active high): RUN/STOP held in MEGA65 mode,
+      -- ARROW-UP held in Amiga mode (see header)
       mouse_rmb_o          : out std_logic
    );
 end entity keyboard;
@@ -330,11 +334,11 @@ constant m65_capslock      : integer := 72;
 constant m65_up_crsr       : integer := 73;  -- cursor up
 constant m65_left_crsr     : integer := 74;  -- cursor left
 constant m65_restore       : integer := 75;
--- The MEGA65 keyboard CPLD exposes the CAPS LOCK key TWICE in the scan matrix: as the LATCHED
--- lock LEVEL at key 72 (m65_capslock - flips per press and holds; this is what drives the keycap
--- LED, which the keyboard CPLD owns and the core cannot suppress), and as the RAW MOMENTARY press
+-- The MEGA65 keyboard CPLD exposes the CAPS LOCK key twice in the scan matrix: as the latched
+-- lock level at key 72 (m65_capslock - flips per press and holds; this is what drives the keycap
+-- LED, which the keyboard CPLD owns and the core cannot suppress), and as the raw momentary press
 -- at key 78 (SCAN_IN(0), asserted only while the key is physically down - the CPLD forwards it so
--- the MEGA65 can gate its 40 MHz "turbo" on "caps held"). Amiga mode drives F3 from the MOMENTARY
+-- the MEGA65 can gate its 40 MHz "turbo" on "caps held"). Amiga mode drives F3 from the momentary
 -- one, so the top-row CAPS LOCK key behaves like an ordinary function key (press = make, release =
 -- break) independently of the lock latch. Both matrix bits ride the standard 0..79 scan into m2m_keyb.
 constant m65_capslock_mom  : integer := 78;
@@ -345,14 +349,14 @@ constant C_NO_KEY : std_logic_vector(7 downto 0) := x"FF";
 
 -- MEGA65 key number -> raw Amiga keycode. Two tables (see the header):
 --   C_KEYMAP_MEGA65 : the base for MEGA65 (semantic) mode. The symbol keys and the five differing
---                     number-row keys are OVERRIDDEN by resolve() below (their entries here are the
+--                     number-row keys are overridden by resolve() below (their entries here are the
 --                     positional fallbacks and are only reached for keys resolve() does not special-
 --                     case). F1..F9 base codes ($50..$58) are read from here for the MEGA65-mode
 --                     Shift+F substitution.
 --   C_KEYMAP_AMIGA  : the pure positional (Amiga) mode. It shares most cells with C_KEYMAP_MEGA65 but
 --                     remaps the whole top function-key row onto the Amiga's Esc + F1..F10 (plus the
 --                     punctuation/modifier cells listed in the header). Used verbatim (Shift passes
---                     through 1:1); the Shift+F substitution does NOT apply in this mode.
+--                     through 1:1); the Shift+F substitution does not apply in this mode.
 type t_keymap is array(0 to 79) of std_logic_vector(7 downto 0);
 
 constant C_KEYMAP_MEGA65 : t_keymap := (
@@ -436,7 +440,7 @@ constant C_KEYMAP_MEGA65 : t_keymap := (
 );
 
 constant C_KEYMAP_AMIGA : t_keymap := (
-   -- === the MEGA65 top row maps POSITIONALLY onto the Amiga Esc + F1..F10 row ===
+   -- === the MEGA65 top row maps positionally onto the Amiga Esc + F1..F10 row ===
    -- The MEGA65 function row is longer than the Amiga's (five extra keys sit to the left of F1),
    -- so those extras fill in Esc/F1..F4 and the printed F-keys slide right by two:
    --   MEGA65 : RUN/STOP  ESC  ALT  CAPSLOCK  NOSCRL | F1  F3  F5  F7  F9  F11 | ... HELP  F13
@@ -444,9 +448,9 @@ constant C_KEYMAP_AMIGA : t_keymap := (
    m65_run_stop      => x"45",   -- Esc  (the right-mouse-button substitute moves to ARROW-UP, below)
    m65_esc           => x"50",   -- F1
    m65_alt           => x"51",   -- F2
-   m65_capslock_mom  => x"52",   -- F3   (the top-row CAPS LOCK key, taken from the CPLD's MOMENTARY
+   m65_capslock_mom  => x"52",   -- F3   (the top-row CAPS LOCK key, taken from the CPLD's momentary
                                  --        caps matrix key 78 so F3 is a normal momentary key; the
-                                 --        LATCHED level at key 72 is left unmapped below, see header)
+                                 --        latched level at key 72 is left unmapped below, see header)
    m65_no_scrl       => x"53",   -- F4
    m65_f1            => x"54",   -- F5
    m65_f3            => x"55",   -- F6
@@ -466,7 +470,7 @@ constant C_KEYMAP_AMIGA : t_keymap := (
    m65_equal         => x"67",   -- Right Amiga
    m65_arrow_up      => C_NO_KEY,-- no Amiga keycode; used as the right-mouse-button substitute
    m65_restore       => x"65",   -- Right Alt (image "ALT")
-   m65_capslock      => C_NO_KEY,-- the LATCHED caps LEVEL (key 72) is unused in Amiga mode; F3 comes
+   m65_capslock      => C_NO_KEY,-- the latched caps level (key 72) is unused in Amiga mode; F3 comes
                                  --   from the momentary caps key (m65_capslock_mom) above. The home-
                                  --   row SHIFT LOCK cannot be Amiga Caps Lock: the CPLD merges it with
                                  --   LEFT SHIFT into key 15, so Amiga Caps Lock is a MEGA65-mode-only
@@ -531,7 +535,7 @@ constant C_KEYMAP_AMIGA : t_keymap := (
    others            => C_NO_KEY
 );
 
--- The five MEGA65 F-keys whose SHIFTED variant exists on the Amiga (F2/F4/F6/F8/F10).
+-- The five MEGA65 F-keys whose shifted variant exists on the Amiga (F2/F4/F6/F8/F10).
 -- All Amiga F-key codes are $50..$59 with even base codes: shifted variant = base+1.
 pure function f_shiftable_fkey(n : integer) return boolean is
 begin
@@ -539,7 +543,7 @@ begin
 end function f_shiftable_fkey;
 
 -- Result of resolving one MEGA65 key edge into an Amiga chord (see the header). code/valid carry the
--- keycode; f1/f0 are the Amiga-side Shift requirement WHILE this key is held (force asserted /
+-- keycode; f1/f0 are the Amiga-side Shift requirement while this key is held (force asserted /
 -- force released; both '0' = pass the physical Shift through); is_sym marks a MEGA65-mode front-face
 -- symbol key (drives the MEGA/Left-Amiga handling).
 type t_resolved is record
@@ -561,10 +565,10 @@ begin
    r.f0     := '0';
    r.is_sym := '0';
 
-   -- Amiga mode: PURE positional, Shift passes through 1:1. In this mode the whole MEGA65 top row
+   -- Amiga mode: pure positional, Shift passes through 1:1. In this mode the whole MEGA65 top row
    -- (RUN/STOP, ESC, ALT, CAPS LOCK, NO SCROLL, F1, F3, F5, F7, F9, F11) maps directly onto the
-   -- Amiga's Esc + F1..F10, so EVERY Amiga F-key has its own MEGA65 key. The Shift+F substitution
-   -- below is therefore NOT applied here - it is a MEGA65-mode-only trick for reaching the even
+   -- Amiga's Esc + F1..F10, so every Amiga F-key has its own MEGA65 key. The Shift+F substitution
+   -- below is therefore not applied here - it is a MEGA65-mode-only trick for reaching the even
    -- F-keys (F2/F4/F6/F8/F10) that MEGA65 mode has no dedicated cap for.
    if amiga_mode = '1' then
       base := C_KEYMAP_AMIGA(key);
@@ -634,9 +638,8 @@ begin
 
       -- @ / ^ / * are MEGA65 symbol-modifier keys with a graphic-only Shift legend. @ prints '@'
       -- under MEGA too (suppressing Left-Amiga - the cap shows '@' on its front face); ^ and * have a
-      -- graphic MEGA legend and send nothing. This follows spec section 5a's MEGA column and
-      -- doc/keyboard.md (the user-facing contract); section 5b's 7-key list omits them, but a real
-      -- MEGA65 keycap is the tie-breaker: MEGA+@ = @, MEGA+^ = nothing, MEGA+* = nothing.
+      -- graphic MEGA legend and send nothing. The printed MEGA65 keycap decides, as documented for
+      -- users in doc/keyboard.md: MEGA+@ = @, MEGA+^ = nothing, MEGA+* = nothing.
       when m65_at =>                                           -- @ / (graphic) / @
          r.is_sym := '1';
          if sh = '1' and mg = '0' then r.valid := '0';          -- Shift+@ = graphic -> nothing
@@ -696,20 +699,20 @@ begin
 end function resolve;
 
 -- Pacing of the keycode events towards CIA-A. Send-then-wait-for-acknowledge flow control (see the
--- header and the pacer process below). Unchanged from the keyboard-handshake milestone.
+-- header and the pacer process below).
 constant C_EVENT_PACE    : natural := 28_375;     -- 1 ms @ 28.375 MHz (min-gap floor)
 constant C_ACK_TIMEOUT   : natural := 4_038_750;  -- ~143 ms @ 28.375 MHz: deadlock fallback only
 constant C_ACK_GUARD     : natural := 8;          -- ~2 clk7: blackout the ack right after a send so
                                                   -- a read landing in ciaa's sdr_latch settling
-                                                  -- window (still the PREVIOUS code) cannot ack the
+                                                  -- window (still the previous code) cannot ack the
                                                   -- current one. Must be >= sdr_latch settle
                                                   -- (~1 clk7) and << the fastest reader response.
-constant C_ACK_SETTLE    : natural := 24;         -- kbd_ack_i low-time (cycles) that marks the END of
-                                                  -- ONE CIA read. On the bus a read is a cck-gated
-                                                  -- level, so kbd_ack_i can appear as SEVERAL clk_main
+constant C_ACK_SETTLE    : natural := 24;         -- kbd_ack_i low-time (cycles) that marks the end of
+                                                  -- one CIA read. On the bus a read is a cck-gated
+                                                  -- level, so kbd_ack_i can appear as several clk_main
                                                   -- pulses (~1 clk7 = ~4 cycles apart) within one read
                                                   -- (verified: 3 edges/read against amiga_clk + the
-                                                  -- m68k bridge). Coalesce them into ONE ack by
+                                                  -- m68k bridge). Coalesce them into one ack by
                                                   -- re-arming only after kbd_ack_i idles this long:
                                                   -- >> an intra-read cck notch (~4 cycles), << the
                                                   -- >= 1 ms gap between two reads.
@@ -731,7 +734,7 @@ signal key_pressed_n : std_logic_vector(79 downto 0) := (others => '1');
 
 -- Per-key latched Amiga chord (from resolve() at the make edge). key_code is the exact keycode sent
 -- (so the matching break uses the same code); key_valid marks that the key produced an Amiga event;
--- key_f1/key_f0 are the Shift requirement and key_sla the Left-Amiga suppression, held WHILE the key
+-- key_f1/key_f0 are the Shift requirement and key_sla the Left-Amiga suppression, held while the key
 -- is down. Only the currently-held override keys ever carry non-zero f1/f0/sla.
 type t_code_arr is array(0 to 79) of std_logic_vector(6 downto 0);
 signal key_code      : t_code_arr;
@@ -777,8 +780,8 @@ type t_la_tap is (LAT_NONE, LAT_MAKE, LAT_BREAK);
 signal la_tap_stage  : t_la_tap := LAT_NONE;
 
 -- One make edge waiting for its required modifier state to converge before it can be committed
--- (generalisation of the old shifted-F "fwait"; non-blocking - other keys keep processing, the
--- waiting key's edge is retried on the next 1 kHz sweep). wait_f1/f0/sla feed the desired-modifier
+-- (non-blocking - other keys keep processing, the waiting key's edge is retried on the next 1 kHz
+-- sweep). wait_f1/f0/sla feed the desired-modifier
 -- computation while the key is not yet in the held-key mirror.
 signal wait_active   : std_logic := '0';
 signal wait_num      : integer range 0 to 79 := 0;
@@ -786,7 +789,7 @@ signal wait_f1       : std_logic := '0';
 signal wait_f0       : std_logic := '0';
 signal wait_sla      : std_logic := '0';
 
--- CTRL+MEGA+RESTORE warm-boot one-shot (deliberately NOT cleared by reset_i - it
+-- CTRL+MEGA+RESTORE warm-boot one-shot (not cleared by reset_i, because it
 -- triggers that very reset; see header)
 type t_rst_state is (RST_ARMED, RST_PULSE, RST_RELEASE);
 signal rst_state     : t_rst_state := RST_ARMED;
@@ -866,7 +869,7 @@ begin
          v_shift_des_l := (v_phys_l and not v_want_down) or v_synth_up;
          v_shift_des_r := (v_phys_r and not v_want_down);
 
-         -- Desired Amiga-side Left-Amiga: asserted while MEGA is held AND engaged AND no symbol key
+         -- Desired Amiga-side Left-Amiga: asserted while MEGA is held and engaged and no symbol key
          -- is currently suppressing it; plus the make phase of a MEGA-tap one-shot.
          v_lamiga_des := v_mega_held and la_engaged and not v_req_sla;
          if la_tap_stage = LAT_MAKE then
@@ -952,7 +955,7 @@ begin
             elsif kb_key_num_i = m65_left_shift or kb_key_num_i = m65_right_shift then
                key_pressed_n(kb_key_num_i) <= kb_key_pressed_n_i;
 
-            -- a MAKE edge
+            -- a make edge
             elsif kb_key_pressed_n_i = '0' then
                -- MEGA housekeeping (MEGA65 mode): a front-face symbol key marks this MEGA hold as
                -- "used as symbol modifier" so releasing MEGA does not tap Left-Amiga - even for the
@@ -991,7 +994,7 @@ begin
                   else
                      -- hold the make back: record its requirement so the convergence retracts/
                      -- synthesises the modifiers, and retry this edge on the next 1 kHz sweep
-                     -- (mirror deliberately NOT updated)
+                     -- (mirror not updated, so the edge is seen again)
                      wait_active <= '1';
                      wait_num    <= kb_key_num_i;
                      wait_f1     <= v_r.f1;
@@ -1000,7 +1003,7 @@ begin
                   end if;
                end if;
 
-            -- a BREAK edge
+            -- a break edge
             else
                if key_valid(kb_key_num_i) = '1' then
                   if v_fifo_free then
@@ -1013,7 +1016,7 @@ begin
                      key_sla(kb_key_num_i)         <= '0';
                   end if;
                   -- FIFO full (practically unreachable): leave the mirror unchanged so the release
-                  -- edge is retried on the next sweep - losing a RELEASE would leave the key stuck.
+                  -- edge is retried on the next sweep - losing a release would leave the key stuck.
                else
                   key_pressed_n(kb_key_num_i) <= '1';   -- was mirror-only (unmapped)
                end if;
@@ -1032,13 +1035,13 @@ begin
 
          -- Acknowledge the code on the wire = the Amiga read the keycode SDR. A CIA read is presented
          -- on the bus as a cck-gated level over the E-clock-synced access, so kbd_ack_i can appear as
-         -- SEVERAL clk_main pulses (~1 clk7 apart) within ONE read - it is NOT a single clean level.
-         -- Coalesce them into exactly one acknowledge: accept a RISING EDGE only while ARMED, and
-         -- re-arm only after kbd_ack_i has been LOW for C_ACK_SETTLE cycles (past any intra-read cck
+         -- several clk_main pulses (~1 clk7 apart) within one read - it is not a single clean level.
+         -- Coalesce them into exactly one acknowledge: accept a rising edge only while armed, and
+         -- re-arm only after kbd_ack_i has been low for C_ACK_SETTLE cycles (past any intra-read cck
          -- notch, well within the >= 1 ms gap between two reads). Without this, a bounce pulse landing
          -- after the send of the next code would falsely acknowledge it (overrun returns for a slow
          -- reader whose read overlaps the send). ack_guard additionally blacks out the sdr_latch
-         -- settling window right after a send (a read there still returns the PREVIOUS code).
+         -- settling window right after a send (a read there still returns the previous code).
          kbd_ack_d <= kbd_ack_i;
          if kbd_ack_i = '1' then
             ack_low_cnt <= 0;
@@ -1053,8 +1056,8 @@ begin
             ack_armed <= '0';                  -- ignore the rest of this (possibly bouncing) read
          end if;
 
-         -- Send the next code once the min-gap elapsed AND the previous code was consumed (or the
-         -- deadlock timeout fired). This block is textually LAST so its writes (ack_seen<='0',
+         -- Send the next code once the min-gap elapsed and the previous code was consumed (or the
+         -- deadlock timeout fired). This block is textually last so its writes (ack_seen<='0',
          -- to_cnt, ack_guard) win over the decrements and the ack latch above in the same cycle.
          if pace_cnt = 0 and (ack_seen = '1' or to_cnt = 0)
             and fifo_rd_ptr /= fifo_wr_ptr then
@@ -1062,7 +1065,7 @@ begin
             kms_level   <= not kms_level;
             fifo_rd_ptr <= fifo_rd_ptr + 1;
             pace_cnt    <= C_EVENT_PACE;   -- min-gap floor
-            ack_seen    <= '0';            -- wait for THIS code's fresh ack
+            ack_seen    <= '0';            -- wait for the fresh ack of this code
             to_cnt      <= C_ACK_TIMEOUT;  -- arm the deadlock fallback
             ack_guard   <= C_ACK_GUARD;    -- blackout the sdr_latch settling window
          end if;
@@ -1094,8 +1097,8 @@ begin
             ack_guard     <= 0;
             ack_armed     <= '0';   -- re-arms after kbd_ack_i idles C_ACK_SETTLE cycles post-reset
             ack_low_cnt   <= 0;
-            -- deliberately NOT resetting kms_level/kbd_data: a stable level is a no-op for
-            -- ciaa.v, while forcing it could generate a phantom keystrobe
+            -- kms_level/kbd_data are not reset: a stable level is a no-op for ciaa.v,
+            -- while forcing it could generate a phantom keystrobe
          end if;
       end if;
    end process keyboard_events;
@@ -1103,8 +1106,8 @@ begin
    -- CTRL+MEGA+RESTORE = Ctrl+LAmiga+RAmiga warm boot. One-shot with a re-arm guard:
    -- the reset pulse clears the key mirror (via reset_i in the process above), and the
    -- still-held combo keys get re-mirrored within one 1 kHz sweep - so re-arming
-   -- requires the combo to be continuously absent for ~8 ms. This FSM is deliberately
-   -- NOT cleared by reset_i (it is the source of that reset).
+   -- requires the combo to be continuously absent for ~8 ms. This FSM is not cleared
+   -- by reset_i, because it is the source of that reset.
    reset_combo : process(clk_main_i)
       variable v_combo : boolean;
    begin

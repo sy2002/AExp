@@ -11,31 +11,31 @@
 -- partially or fully cancel the shift; that is a property of such displays,
 -- not of this block.
 --
--- Insertion point: AFTER OSM compositing, BEFORE composite-sync generation, so
+-- Insertion point: after OSM compositing, before composite-sync generation, so
 -- that one instance covers scandoubled and raw 15 kHz modes and CSYNC is
 -- derived from the positioned syncs.
 --
 -- Contract
 -- ========
--- * Syncs are ACTIVE-HIGH (M2M framework convention). The block never touches
+-- * Syncs are active-high (M2M framework convention). The block never touches
 --   RGB, DE or blanking; it re-times hs_i/vs_i onto hs_o/vs_o only.
--- * pan_x_i: signed, positive = picture moves RIGHT. One unit is two clocks of
---   SOURCE-raster time: with doubled_i = '0' that is 2 clk_i cycles, with
+-- * pan_x_i: signed, positive = picture moves right. One unit is two clocks of
+--   source-raster time: with doubled_i = '0' that is 2 clk_i cycles, with
 --   doubled_i = '1' (a line-doubling scandoubler upstream) it is 1 clk_i
 --   cycle. Hence one unit produces the same visible displacement (the same
 --   fraction of a line) in both cases.
--- * pan_y_i: signed, positive = picture moves DOWN. One unit is one
---   SOURCE-raster line (doubled_i = '1': two input lines).
+-- * pan_y_i: signed, positive = picture moves down. One unit is one
+--   source-raster line (doubled_i = '1': two input lines).
 -- * doubled_i: '1' when the input raster is a line-doubled version of the
 --   source raster. Wire it to the scandoubler-active setting.
 -- * Zero pan is a genuine bypass: hs_o/vs_o are combinationally identical to
 --   hs_i/vs_i (no added latency, no permanent baseline shift). Cores that
---   leave the pan inputs at their default '0' are bit-identical to a build
---   without this block.
+--   keep the pan inputs at zero are bit-identical to a build without this
+--   block.
 --
 -- Implementation: edge rescheduler
 -- ================================
--- Every input sync edge is re-emitted after a delay of one measured PERIOD
+-- Every input sync edge is re-emitted after a delay of one measured period
 -- minus the requested shift ("advance by S" = "delay by period - S", so a
 -- positive-only scheduler implements both signs):
 --
@@ -400,7 +400,7 @@ begin
          else
             v_psrc := '0' & h_per_a;
          end if;
-         -- full-width product (12 x 15 bits), checked BEFORE truncation so
+         -- full-width product (12 x 15 bits), checked before truncation so
          -- that no generic choice of G_VMAX_LINES can wrap the arithmetic
          v_prod := v_sv * signed('0' & v_psrc);
          -- structural safety vs. the field period: if the requested shift

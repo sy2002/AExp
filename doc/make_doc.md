@@ -15,7 +15,7 @@ site cause the build to fail.
 For each build, the script creates a temporary MkDocs source tree, stages the
 root README as the site's `index.md`, rewrites local links for the staged layout,
 adds the navigation and Amiga-inspired theme, and runs a strict MkDocs build.
-The temporary tree is removed afterwards.
+The temporary tree is removed afterward.
 
 The first build creates an ignored Python environment in `doc/.venv` and
 installs the versions pinned in `doc/requirements-doc.txt`. No manual MkDocs
@@ -66,7 +66,23 @@ temporary source tree is regenerated.
 The workflow in `.github/workflows/pages.yml` runs the same build when relevant
 documentation changes reach `develop`. It uploads the generated `_site`
 directory directly to GitHub Pages and does not create or update a `gh-pages`
-branch. Pull requests build the site for validation but do not deploy it.
+branch. Pull requests build the site for validation but do not deploy it. The
+workflow can also be started by hand from the Actions tab (`workflow_dispatch`),
+which builds and publishes the current state of the branch it is run on.
 
 GitHub Pages must be configured once under **Settings → Pages → Source: GitHub
 Actions**. After that, documentation updates are published automatically.
+
+## Freezing publication
+
+Publication can be paused without changing any GitHub setting. When the file
+`doc/DOC_FROZEN` exists, the workflow still builds the site — so broken links and
+anchors are still caught on every push — but skips the deploy step, and GitHub
+Pages keeps serving the last deployed site. The Actions log records a notice
+explaining why nothing was published.
+
+This is useful while development of the next version continues on `develop` after
+a release: the live site stays at the released state, and the work-in-progress
+build list does not reappear even once `CORE_VERSION` becomes a `WIP-*` string
+again. Delete `doc/DOC_FROZEN` to resume automatic publishing; the next relevant
+push republishes as usual.

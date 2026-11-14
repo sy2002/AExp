@@ -16,7 +16,12 @@ entity analog_pipeline is
       G_VGA_DY                : natural;
       G_FONT_FILE             : string;
       G_FONT_DX               : natural;
-      G_FONT_DY               : natural
+      G_FONT_DY               : natural;
+      -- M2M-UPSTREAM line-doubler (AExp 2026-10-10): true = the scandoubler
+      -- doubles the lines with its plain line doubler, which needs only
+      -- video_clk_i >= 2 x the pixel rate of video_ce_i; false = MiSTer's
+      -- Hq2x, which needs 4 x (original behaviour).
+      G_VGA_LINEDOUBLER       : boolean := false
    );
    port (
       -- Input from Core (video and audio)
@@ -50,7 +55,7 @@ entity analog_pipeline is
       -- M2M-UPSTREAM screen-center (AExp 2026-07-13): analog picture position.
       -- Signed pan in source-raster units (pan_x: two source clocks = one AExp
       -- hires pixel, pan_y: one source line; positive = right/down), applied by
-      -- analog_positioner AFTER the OSM and BEFORE CSYNC generation, so core
+      -- analog_positioner after the OSM and before CSYNC generation, so core
       -- content and OSM move together in all three analog modes. 0 = inert
       -- combinational bypass, so cores that leave the defaults are unchanged.
       video_pan_x_i           : in  std_logic_vector(11 downto 0) := (others => '0');
@@ -108,6 +113,9 @@ architecture synthesis of analog_pipeline is
    signal vga_vs_pos         : std_logic;
 
    component video_mixer is
+      generic (
+         LINEDOUBLER : integer := 0                     -- M2M-UPSTREAM line-doubler
+      );
       port (
          CLK_VIDEO   : in  std_logic;
          CE_PIXEL    : out std_logic;
@@ -146,6 +154,9 @@ begin
    --------------------------------------------------------------------------------------------------
 
    i_video_mixer : video_mixer
+      generic map (
+         LINEDOUBLER => boolean'pos(G_VGA_LINEDOUBLER)  -- M2M-UPSTREAM line-doubler
+      )
       port map (
          CLK_VIDEO   => video_clk_i,
          CE_PIXEL    => open,
@@ -239,7 +250,7 @@ begin
          vs_o      => vga_vs_pos
       ); -- i_analog_positioner
 
-   -- M2M-UPSTREAM screen-center: CSYNC is generated from the POSITIONED syncs
+   -- M2M-UPSTREAM screen-center: CSYNC is generated from the positioned syncs
    i_csync : entity work.csync
       port map (
          clk   => video_clk_i,

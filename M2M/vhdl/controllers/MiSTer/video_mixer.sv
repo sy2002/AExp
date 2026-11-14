@@ -21,6 +21,10 @@ module video_mixer
 	parameter LINE_LENGTH  = 768,
 	parameter HALF_DEPTH   = 0,
 	parameter GAMMA        = 0,
+	// M2M-UPSTREAM line-doubler (AExp 2026-10-10): 1 = the scandoubler doubles the
+	// lines with a plain line doubler that needs CLK_VIDEO >= 2 x ce_pix and has no
+	// hq2x filter; 0 = MiSTer's Hq2x, which needs CLK_VIDEO >= 4 x ce_pix.
+	parameter LINEDOUBLER  = 0,
     localparam DWIDTH = HALF_DEPTH ? 3 : 7
 )
 (
@@ -147,7 +151,7 @@ wire [DWIDTH_SD:0] G_sd;
 wire [DWIDTH_SD:0] B_sd;
 wire hs_sd, vs_sd, hb_sd, vb_sd, ce_pix_sd;
 
-scandoubler #(.LENGTH(LINE_LENGTH), .HALF_DEPTH(HALF_DEPTH_SD)) sd
+scandoubler #(.LENGTH(LINE_LENGTH), .HALF_DEPTH(HALF_DEPTH_SD), .LINEDOUBLER(LINEDOUBLER)) sd
 (
 	.clk_vid(CLK_VIDEO),
 	.hq2x(hq2x),

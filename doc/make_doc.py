@@ -52,16 +52,31 @@ PREFERRED_NAVIGATION = (
     (
         "Using the core",
         (
-            ("Mouse and joystick", "doc/mouse.md"),
             ("Keyboard mappings", "doc/keyboard.md"),
-            ("Video modes", "doc/video_modes.md"),
-            ("Retro CRT monitors", "doc/retrotubes.md"),
             ("Screen adjustment", "doc/screen_adjust.md"),
+            ("Retro CRT monitors", "doc/retrotubes.md"),
+            ("Floppy drives", "doc/drives.md"),
+            ("Hardware Floppy", "doc/hardware_floppy.md"),
+            ("Audio", "doc/audio.md"),
             ("Real-time clock", "doc/RTC.md"),
+            ("FAQ", "doc/faq.md"),
         ),
     ),
     ("Releases", (("Work-in-progress builds", "doc/inofficial.md"),)),
-    ("Development", (("Building from source", "doc/developers.md"),)),
+    (
+        "Development",
+        (
+            ("Building from source", "doc/developers.md"),
+            ("Architecture overview", "doc/developers/architecture.md"),
+            ("Tools and testbenches", "doc/developers/tools.md"),
+            ("Floppy: ADF disk images", "doc/developers/floppy-adf.md"),
+            ("Floppy: Hardware Floppy", "doc/developers/hardware-floppy.md"),
+            ("Timing closure and re-roll", "doc/developers/timing_closure.md"),
+            ("Audio internals", "doc/developers/audio.md"),
+            ("HDMI latency", "doc/developers/hdmi_latency.md"),
+            ("Building the documentation website", "doc/make_doc.md"),
+        ),
+    ),
 )
 
 # The "Releases" section lists the work-in-progress builds (doc/inofficial.md).

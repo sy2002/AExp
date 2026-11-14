@@ -1,3 +1,114 @@
+Version 2 - November 14, 2026
+=============================
+
+Version 2 turns this core into a complete Amiga 500 experience: the MEGA65's
+built-in drive reads and writes real Amiga disks, including copy-protected
+originals, and up to three drives mix real disks and `*.adf` images. Together
+with the authentic A500 sound filters and four chipset fixes, this is a pure,
+faithful and field-tested PAL Amiga 500 with the original OCS chipset.
+
+## New Features
+
+* Up to three floppy drives (`df0:`, `df1:`, `df2:`), each of them either a
+  read/write `*.adf` disk image or the built-in MEGA65 drive. One drive
+  (`df0:`, a disk image) is switched on by default, because a number of games
+  and demos misbehave when the Amiga sees more than one. Choose how many
+  drives you want and what each one is in the "Drive Settings" menu.
+
+* Hardware Floppy: the built-in MEGA65 disk drive reads and writes real
+  Amiga disks (double density media only). Copy-protected originals boot,
+  including the widespread Rob Northen Copylock scheme, and disks written
+  here are read back by real Amigas.
+
+* New option "DVI (no sound)" in the HDMI menu: sends a plain DVI signal
+  instead of HDMI, for displays that stay black on an HDMI stream.
+
+* Authentic A500 sound: the A500's fixed audio output filter and its
+  software-controlled "LED filter", which follows the power LED, are
+  simulated. Both are on by default and can be switched off in the Audio
+  menu.
+
+* New option "Stereo Mix" in the Audio menu: it blends the hard-panned Amiga
+  channels for headphones (Full Stereo, Wide Stereo, Narrow Stereo, Mono).
+
+* Master volume in 5% steps. The percentages follow perceived loudness, so
+  50% sounds half as loud as 100%.
+
+## Improved Compatibility of the Core
+
+* The CIA timers can count pulses on their external `CNT` pin, as the
+  real 8520 chips do. Software that selects this mode, by accident or on
+  purpose, no longer sees a timer running when it should stand still. Fixes
+  the black screen at startup of Crystal Kingdom Dizzy (Fairlight release).
+  MiSTer [PR 230](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/230).
+
+* The blitter freezes when a program switches off fill mode via
+  `BLTCON1` while a fill blit is still running, exactly like a real Amiga.
+  Fixes the "red vector cube inside a white object" scene of the demo
+  Absolute Inebriation by Virtual Dreams. One other scene of that demo still
+  shows garbage in the left border, a known issue in all Minimig cores.
+  MiSTer [PR 236](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/236).
+
+* Reading the beam position register `VHPOSR` returns the exact value
+  a real Agnus reports. It used to read one color clock ahead and return
+  zero instead of the line length at the end of a line. This matters for
+  programs that time their effects by polling the beam. Verified against the
+  real-A500 reference images of the
+  [vAmiga test suite](https://github.com/dirkwhoffmann/vAmigaTS).
+  MiSTer [PR 234](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/234).
+
+* A non-interlaced screen is no longer mistaken for an interlaced one
+  when a program clears or toggles the long-frame bit (`LOF`) without
+  switching on interlace, which could make the HDMI flicker fixer treat it
+  as interlaced. MiSTer
+  [issue 231](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/issues/231),
+  commit [`d16cd84`](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/commit/d16cd8458cf8e915c5622ecc7c12ce69d776753c).
+
+## Bugfixes
+
+* The analog VGA output shows hires screens (640 pixels wide) in full detail
+  in the "Standard VGA" mode. It used to drop every second pixel column of
+  hires content such as the Workbench or the text of The Guild of Thieves,
+  which made thin fonts unreadable. HDMI and the two 15 kHz modes were not
+  affected. GitHub issues [#35](https://github.com/sy2002/AExp/issues/35) and
+  [#36](https://github.com/sy2002/AExp/issues/36).
+
+* Apidya loads from a disk image. Its loader reads one sector at a time, and
+  the simulated drive used to skip a sector after each of these reads, so the
+  game waited forever with the drive light on. Other loaders that read one
+  sector at a time benefit as well. GitHub issue
+  [#40](https://github.com/sy2002/AExp/issues/40).
+
+* The HDMI picture comes back after a long press (1.5 seconds or more) of the
+  reset button aka hard reset. The HDMI clock generator used to restart while
+  the picture scaler was already running again, which could leave the HDMI
+  output black or showing repeated lines until the next short press of the
+  reset button or a power cycle; the analog output and the on-screen menu
+  were not affected. GitHub issue
+  [#39](https://github.com/sy2002/AExp/issues/39).
+
+## Improved developer documentation
+
+* New developer documentation in `doc/developers`, also on the documentation
+  website: an architecture overview (including every change AExp made to its
+  copy of the MiSTer2MEGA65 V2.0.1 framework) and an in-depth design
+  document for the Hardware Floppy.
+
+* Documented how a build can miss timing by a few picoseconds in the HyperRAM
+  read path, why the IDELAY value must not change, and how `build_all.sh`
+  automatically re-rolls such a build.
+
+* The track engine's lineage is documented: it is a hardware port of MiSTer's
+  `minimig_fdd.cpp`. Reference copies of `minimig_fdd.cpp` and
+  `minimig_config.cpp` are included.
+
+* Testbenches and checker scripts are now part of the repository.
+
+* Source code comments reworked: they describe the current design, without
+  references to unpublished notes.
+
+* `AGENTS.md` rewritten for AI coding assistants.
+
 Version 1 - July 26, 2026
 =========================
 

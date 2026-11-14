@@ -1,10 +1,11 @@
 # Core-local polyphase filter coefficients
 
-Coefficient blobs for the HDMI Filter options that are NOT already linked
+Coefficient blobs for the HDMI Filter options that are not already linked
 into the firmware by the M2M framework. The framework (M2M V2.0.1,
 `M2M/rom/filters.asm`) only ships `lanczos2_12.asm` and `Scan_Br_110_80.asm`;
 the three blobs here were taken from C64MEGA65 V6 (`M2M/video_filters/` of
-the M2M V2.1 line) and cover the remaining polyphase options:
+its copy of the framework, which follows the M2M V2.1.0 development line) and
+cover the remaining polyphase options:
 
 | File | Label | Used by (H/V) |
 |---|---|---|
@@ -23,6 +24,7 @@ Format: 64 phases x 4 signed 10-bit taps = 256 words per blob (see
 sources; `.asm` files were generated with C64MEGA65's
 `M2M/video_filters/convert.py`.
 
-When the M2M submodule/framework is upgraded to V2.1+, these files (and the
-`M2M$LOAD_POLYPHASE` backport in `m2m-rom.asm`) can be deleted in favor of the
-framework copies.
+When AExp moves to M2M V2.1.0, these files and the copy of
+`M2M$LOAD_POLYPHASE` in `m2m-rom.asm` (from the same development line,
+`M2M/rom/tools.asm` in C64MEGA65's copy of the framework) can be deleted in
+favor of the framework copies.

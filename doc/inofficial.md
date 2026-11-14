@@ -5,6 +5,24 @@ builds that were not there in older builds. By finding the last known-to-work
 build, we have a better chance to hunt down problems. The name of the build
 can be checked in the "About & Help" menu of the core.
 
+## Version 2
+
+| Name          | Date     | Commit  | Comment
+|---------------|----------|---------|----------------------------------------
+| WIP-V2-A1     | 07/25/26 | 232c584 | Authentic A500 sound: A500 Filter + LED Filter (both default on) and a Stereo Mix option. Master volume control (perceptual loudness taper).
+| WIP-V2-A2     | 07/26/26 | 032aec2 | Hardware Floppy (read-only): First attempt to use the built-in disk drive to read real Amiga disks
+| WIP-V2-A3     | 08/04/26 | 4a394aa | Up to three floppy drives (df0:, df1:, df2:) that are either .adf disk images or the built-in MEGA65 drive reading real Amiga disks (issue #17)
+| WIP-V2-A4     | 08/07/26 | 9b996fb | Improved hardware drive instrumentation / debugging capabilities
+| WIP-V2-A5     | 08/08/26 | 20b9219 | More robust reading of older floppy disks due to DPLL data separator
+| WIP-V2-A6     | 08/15/26 | cfd3cde | More robust reading of older floppy disks due to sync-seam fix, WORDSYNC-conditional framing hold
+| WIP-V2-A7     | 08/25/26 | 183eb1d | Improved hardware FDD debugging instruments
+| WIP-V2-A8     | 08/28/26 | 40263eb | FDD reading improved: DSKBYTR observation surface (for example for Rob Northen Copylock reads)
+| WIP-V2-A9     | 08/31/26 | 3edf736 | Physical disk writing implemented
+| WIP-V2-A10    | 09/22/26 | e6546d9 | Added DVI option (issue #25). Only one drive (df0: in ADF mode) per default for maximum compatibility (issue #29).
+| WIP-V2-B1     | 10/07/26 | f820f75 | First Version 2 beta. Four chipset fixes backported from the MiSTer Minimig core: CIA timer count modes, blitter fill-mode freeze, VHPOSR beam-position readback, interlace field flag (issue #28).
+| WIP-V2-B2     | 10/11/26 | f4b5fdb | Second Version 2 beta. Hires screens (Workbench, text adventures) in full detail on analog VGA in the Standard VGA mode (issues #35, #36).
+| WIP-V2-B3     | 11/02/26 | b6f2d98 | Third Version 2 beta. Apidya loads from a disk image: a sector that the read DMA never reached is served again instead of skipped (issue #40). The HDMI picture survives a long press of the reset button (issue #39).
+
 ## Version 1
 
 | Name          | Date     | Commit  | Comment

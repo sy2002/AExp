@@ -81,13 +81,16 @@ architecture synth of video_out_clock is
   signal clko_b       : std_logic;                     -- buffered pixel clock
   signal clko_u_x5    : std_logic;                     -- unbuffered serializer clock
 
-  signal clki_div     : std_logic;                     -- Input clock divided by 2
+  -- M2M-UPSTREAM hdmi-clock-reset: clki_div, cfg_rst and clk_mux carry their
+  -- hardware initial value (the configuration default of a flip-flop), so that
+  -- the reset bench CORE/sim/video/run_voc_reset.sh simulates the power-up path.
+  signal clki_div     : std_logic := '0';              -- Input clock divided by 2
 
   signal cfg_tbl_addr : std_logic_vector(7 downto 0);  -- 8 x 32 entries
   signal cfg_tbl_data : std_logic_vector(39 downto 0); -- 8 bit address + 16 bit write data + 16 bit read mask
 
   signal cfg_cnt      : std_logic_vector(1 downto 0);  -- Delay reset
-  signal cfg_rst      : std_logic;                     -- DRP reset
+  signal cfg_rst      : std_logic := '0';              -- DRP reset
   signal cfg_daddr    : std_logic_vector(6 downto 0);  -- DRP register address
   signal cfg_den      : std_logic;                     -- DRP enable (pulse)
   signal cfg_dwe      : std_logic;                     -- DRP write enable
@@ -107,7 +110,7 @@ architecture synth of video_out_clock is
     lock_wait                                          -- wait for reconfig to complete
   );
   signal cfg_state    : cfg_state_t;
-  signal clk_mux      : std_logic;
+  signal clk_mux      : std_logic := '0';
 
 
 begin
@@ -440,13 +443,24 @@ begin
 
       if rsti = '1' then                                   -- full reset
 
+        -- M2M-UPSTREAM hdmi-clock-reset (AExp 2026-11-02): a reset takes the
+        -- same route as a video-mode change. The backup clock is selected first,
+        -- and RESET_WAIT resets and reprograms the MMCM only after rsti has been
+        -- released. rsti itself never resets the MMCM, so the glitch-free
+        -- multiplexer completes its switch while the MMCM still runs (or is
+        -- already on the backup clock), and the HDMI clock domain never clocks
+        -- on a stopped or unlocked MMCM output. That matters for the
+        -- scaler, whose reset follows hr_rst and is released long before the
+        -- MMCM locks again (AExp issue #39). The template asserts cfg_rst here
+        -- and jumps to RESET.
         sel_prev  <= (others => '1');                      -- force reconfig
-        cfg_rst   <= '1';
         cfg_daddr <= (others => '0');
         cfg_den   <= '0';
         cfg_dwe   <= '0';
         cfg_di    <= (others => '0');
-        cfg_state <= RESET;
+        clk_mux   <= '0';                                  -- backup clock first
+        cfg_cnt   <= "11";
+        cfg_state <= RESET_WAIT;                           -- then reset and reprogram
 
         rsto_req <= '1';
 
@@ -483,7 +497,10 @@ begin
       dst_data_o(0) => rsto
     );
 
-  mmcm_rst <= cfg_rst or rsti;
+  -- M2M-UPSTREAM hdmi-clock-reset: only the state machine resets the MMCM, so
+  -- that the backup clock is selected before the MMCM stops (the template has
+  -- cfg_rst or rsti here).
+  mmcm_rst <= cfg_rst;
 
   -- For Static Timing Analysis it is necessary
   -- that the default configuration corresponds to the fastest clock speed.

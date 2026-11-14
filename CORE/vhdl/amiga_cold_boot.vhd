@@ -3,12 +3,18 @@
 --
 -- A normal 68000 reset is a warm boot: Kickstart reuses the ExecBase pointer stored at
 -- Chip RAM $000004 and therefore keeps the old Exec memory list. That is wrong after the
--- OSM changes the physical memory topology (currently the Slow RAM / A501 toggle).
+-- OSM changes the physical memory topology (the Slow RAM / A501 toggle).
 --
--- This controller turns such a topology change into a cold boot of the emulated Amiga only.
+-- This controller turns such a topology change into a cold boot of the simulated Amiga only.
 -- It holds Minimig in reset and asks the Chip RAM wrapper to clear the two 16-bit words at
 -- $000004-$000007. Kickstart then rejects the warm-boot state, probes the new memory map and
 -- rebuilds Exec. QNICE, the framework, HyperRAM and mounted media remain untouched.
+--
+-- The floppy drive configuration (drv_map_i: how many Amiga units exist and what each of
+-- them is) is a topology change too: Paula latches the drive count only at reset, AmigaOS
+-- enumerates units at boot, and a unit changing identity under a running OS would confuse
+-- mounted volumes. A configuration change therefore triggers the same cold boot (the
+-- SysBase scrub is harmless there).
 --
 -- The request is level-based (requested /= applied), not a pulse. Consequently a change
 -- cannot be lost, and changes arriving during a cold boot converge to the latest value.
@@ -22,6 +28,7 @@ entity amiga_cold_boot is
    port (
       clk_i             : in  std_logic;
       slow_ram_i        : in  std_logic;
+      drv_map_i         : in  std_logic_vector(7 downto 0);  -- Drive Settings: {count, mode per unit}
 
       amiga_reset_o     : out std_logic;
       chip_scrub_o      : out std_logic;
@@ -40,6 +47,9 @@ architecture synthesis of amiga_cold_boot is
 
    signal state            : t_state := IDLE;
    signal slow_ram_applied : std_logic := '1'; -- OSM default is A501 enabled
+   signal drv_map_applied  : std_logic_vector(7 downto 0) := "00" & "10" & "10" & "00";
+                                       -- OSM default: one drive, df0 Disk Image,
+                                       -- df1 and df2 Off (see mega65.vhd C_DRV_*)
    signal reset_hold_count : natural range 0 to C_RESET_HOLD_CYCLES - 1 := 0;
 
 begin
@@ -60,7 +70,7 @@ begin
       if rising_edge(clk_i) then
          case state is
             when IDLE =>
-               if slow_ram_i /= slow_ram_applied then
+               if slow_ram_i /= slow_ram_applied or drv_map_i /= drv_map_applied then
                   reset_hold_count <= C_RESET_HOLD_CYCLES - 1;
                   state            <= ASSERT_RESET;
                end if;
@@ -79,10 +89,11 @@ begin
                state <= HOLD_RESET;
 
             when HOLD_RESET =>
-               -- Capture the latest requested value, not the value that originally triggered
-               -- the reset. If it changes again after this edge, IDLE detects the mismatch and
+               -- Capture the latest requested values, not the values that originally triggered
+               -- the reset. If one changes again after this edge, IDLE detects the mismatch and
                -- immediately performs another complete cold boot; no request can be lost.
                slow_ram_applied <= slow_ram_i;
+               drv_map_applied  <= drv_map_i;
                state            <= IDLE;
          end case;
       end if;

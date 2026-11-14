@@ -166,8 +166,8 @@ A600, while an Amiga booted directly with Kickstart 1.3 uses its built-in
 **US** keymap. The loaded Amiga keymap always has the final say: AExp sends key
 positions, not characters.
 
-To reproduce the British reference exactly—including `£` on
-<kbd>Shift</kbd>+<kbd>3</kbd> and `@` on <kbd>Shift</kbd>+<kbd>;</kbd>—boot
+To reproduce the British reference exactly (including `£` on
+<kbd>Shift</kbd>+<kbd>3</kbd> and `@` on <kbd>Shift</kbd>+<kbd>;</kbd>), boot
 Workbench and run **`SetMap gb`**. This requires `DEVS:Keymaps/gb`. A game or
 demo that boots without Workbench remains on the US keymap. AExp cannot select
 the Amiga keymap for the running software.
@@ -239,7 +239,7 @@ Pointer movement has the same Workbench-only caveat and acceleration behavior
 described for MEGA65 mode. AExp moves its direct right-button shortcut to the
 <kbd>&uarr;</kbd> symbol key because <kbd>Run/Stop</kbd> is Esc in this mode.
 
-## Opening the menu — and freeing the Help key
+## Opening the menu and freeing the Help key
 
 By default, <kbd>Help</kbd> opens and closes the AExp on-screen menu, as it does
 in other MEGA65 cores. Help is also a real Amiga key. To reserve it for Amiga

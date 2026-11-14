@@ -29,11 +29,11 @@ Workflow: How to generate a font
 Native 8x8 storage and exact 100% rendering
 -------------------------------------------
 
-The M2M character grid still uses 16x16-pixel cells, but the standard Anikki
+The M2M character grid uses 16x16-pixel cells, but the standard Anikki
 font is an exact nearest-neighbour 2x enlargement of an 8x8 font: every 2x2
-block contains four identical bits.  Since M2M V2.1.0 the font ROM stores this
-native 8x8 strike and the OSM renderer expands or interpolates it to the
-selected cell size.
+block contains four identical bits.  The font ROM therefore stores the native
+8x8 strike, and the OSM renderer (`M2M/vhdl/av_pipeline/vga_osm.vhd`) expands or
+interpolates it to the selected cell size.
 
 `Anikki-16x16-m2m.h` contains the 16x16 source strike.  The distinctly named
 `Anikki-8x8-m2m.c` generator collapses it into `Anikki-8x8-m2m.rom`, which
@@ -44,8 +44,8 @@ pixels, instead of performing two deep row-ROM lookups in the filtering path.
 
 Before writing the ROM, the generator verifies every 2x2 source block and
 exits with an error if the four bits differ.  This invariant guarantees that
-nearest-neighbour 2x expansion at 100% reproduces the former 16x16 ROM
-bit-for-bit; changing the storage layout does not change any glyph bit.
+nearest-neighbour 2x expansion at 100% reproduces the 16x16 strike bit for
+bit; the packed storage layout does not change any glyph bit.
 
 Generate the ROM from this directory with:
 
@@ -55,8 +55,8 @@ cc -std=c99 -Wall -Wextra -Werror -o Anikki-8x8-m2m Anikki-8x8-m2m.c
 ```
 
 The expected success message reports 256 glyphs and 64 bits per glyph.  Do not
-bypass the uniform-2x validation when replacing or editing the font: a source
-font that fails it cannot preserve the exact legacy 100% OSM.
+bypass the uniform-2x validation when replacing or editing the font: with a
+source font that fails it, the 100% OSM no longer matches the 16x16 strike.
 
 Potential for a future optimized workflow
 -----------------------------------------

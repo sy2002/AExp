@@ -1,6 +1,7 @@
 [submodule "QNICE"]
 	path = M2M/QNICE
 	url = https://github.com/sy2002/QNICE-FPGA
+	branch = dev-V1.61
 [submodule "CORE/Minimig_MiSTerMEGA65"]
 	path = CORE/Minimig_MiSTerMEGA65
 	url = https://github.com/sy2002/Minimig_MiSTerMEGA65.git

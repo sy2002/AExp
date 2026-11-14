@@ -51,19 +51,16 @@ end debouncer;
 
 architecture beh of debouncer is
 
--- M2M-UPSTREAM raw-joyports: this framework joystick debouncer is reduced to
--- plain 2-FF synchronizers (no stable-time filter) so the DB9 direction/fire
--- and mouse quadrature lines pass through raw.
--- MiSTer2MEGA65 (AExp Amiga 500 port), July 2026: debouncing removed, the ten
--- work.debounce instances (stable_time 1 ms) are replaced by plain 2-FF
--- synchronizers. A real Amiga has no debouncing on the DB9 lines: Denise counts
--- mouse quadrature transitions and software polls direction/fire levels, so any
--- filtering is inauthentic - and the 1 ms stable-time filter swallowed the
--- quadrature edges of a real Amiga mouse (frozen-then-jumping pointer on brisk
--- movement). The port switcher and the joystick on/off gating below are kept
--- unchanged. CLK_FREQ and reset_n remain in the interface for compatibility but
--- are no longer used. To be turned into a proper framework option when this is
--- upstreamed to MiSTer2MEGA65.
+-- M2M-UPSTREAM raw-joyports (AExp 2026-07-03): the DB9 direction and fire lines
+-- pass through plain 2-FF synchronizers instead of the ten work.debounce
+-- instances (stable_time 1 ms) of the original, so joystick and mouse
+-- quadrature lines reach the core raw. A real Amiga does not debounce its DB9
+-- lines: Denise counts the mouse quadrature transitions and software polls the
+-- direction and fire levels. A 1 ms stable-time filter swallows the quadrature
+-- edges of a briskly moved mouse, and the pointer freezes and then jumps. The
+-- port switcher and the joystick on/off gating below are unchanged. CLK_FREQ and
+-- reset_n stay in the interface for compatibility and are unused. Upstream, this
+-- should become a framework option.
 
 signal j1_u, j1_d, j1_l, j1_r, j1_f : std_logic := '1';
 signal j2_u, j2_d, j2_l, j2_r, j2_f : std_logic := '1';
@@ -106,9 +103,9 @@ begin
       end if;
    end process;
    
-   -- 2-FF input synchronizers, NO debouncing (see the architecture header):
-   -- authentic Amiga behavior and mandatory for quadrature mice, whose fast
-   -- pulse trains a stable-time filter would swallow
+   -- 2-FF input synchronizers without debouncing (see the architecture
+   -- header): a stable-time filter would swallow the fast pulse trains of a
+   -- quadrature mouse
    sync_joysticks : process (clk)
    begin
       if rising_edge(clk) then

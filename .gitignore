@@ -29,3 +29,20 @@ __pycache__
 /site/
 /_site/
 build_*.out
+
+# Simulation work products. The runners in CORE/sim work in a temporary
+# directory; these patterns cover benches run by hand inside the tree.
+CORE/sim/**/work/
+CORE/sim/**/*.vvp
+CORE/sim/**/*.fst
+CORE/sim/**/*.vcd
+CORE/sim/**/*.ghw
+CORE/sim/**/*.cf
+CORE/sim/**/*.o
+CORE/sim/**/a.out
+# GHDL names the elaborated executable after the top unit (tb_...)
+CORE/sim/**/tb_*
+!CORE/sim/**/tb_*.vhd
+!CORE/sim/**/tb_*.v
+CORE/sim/**/wr_dump_*.txt
+CORE/sim/**/splice_dump_att*.txt

@@ -17,12 +17,12 @@ from urllib.parse import urlsplit, urlunsplit
 # repository root. See doc/screen_adjust.md.
 #
 # The official screen-position config (destined for the SD card's /amiga/
-# folder) ships as one OR MORE files: a single aexp_screen.cfg, or several
+# folder) ships as one or more files: a single aexp_screen.cfg, or several
 # per-monitor-geometry variants alongside or instead of it (e.g.
 # aexp_screen.cfg_4_3, aexp_screen.cfg_16_9), or any mix. Everything matching
 # SCREEN_CONFIG_GLOB is copied into the release; at least one match is
-# mandatory. The glob deliberately does NOT match the editor tool
-# aexp_screen_cfg.py (that name has "_cfg", not ".cfg").
+# mandatory. The glob does not match the editor tool aexp_screen_cfg.py (that
+# name has "_cfg", not ".cfg"), which is copied separately.
 SCREEN_CONFIG_GLOB = "aexp_screen.cfg*"
 
 # The tool users run to create/edit those config files. Always required.
@@ -33,12 +33,27 @@ SCREEN_TOOL = Path("aexp_screen_cfg.py")
 # one map lets the Markdown link rewriter decide whether a relative link can
 # stay local or must point at the develop branch on GitHub. Documentation
 # copied by make_release.py itself is added to that map separately below.
+#
+# Every end-user page belongs in here. A page that is left out still gets
+# linked from the packaged README, but the rewriter turns that link into a
+# GitHub URL on the develop branch - so the reader needs a working internet
+# connection to follow it, and while the documentation website is frozen the
+# GitHub copy is the only place that page exists.
+#
+# Not in this map: doc/inofficial.md, which make_release.py itself copies
+# to the release root for alpha and beta packages (and which is registered in
+# local_files below so links to it stay local), and doc/make_doc.md, which
+# documents the website tooling rather than the core.
 RELEASE_DOCUMENTS = {
     Path("README.md"): Path("README.md"),
+    Path("doc/drives.md"): Path("doc/drives.md"),
+    Path("doc/hardware_floppy.md"): Path("doc/hardware_floppy.md"),
     Path("doc/keyboard.md"): Path("doc/keyboard.md"),
     Path("doc/retrotubes.md"): Path("doc/retrotubes.md"),
     Path("doc/screen_adjust.md"): Path("doc/screen_adjust.md"),
+    Path("doc/audio.md"): Path("doc/audio.md"),
     Path("doc/RTC.md"): Path("doc/RTC.md"),
+    Path("doc/faq.md"): Path("doc/faq.md"),
     Path("doc/developers.md"): Path("doc/developers.md"),
 }
 
@@ -55,9 +70,9 @@ RELEASE_ASSETS = {
 
 GITHUB_DEVELOP_BLOB = "https://github.com/sy2002/AExp/blob/develop/"
 
-# Inline Markdown links and images. The repository documentation currently
-# uses plain destinations (with optional titles), which deliberately keeps
-# this narrower and safer than attempting to parse all of Markdown.
+# Inline Markdown links and images. The repository documentation uses plain
+# destinations (with optional titles), so this pattern covers only those; it
+# is narrower and safer than attempting to parse all of Markdown.
 MARKDOWN_LINK_RE = re.compile(
     r"(?P<prefix>!?\[[^\]\n]*\]\()"
     r"(?P<open><)?(?P<target>[^)\s>]+)(?(open)>)"

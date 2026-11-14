@@ -57,7 +57,11 @@ awk '/constant OPTM_G_/ && !/16#/ {gsub("OPTM_G_", "AEXP_OPTM_G_"); gsub(";", ""
     echo ""
 } >> osm_const.asm
 
-awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_ADF", $0)}' ../vhdl/globals.vhd >> osm_const.asm
+# One symbol per ADF mount device: AEXP_DEV_ADF0/1/2 from C_DEV_AMIGA_ADF0/1/2.
+# The name is derived from the constant, so the pattern must match each constant
+# exactly: a loose /constant C_DEV_AMIGA_ADF/ would emit the same symbol three times
+# and the assembler would fail on the duplicate.
+awk '/constant C_DEV_AMIGA_ADF[0-2] / {name=$2; sub(/^C_DEV_AMIGA_/, "", name); gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31s .EQU 0x%s\n", "AEXP_DEV_" name, $0)}' ../vhdl/globals.vhd >> osm_const.asm
 
 ##############################################################################
 # M2M framework: Generate globals.asm
@@ -72,6 +76,21 @@ awk '/constant C_DEV_AMIGA_ADF/ {gsub(/.*x"/, ""); gsub(/".*/, ""); printf("%-31
 } > globals.asm
 
 awk '/constant C_VDNUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("VDRIVES_MAX                 .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
+
+# AExp specific: the accepted ADF file-size range, as two 16-bit halves each.
+# globals.vhd states it as tracks x bytes-per-track, so the product is computed
+# here - the firmware size gate must never drift from the HyperRAM map.
+awk '
+    /constant C_ADF_TRACK_BYTES/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); tb=a[1]+0}
+    /constant C_ADF_MIN_TRACKS/  {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); mn=a[1]+0}
+    /constant C_ADF_MAX_TRACKS/  {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); mx=a[1]+0}
+    END {
+        lo = mn * tb; hi = mx * tb;
+        printf("ADF_MIN_SIZE_HI             .EQU 0x%04X\n", int(lo / 65536));
+        printf("ADF_MIN_SIZE_LO             .EQU 0x%04X\n", lo % 65536);
+        printf("ADF_MAX_SIZE_HI             .EQU 0x%04X\n", int(hi / 65536));
+        printf("ADF_MAX_SIZE_LO             .EQU 0x%04X\n", hi % 65536);
+    }' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_CRTROMS_MAN_NUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("CRTROM_MAN_MAX              .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_CRTROMS_AUTO_NUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); val=a[1]; if (val+0 == 0) val=1; printf("CRTROM_AUT_MAX              .EQU %s\n", val)}' ../vhdl/globals.vhd >> globals.asm
 
@@ -143,3 +162,119 @@ print_file_handles "HNDL_RM_FILES" "HANDLE_RM_FILE" $crtrom_man_max
 ##############################################################################
 
 ../../M2M/QNICE/assembler/asm m2m-rom.asm
+ASM_RC=$?
+
+##############################################################################
+# Trim the variables off the ROM image and guard the Shell-ROM budget.
+#
+# QNICE reserves 0x7000-0x7FFF for memory-mapped I/O, so the usable ROM is
+# 0x0000-0x6FFF = 28672 words. The assembler does not check this; without the
+# check below an overflow would fail obscurely later, in Vivado.
+#
+# qasm2rom serializes every word of the .out file in source order and ignores
+# addresses, so the words that ".ORG 0x8000" and ".ORG 0xFEE0" reserve for the
+# variables get appended to the ROM image as zero words. They land at ROM
+# addresses the CPU can never read, but they inflate the image, so a plain
+# "wc -l" would report a full ROM about 600 words too early.
+#
+# m2m-rom.rom line N holds the word of m2m-rom.out line N, and BROM (see
+# M2M/QNICE/vhdl/block_rom.vhd) loads file line N into ROM address N. So inside
+# the ROM the address of a record always equals its line number minus one, and
+# the ROM image is exactly the leading run of .out records for which that holds.
+# Everything after that run has to be a variable (address >= 0x7000); anything
+# else means the source layout changed in a way qasm2rom cannot serialize
+# correctly at all, so fail loudly instead of truncating something real.
+#
+# The listing knows the same number independently: END_OF_ROM is by convention
+# the last ROM item, directly before the variables. Cross-checking both catches
+# a module that was accidentally included after that marker -- which would also
+# silently corrupt the free-ROM figure that the Shell logs at boot (it computes
+# M2M$RAMROM_DATA - END_OF_ROM).
+##############################################################################
+ROM_MAX_WORDS=28672
+
+# The asm wrapper deletes m2m-rom.rom up front and only regenerates it on success,
+# so a missing .rom (or a non-zero exit) means assembly failed -- fail the build
+# loudly instead of silently skipping the size guard and exiting 0.
+if [ "$ASM_RC" -ne 0 ] || [ ! -f m2m-rom.rom ]; then
+    echo "ERROR: assembling m2m-rom.asm failed (asm exit ${ASM_RC}); m2m-rom.rom was not produced."
+    exit 1
+fi
+
+if [ ! -f m2m-rom.lis ]; then
+    echo "ERROR: m2m-rom.lis was not produced; cannot verify the ROM image."
+    exit 1
+fi
+
+# The ROM image size, derived from the addresses that qasm2rom serialized.
+# Portability: no strtonum() and no 0x literals -- both are gawk extensions and
+# POSIX awk silently evaluates 0x7000 as 0. No /dev/stderr either, so errors are
+# printed on stdout and echoed by the caller. Tolerates CRLF line endings.
+if ! ROM_WORDS=$(awk '
+function hex(s,   i, c, v, d) {
+    v = 0; s = toupper(s); sub(/^0X/, "", s)
+    for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1); d = index("0123456789ABCDEF", c) - 1
+        if (d < 0) return -1
+        v = v * 16 + d
+    }
+    return v
+}
+{ sub(/\r$/, "") }
+{
+    a = hex($1)
+    if (a < 0)                { err = "unparsable address in line " NR ": " $1; exit 1 }
+    if (!done && a == NR - 1) { n = NR; next }
+    done = 1
+    if (a < 28672)            { err = "address " $1 " (line " NR ") is inside the ROM but outside the contiguous image"; exit 1 }
+}
+END {
+    if (err != "")  { print "ERROR: m2m-rom.out cannot be trimmed: " err; exit 1 }
+    if (n + 0 == 0) { print "ERROR: m2m-rom.out contains no ROM words."; exit 1 }
+    print n + 0
+}' m2m-rom.out); then
+    echo "$ROM_WORDS"
+    exit 1
+fi
+
+# The same number according to the END_OF_ROM marker in the listing.
+EOR_ADDR=$(awk '
+{ sub(/\r$/, "") }
+/^Label-list:/ { inlist = 1; next }
+inlist {
+    line = $0
+    gsub(/:/, " ", line)
+    n = split(line, t, /[ \t]+/)
+    for (i = 1; i < n; i++)
+        if (t[i] == "END_OF_ROM") { print t[i + 1]; exit }
+}' m2m-rom.lis)
+
+case "$EOR_ADDR" in
+    0x[0-9A-Fa-f]*) ;;
+    *)  echo "ERROR: END_OF_ROM not found in the label list of m2m-rom.lis."
+        echo "       It has to stay the last ROM item, directly before the"
+        echo "       variables section (.ORG 0x8000) in m2m-rom.asm."
+        exit 1 ;;
+esac
+
+EOR_WORDS=$(( EOR_ADDR + 1 ))
+if [ "$EOR_WORDS" -ne "$ROM_WORDS" ]; then
+    echo "ERROR: the ROM image is ${ROM_WORDS} words but END_OF_ROM (${EOR_ADDR}) says"
+    echo "       ${EOR_WORDS}. Something is emitted into ROM after the END_OF_ROM marker."
+    echo "       Move it before the marker, or the ROM image loses those words."
+    exit 1
+fi
+
+if [ "$(wc -l < m2m-rom.out | tr -d ' ')" -ne "$(wc -l < m2m-rom.rom | tr -d ' ')" ]; then
+    echo "ERROR: m2m-rom.out and m2m-rom.rom differ in length; cannot map words to addresses."
+    exit 1
+fi
+
+head -n "$ROM_WORDS" m2m-rom.rom > m2m-rom.rom.tmp && mv m2m-rom.rom.tmp m2m-rom.rom
+
+if [ "$ROM_WORDS" -gt "$ROM_MAX_WORDS" ]; then
+    echo "ERROR: m2m-rom.rom is ${ROM_WORDS} words, exceeds the ${ROM_MAX_WORDS}-word"
+    echo "       Shell-ROM budget (0x0000-0x6FFF; 0x7000+ is QNICE MMIO)."
+    exit 1
+fi
+echo "Shell ROM: ${ROM_WORDS}/${ROM_MAX_WORDS} words."

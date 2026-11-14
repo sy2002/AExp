@@ -28,9 +28,21 @@ jobs:
   build:
     name: Build documentation
     runs-on: ubuntu-latest
+    outputs:
+      frozen: ${{ steps.freeze.outputs.frozen }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Check documentation freeze
+        id: freeze
+        run: |
+          if [ -f doc/DOC_FROZEN ]; then
+            echo "frozen=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::doc/DOC_FROZEN present — building for validation but NOT publishing."
+          else
+            echo "frozen=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -52,7 +64,7 @@ jobs:
 
   deploy:
     name: Deploy documentation
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.build.outputs.frozen != 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

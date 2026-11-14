@@ -536,16 +536,16 @@ begin
    eth_reset_o           <= '1';
    eth_txd_o             <= (others => '0');
    eth_txen_o            <= '0';
-   f_density_o           <= '1';
-   f_motora_o            <= '1';
+   -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): the drive A pins of the
+   -- internal floppy connector are routed into MEGA65_Core for the Hardware
+   -- Floppy: f_density/f_motora/f_selecta/f_side1/f_stepdir/f_step, the write
+   -- pins f_wdata/f_wgate and the five inputs. The core drives f_wdata and
+   -- f_wgate from physical_fdd_writer; both idle high (inactive), and WGATE
+   -- opens only while, among other conditions, the write-protect tab of the
+   -- disk reads writable. Drive B stays tied inactive: the core uses drive A
+   -- only.
    f_motorb_o            <= '1';
-   f_selecta_o           <= '1';
    f_selectb_o           <= '1';
-   f_side1_o             <= '1';
-   f_stepdir_o           <= '1';
-   f_step_o              <= '1';
-   f_wdata_o             <= '1';
-   f_wgate_o             <= '1';
    joystick_5v_disable_o <= '0'; -- Enable 5V power supply to joysticks
    led_g_n_o             <= '1'; -- Off
    led_r_n_o             <= '1'; -- Off
@@ -922,6 +922,22 @@ begin
          iec_srq_en_o            => iec_srq_en,
          iec_srq_n_i             => iec_srq_n_i,
          iec_srq_n_o             => iec_srq_n_o,
+
+         -- M2M-UPSTREAM floppy-pins (AExp 2026-07-26): MEGA65 internal
+         -- floppy drive (Hardware Floppy, read and write)
+         f_wdata_o               => f_wdata_o,
+         f_wgate_o               => f_wgate_o,
+         f_motora_o              => f_motora_o,
+         f_selecta_o             => f_selecta_o,
+         f_side1_o               => f_side1_o,
+         f_stepdir_o             => f_stepdir_o,
+         f_step_o                => f_step_o,
+         f_density_o             => f_density_o,
+         f_index_i               => f_index_i,
+         f_track0_i              => f_track0_i,
+         f_writeprotect_i        => f_writeprotect_i,
+         f_rdata_i               => f_rdata_i,
+         f_diskchanged_i         => f_diskchanged_i,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_en_o               => cart_en,      -- Enable port, active high

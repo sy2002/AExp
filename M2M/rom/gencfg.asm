@@ -23,6 +23,14 @@ RP_SYSTEM_START INCRB
                 MOVE    M2M$RAMROM_4KWIN, R0    ; choose Reset/Pause handling
                 MOVE    M2M$CFG_GENERAL, @R0
 
+                ; M2M-UPSTREAM gencfg-r7 (AExp 2026-08-02, ported from
+                ; C64MEGA65): the code below dereferences R7 four times, so it
+                ; has to be loaded here. Otherwise the CSR updates go wherever
+                ; the value left in this register bank points, and the core
+                ; may never leave reset (_RP_SS_2 below) or keyboard and
+                ; joysticks may never be enabled. (MiSTer2MEGA65 GitHub #63)
+                MOVE    M2M$CSR, R7             ; R7: control and status register
+
                 ; The QNICE CSR is in a sophisticated state when we arrive
                 ; here, and the core is in RESET state.
                 ; (See also CSR_DEFAULT in M2M/vhdl/QNICE/qnice.vhd)
