@@ -46,6 +46,12 @@ A synthesis takes a long time, so check locally first:
     `scandoubler.v`, `hq2x.sv`, the pixel enable in `main.vhd`): also
     `CORE/sim/video/run_scandoubler.sh full`.
 
+No bench instantiates `main.vhd` or `mega65.vhd`; the nvc chain analyzes
+them and nothing more. `tb_hwf_obs_tap.vhd` and `tb_scandoubler_minimig.v`
+carry their own models of the `DSKBYTR` tap and of the pixel enable of
+`main.vhd`, so a change to that logic is covered only after the model in the
+bench has changed with it.
+
 ```bash
 python3 tools/check_osm_menu.py
 python3 tools/check_firmware.py
@@ -59,12 +65,12 @@ JOBS=8 CORE/sim/run_long.sh
 |---|---|---|
 | `check_osm_menu`, `check_firmware` | the two checkers below | under a second each |
 | `nvc_chain` | `CORE/sim/run_nvc_chain.sh` | a few seconds |
-| `audio`, `video`, `misc` | the audio, analog positioner and cold-boot benches | about 30 s together |
+| `audio`, `video`, `misc` | the audio, analog positioner and cold-boot benches | about 40 s together |
 | `voc_reset` | the reset bench of the HDMI clock generator, with its red control | about 15 s |
 | `scandoubler` | the quick subset of the scandoubler bench | about 1.5 minutes, under 1 with `JOBS=3` |
-| `keyboard` | the three keyboard benches | about 75 s |
-| `cia_inmode`, `blitter_freeze` | the two fast Minimig golden diffs | about 75 s together |
-| `fdd_quick` | the floppy regression without the splice cells | about 40 s, 11 s with `JOBS=4` |
+| `keyboard` | the three keyboard benches | about 95 s |
+| `cia_inmode`, `blitter_freeze` | the two fast Minimig golden diffs | about 100 s together |
+| `fdd_quick` | the floppy regression without the splice cells and the rotation throttle cell | about 50 s, 16 s with `JOBS=8` |
 
 `run_long.sh` runs the full floppy regression, the full write matrix, the
 write mutants, the beam-counter golden diff and the full scandoubler matrix:
@@ -78,29 +84,37 @@ about four and a quarter hours with `JOBS=1` and a little over an hour with
     any other unknown argument is rejected, so a mistyped mode or mutant
     name cannot turn into a work directory. Without one the runner creates
     a fresh directory with `mktemp` under `$TMPDIR` (or `/tmp`) and prints
-    it. Simulators write into their invocation directory, so the runners
-    never simulate inside the repository.
-* Logs stay in the work directory. A reused work directory has the logs,
-    cell directories, source copies and cached baselines of the earlier run
-    removed first, so a result can never come from an earlier run.
+    it; `run_tb_cia_inmode.sh`, `run_tb_blitter_freeze.sh` and
+    `run_tb_beamcounter_readback.sh` use `$OUT` instead if it is set.
+    Simulators write into their invocation directory, so the runners never
+    simulate inside the repository.
+* Logs stay in the work directory. The three floppy runners, the
+    scandoubler runner and the nvc chain first remove what an earlier run
+    left in a reused work directory (logs, cell directories, source copies,
+    cached baselines, analyzed libraries), so none of their results can come
+    from an earlier run. The other runners overwrite their files in place;
+    a fresh directory, the default, is the safe choice for them.
 * The exit status is 0 only if everything passed; the floppy runners return
     the number of failures. Every selected cell or mutant must report a
     result, so a cell that never ran counts as failed. The last line is a
     summary.
 * `JOBS=<n>` runs independent cells in parallel where a runner supports it
-    (the floppy suites, the blitter mutants, the scandoubler bench). Every
-    parallel cell gets its own directory and, in the VHDL benches, its own
-    nvc library. The cells are compute-bound, so use at most the number of
-    physical cores.
+    (the floppy suites, the blitter mutants, the scandoubler bench). The
+    default is 1, and 8 for the blitter mutants. Every parallel cell gets
+    its own directory and, in the VHDL benches, its own nvc library. The
+    cells are compute-bound, so use at most the number of physical cores.
 * The three floppy runners and the scandoubler runner copy the HDL, the
     benches and their Python checkers into the work directory when they
     start, and every cell uses that copy, so all cells of one run test the
     same tree even if a file is edited while the suite runs. At the end a
     source that no longer matches its copy fails the run as CHANGED: the
-    results then describe the tree as it was at the start. The other
-    runners read the tree directly and finish in minutes; there, nvc's
-    "older than its source file" warning fails a cell as STALE. Do not edit
-    a runner while it runs: bash reads a script as it goes.
+    results then describe the tree as it was at the start. One cell is the
+    exception: the `paula_floppy.v` golden diff of the floppy regression
+    reads the Minimig submodule and its bench from the tree, which is why
+    it runs first, and CHANGED does not cover it. The other runners read
+    the tree directly and finish in minutes; there, nvc's "older than its
+    source file" warning fails a cell as STALE. Do not edit a runner while
+    it runs: bash reads a script as it goes.
 
 ## Host tools (`tools/`)
 
@@ -114,16 +128,19 @@ second, end with `all checks passed` and exit non-zero otherwise.
     against `OPTM_DY`, the boot defaults (one `OPTM_G_STDSEL` per radio,
     every default visible, at most one drive defaulting to Hardware Floppy),
     the `MENU_HEAP_SIZE` demand of the firmware and the geometry of the
-    welcome and help pages. It also checks every `C_MENU_*` constant in
-    `mega65.vhd` against the text of the line it points to. The rules behind
-    it are in [the architecture overview](architecture.md), section 7.
+    welcome and help pages. It also checks the `C_MENU_*` constants and
+    ranges of `mega65.vhd` against the text of the lines they point to. The
+    expected texts are a table in the script, so a new constant is checked
+    only after it has been added there. The rules behind it are in
+    [the architecture overview](architecture.md), section 7.
 * `check_firmware.py` requires every `ADDC`/`SUBC` in `m2m-rom.asm` to take
     its carry from an instruction that works on the same storage class
     (memory or register). On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC` and
     `SHL` write the carry flag (`SHR` reads it and writes X), so an address
     calculation placed between a 32-bit `ADD` and its `ADDC` silently eats
-    the carry. It also checks that
-    every per-drive table and array has exactly `ADF_DRIVES` entries.
+    the carry. It also checks that the per-drive tables and arrays named in
+    the script (five `ADF_*_TAB` tables and seven `ADF_*` arrays) have
+    exactly `ADF_DRIVES` entries; a new one has to be added to that list.
 
 ### Floppy field reports
 
@@ -167,8 +184,8 @@ are better. Most take one or more pairs of a file and a label, so several
 disks can be compared in one run, and all print their usage when called
 without arguments. A whole disk takes from under a second to about twenty
 seconds, depending on the script. `scp_tool.py` (the reader, an MFM PLL and an
-AmigaDOS sector decoder) and `burst.py` (the expected MFM of a sector) are
-shared by the others.
+AmigaDOS sector decoder) is shared by all the others, and `patch_span.py`
+also takes the expected MFM of a sector from `burst.py`.
 
 * `patch_scan.py disk.scp LABEL ...` scans every track for analog damage
     patches: 8 or more off-grid intervals within 1 ms, at the same angle in
@@ -223,12 +240,12 @@ more or fewer than `OPTM_SIZE` entries fails here. Runtime: a few seconds.
 The benches behind section 11 of
 [the Hardware Floppy documentation](hardware-floppy.md#11-how-it-was-verified).
 They drive the real `physical_fdd/` front end, writer and
-`adf_track_engine.vhd`; `tb_adf_multidrive.vhd` also covers the simulated
-ADF drives.
+`adf_track_engine.vhd`; `tb_adf_multidrive.vhd` and `tb_adf_rotation.vhd`
+also cover the simulated ADF drives.
 
 | Bench | What it verifies |
 |---|---|
-| `tb_physical_fdd_top.vhd` | The read front end from flux to the word FIFO, closed loop: nominal and ±3 % speed with jitter, runts, re-lock after a drought, the sector-header capture, in both separator modes |
+| `tb_physical_fdd_top.vhd` | The read front end from flux to the word FIFO, closed loop: nominal and ±3 % speed (the −3 % case with jitter), runts, re-lock after a drought, the sector-header capture, in both separator modes |
 | `tb_fdd_dpll.vhd` | The DPLL keeps a dropped flux reversal to a single bit error where the legacy classifier corrupts the rest of the sector; a displaced edge and a 3 % bias decode in both modes |
 | `tb_fdd_margin.vhd` | The margin and miss-profile instruments against an independent integer model; `gen_tb_fdd_margin.py` regenerates its stimulus and expectations |
 | `tb_fdd_diag_ro.vhd` | The registered readout of diagnostics device `0x0104`: all 128 addresses against a literal table, alias folding, and proof that the output is registered |
@@ -281,11 +298,12 @@ the original in nothing else.
 * `run_paula_obs.sh`: `tb_paula_obs.v` runs the current `paula_floppy.v`
     beside `paula_floppy_ref.v`, a frozen copy with the constant `DSKBYTR`
     stub, and requires bit-identical outputs whenever the observation surface
-    is gated off; a CPU model then polls `DSKBYTR` like the Copylock loop and
-    must measure the 5 % timing ratio with the surface on and none with it
-    off. A few seconds; part of the floppy regression.
+    is gated off; a CPU model then polls `DSKBYTR` like the Copylock loop,
+    and a sector that arrives 5 % slower must take at least 3 % more poll
+    iterations with the surface on and less than 1 % more with it off. A
+    few seconds; part of the floppy regression.
 * `run_tb_cia_inmode.sh`: the CIA timers with CNT input and the INMODE bits
-    (upstream PR 230) against the timers of `fa40334`. About 80 s.
+    (upstream PR 230) against the timers of `fa40334`. About 100 s.
 * `run_tb_blitter_freeze.sh`: the blitter freeze of upstream PR 236 against
     the pre-port blitter, followed by a 19-mutant matrix. `MUTANTS=0` runs
     the bench alone in a few seconds; the matrix honors `JOBS`.
@@ -433,21 +451,22 @@ cells with a late vblank edge fail with the one-line-late signature.
     settling window does not release the next code, and `tb_keyboard_lossy`
     the send-then-wait-for-acknowledge flow control against a single-byte
     CIA serial register with a fast, a slow and a non-reading consumer.
-    About 75 s.
+    About 95 s.
 * `CORE/sim/video/run.sh`: the contract of `analog_positioner.vhd` (the
     analog screen position) over five rasters, progressive and interlaced,
     native and line-doubled: exact bypass at zero offset, both directions,
-    pulse widths, interlace phase, clamps, mode changes and reset. About 25 s.
+    pulse widths, interlace phase, clamps, mode changes and reset. About 30 s.
 * `CORE/sim/video/run_voc_reset.sh`: `video_out_clock.vhd`, the
-    reprogrammable HDMI pixel-clock MMCM, under a long reset press and at
-    power-up, against behavioral models of the MMCM (outputs stop in reset,
-    wrong period until `LOCKED`, DRP) and of the glitch-free clock multiplexer
-    (switches only on a falling edge of the selected input). The pixel clock
-    must keep running, `rsto` must be high during the press, no edge of the
-    unlocked MMCM may reach the scaler's released output stage, and the final
-    state must be the configured mode. The red control undoes the two
-    functional edits of the `hdmi-clock-reset` change and must fail. About
-    15 s.
+    reprogrammable HDMI pixel-clock MMCM, at power-up, under a long reset
+    press and in a sweep of 42 second resets that land in every state of its
+    state machine, against behavioral models of the MMCM (outputs stop in
+    reset, wrong period until `LOCKED`, DRP) and of the glitch-free clock
+    multiplexer (switches only on a falling edge of the selected input). The
+    pixel clock must keep running, `rsto` must be high during the press, no
+    edge of the unlocked MMCM may reach the scaler's released output stage,
+    and the final state must be the configured mode. The red control undoes
+    the two functional edits of the `hdmi-clock-reset` change and must fail.
+    About 15 s.
 * `CORE/sim/misc/run.sh`: `amiga_cold_boot.vhd` must not cold-boot the Amiga
     at power-on with the default drive map, must with a different map, and a
     deliberately wrong expectation must fail. A few seconds.

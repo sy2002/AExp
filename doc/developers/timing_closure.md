@@ -10,16 +10,17 @@ can fix it, and why the re-roll is safe.
 The short version:
 
 * The failing check is the **HyperRAM read capture** of the M2M framework.
-  Its hold margin is only 0 to 0.5 ns, and it is decided by the fabric route
-  of the RWDS strobe, which changes with every placement.
+  Its hold margin is small, from just below zero to about 0.7 ns, and it is
+  decided by the fabric route of the RWDS strobe, which changes with every
+  placement.
 * **Vivado cannot repair it**, and building again unchanged gives the
   identical result: Vivado is deterministic and has no seed.
 * The design-side lever, the **IDELAY tap of the strobe, is field-calibrated**
   and must not change.
 * A new placement is a **fresh draw** from the same distribution that every
   shipped build came from. Most placements pass (12 of the 13 R3 and R6
-  builds of August and September 2026), so `build_all.sh` keeps drawing until
-  one does.
+  builds of August and September 2026), so `build_all.sh` draws again
+  until one does or the 15 attempts that follow a hold miss are used up.
 
 ## The path
 
@@ -47,7 +48,7 @@ strobe, and it moves by a few tenths of a nanosecond from build to build
 (0.87 to 1.55 ns have been seen). A build from the development of Version 2
 is a typical case:
 R3 closed with DQ4's branch at 1.356 ns (hold +0.187 ns). R6 placed the same
-netlist so that the branch grew to 1.552 ns (hold −0.008 ns), and a re-roll
+design so that the branch grew to 1.552 ns (hold −0.008 ns), and a re-roll
 with the `ExtraTimingOpt` placer directive brought it to 1.285 ns
 (hold +0.258 ns).
 
@@ -59,8 +60,8 @@ with the `ExtraTimingOpt` placer directive brought it to 1.285 ns
   gain hold.
 * Post-route `phys_opt_design` only works on setup.
 * Vivado is deterministic: the same sources, constraints and settings give
-  the same bitstream, bit for bit. There is no placer seed; a different
-  directive is the closest equivalent.
+  the same placement, the same routing and the same timing. There is no
+  placer seed; a different directive is the closest equivalent.
 
 ## Why we do not change the design
 
@@ -103,6 +104,9 @@ meets setup and hold:
 * An attempt that misses setup only gets one more, harder `phys_opt_design`
   pass before it counts as failed.
 
+That makes 15 attempts after a hold miss and 16 after a setup-only miss. If
+none of them passes, the board ends as `REROLL-FAILED`.
+
 Every attempt starts from the checkpoints of the failed build, which
 `build_all.sh` checks are newer than that build's start. That is the same
 synthesized and optimized netlist with the same constraints; only placement,
@@ -111,13 +115,13 @@ as a first pass: full timing analysis in both corners, the bitstream
 design-rule check and the gates of `build_bitstream.tcl`. A re-rolled
 bitstream is therefore exactly as valid as a first-pass one.
 
-The winner replaces `mega65_<board>.bit` and `mega65_<board>.mmi` in
-`CORE/CORE-<board>.runs/impl_1`, so `make_release.py`, `m65` and everything
-else find it where they always do. Next to it, `mega65_<board>_reroll.txt`
-records which attempt won, `mega65_<board>_reroll_timing.rpt` holds its
-timing report and `mega65_<board>_reroll.dcp` its checkpoint. All other
+The winner replaces `mega65_r<n>.bit` and `mega65_r<n>.mmi` in
+`CORE/CORE-R<n>.runs/impl_1`, so `make_release.py`, `m65` and everything
+else find it where they always do. Next to it, `mega65_r<n>_reroll.txt`
+records which attempt won, `mega65_r<n>_reroll_timing.rpt` holds its
+timing report and `mega65_r<n>_reroll.dcp` its checkpoint. All other
 reports in that folder describe the failed first pass. The console output
-of a re-roll goes to `CORE/build_<board>_reroll.log`.
+of a re-roll goes to `CORE/build_R<n>_reroll.log`.
 
 The summary at the end of `build_all.sh` shows the outcome per board, for
 example:
@@ -131,5 +135,5 @@ RESULT R6 OK after re-roll 2/15 (place_design ExtraTimingOpt, route_design Explo
 ```
 
 An attempt takes about as long as the implementation part of a normal
-build: roughly 15 minutes on R6 and 50 on R3. `./build_all.sh --no-reroll`
+build, roughly 15 to 35 minutes on any board. `./build_all.sh --no-reroll`
 skips the re-roll pass, and `./build_all.sh --help` lists all options.

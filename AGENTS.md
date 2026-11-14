@@ -131,7 +131,7 @@ at the end.
 5. **The timing margin is thin.** Judge a build by
    `*_timing_summary_postroute_physopted.rpt` (post-route `phys_opt_design` is
    enabled on all four boards; `_routed` is the state before it) or, after a
-   re-roll, by `mega65_<board>_reroll_timing.rpt`; WNS and WHS must both be
+   re-roll, by `mega65_r<n>_reroll_timing.rpt`; WNS and WHS must both be
    ≥ 0. Load-bearing constraints in `CORE/CORE.xdc`:
    - the ascal FIFO CDC `set_max_delay -datapath_only` bounds (they cut
      phantom inter-clock requirements and the router's hold-fix detours);
@@ -193,7 +193,8 @@ at the end.
      pinned to LUTRAM (the untagged 8x8-font OSM renderer belongs to it);
    - `raw-joyports` — DB9 lines through 2-FF synchronizers, no 1 ms debounce;
    - `floppy-pins` — the board tops route the internal floppy connector into
-     the core, read pins and the write pins `f_wdata`/`f_wgate` alike;
+     the core: the five inputs, the six drive A control outputs and the
+     write pins `f_wdata`/`f_wgate`;
    - `osm-deps` — menu-line dependencies (`OPTM_DEP`/`OPTM_DEP2`,
      `optm_deps.asm`);
    - `live-text` — `OPTM_LIVE_TEXT`, in-place repaint of part of a menu line;
@@ -207,9 +208,10 @@ at the end.
      restarts it unlocked under the scaler (#39).
 
    Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
-   `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
-   `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
-   section 8.12; the QNICE submodule pointer differs as well (rule 17).
+   `gencfg-r7`, the untagged `%s` scan fix in `M2M/rom/menu.asm`, the
+   HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the QNICE submodule pointer of
+   rule 17, the `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in
+   `architecture.md` section 8.12.
 9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
    `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
    across individual machines. Do not force or re-route the RWDS strobe
@@ -311,9 +313,14 @@ at the end.
     - One image file may not be mounted into two drives (`ADF_DUP_CHECK`):
       each drive holds its own HyperRAM copy and the later flush overwrites
       the earlier.
-    - No handle may stay FAT32-dirty across a return to the main loop. There
-      is one sector buffer, its owner is tracked by address, and the file
-      browser claims it without flushing.
+    - No handle may stay FAT32-dirty across a return to the main loop, and a
+      handle snapshot starts with its flags cleared. There is one sector
+      buffer. The FAT32 library tracks its owner per device handle and
+      writes a dirty owner back before it refills the buffer, but only within
+      that device handle: the settings save and the screen configuration
+      reload work on the second device handle `CONFIG_DEVH`, and
+      `FAT32$MOUNT` drops the owner without flushing it
+      (`floppy-adf.md` section 8.5).
     - The arm-state invariant of `floppy-adf.md` section 9 holds per drive: a
       drive is announced write-protected until its own mount completes and
       the firmware arms its `WR_EN`; `PREP_LOAD_IMAGE` force-flushes and
@@ -369,7 +376,7 @@ everything, then ask the user to build and return the logs.
 - **What to request after a build:** `CORE/CORE-R<n>.runs/synth_1/runme.log`;
   from `impl_1/`: `*_utilization_placed.rpt`,
   `*_timing_summary_postroute_physopted.rpt`, `*_route_status.rpt`, and after
-  a re-roll `mega65_<board>_reroll.txt` + `_reroll_timing.rpt`; for batch
+  a re-roll `mega65_r<n>_reroll.txt` + `_reroll_timing.rpt`; for batch
   builds the `RESULT` line of each `build_R<n>.log`, the summary that
   `build_all.sh` prints at the end (`build_all.out` in its documented
   recipe) and, after a re-roll, `build_R<n>_reroll.log`. For per-module BRAM
@@ -561,8 +568,6 @@ Full picture: `architecture.md` sections 2, 4 and 5.
 Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
 Version 2:
 
-- **#37 FileHost page text** and **#42 documentation review:** documentation
-  housekeeping for Version 2, no core work.
 - **#24 File browser failure** after many warm starts with large ADF
   collections (seen on V1; a long reset press clears it). Unclassified until
   the reporter supplies the exact fatal-error text and code.
@@ -586,9 +591,10 @@ Version 2:
   only ever tested together with 234). Not ported as written: PR 235, since a
   real A500 mirrors the custom registers at `$C00000`–`$D7FFFF` and
   `$DE0000`; an A500-exact decode of our own is backlog (acceptance:
-  WhichAmiga 1.4 and xSysInfo 0.6). `Main_MiSTer`'s September 2026 changes to
-  the two reference `.cpp` files are not reconciled; diff against the copies
-  in `doc/developers/` first.
+  WhichAmiga 1.4 and xSysInfo 0.6). `Main_MiSTer` has changed both reference
+  `.cpp` files since the copies were taken (`minimig_fdd.cpp` in September
+  2026, `minimig_config.cpp` from July to October 2026); those changes are
+  not reconciled, so diff against the copies in `doc/developers/` first.
 - **`M2M/`:** no move to a newer M2M version is planned; improvements made
   in upstream M2M or in C64MEGA65 are ported change by change when the core
   needs them (rule 8). A third flicker-free clock for content above 50 Hz is

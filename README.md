@@ -507,8 +507,8 @@ documented in [doc/inofficial.md](doc/inofficial.md).
 Installation
 ------------
 
-To install the core you need its `*.cor` file (or a `*.bit` file if you flash
-via JTAG). Then:
+To install the core you need its `*.cor` file (or a `*.bit` file if you load
+it via JTAG). Then:
 
 1. Use a FAT32 formatted SD card with a maximum capacity of 32 GB. The card
    in the back slot has precedence over the card in the bottom slot.

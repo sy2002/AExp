@@ -26,11 +26,20 @@ Operating-system hints for the `bash` tool chain:
 * **Linux:** install `build-essential` (or your distribution's GCC and
   `make` packages), `gawk` and `git`. Everything, including Vivado, runs
   natively.
-* **macOS:** `xcode-select --install` provides the compiler and `make`;
-  `git` and `awk` are already there. You can build the tool chain and the
-  firmware natively, but since Vivado has no macOS build you need to run
-  the synthesis on Linux or Windows — for example in a Linux VM (Parallels,
-  UTM, VirtualBox) that mounts this working folder.
+* **macOS:** Vivado has no macOS build, so the synthesis runs on Linux or
+  Windows, for example in a Linux VM (Parallels, UTM, VirtualBox) that
+  mounts this working folder. The QNICE tool chain has to be built for the
+  operating system that runs Vivado, because the pre-synthesis step runs
+  the assembler binaries in `M2M/QNICE/assembler` as they are: install the
+  Linux packages in the VM and run step 2 below there, not on the Mac. A
+  tool chain built on the Mac (`xcode-select --install` provides the
+  compiler and `make`; `git` and `awk` are already there) puts macOS
+  binaries into the shared folder, which do not run in the VM and fail the
+  build. If you need the tool chain on both systems, create an executable
+  `CORE/make_qasm.sh` that compiles `qasm.c` and `qasm2rom.c` in
+  `M2M/QNICE/assembler` with `cc` to `qasm` and `qasm2rom`: `build_all.sh`
+  runs it from the `CORE` folder before every batch build (the file name is
+  git-ignored).
 * **Windows:** Vivado runs natively. For the `bash` tool chain use **WSL2**
   (Ubuntu) or **MSYS2 / Git Bash**.
 
@@ -51,7 +60,7 @@ Operating-system hints for the `bash` tool chain:
     ```
 
 2. **Build the QNICE tool chain.** This compiles the assembler, the
-    QNICE C compiler, etc. natively for your operating system:
+    QNICE C compiler, etc. natively for the operating system you run it on:
 
     ```bash
     cd M2M/QNICE/tools
@@ -95,7 +104,7 @@ Operating-system hints for the `bash` tool chain:
     are needed.
 
 5. **Deploy and run.** Copy the `*.cor` to the MEGA65 (or, with a JTAG
-    adaptor, flash the `*.bit` directly with `m65 -q mega65_r3.bit`) and
+    adaptor, load the `*.bit` directly with `m65 -q mega65_r3.bit`) and
     follow the [installation steps](../README.md#installation) in the main
     README. Remember that the Kickstart ROM at `/amiga/kick.rom` is
     mandatory — without it the core stops at an error screen.
@@ -113,19 +122,22 @@ nohup ./build_all.sh > build_all.out 2>&1 &
 
 Without arguments it builds R3, R4, R5 and R6, one after another. Pass board
 names to build only a subset (for example `./build_all.sh R3 R6`), and set
-`JOBS=<n>` to choose how many parallel workers Vivado may use for each board
-(the default is 4), for example `JOBS=8 ./build_all.sh R3 R6`. Each board
-writes `build_R<n>.log`, and the run ends with a compact summary of the
-timing and sign-off result of every board. `./build_all.sh --help` lists all
-options.
+`JOBS=<n>` (the default is 4) to change the number of parallel jobs that
+Vivado gets for the synthesis and implementation runs of a board and the
+number of threads of a re-roll, for example `JOBS=8 ./build_all.sh R3 R6`.
+Each board writes `build_R<n>.log`, and the run ends with a compact summary
+of the timing and sign-off result of every board. `./build_all.sh --help`
+lists all options.
 
 Now and then a board misses timing although the design is fine, usually by a
 few picoseconds of hold in the HyperRAM read capture of the framework. Whether
 it happens, and to which board, depends on where the placer happens to put
 things. `build_all.sh` handles this pragmatically: once all boards are built,
 it implements every board that missed by no more than 0.3 ns again, from the
-same synthesized netlist but with other placer and router directives, until
-one attempt meets timing. The winning bitstream replaces the failed one in the
+same synthesized netlist but with other placer and router directives, one
+attempt after another until one meets timing. There are 15 attempts after a
+hold miss and 16 after a setup-only miss; if none of them passes, the board
+ends as `REROLL-FAILED`. The winning bitstream replaces the failed one in the
 usual place, `build_R<n>_reroll.log` records the attempts, and the summary
 shows the first pass and every attempt. `./build_all.sh --no-reroll` skips
 this pass.
@@ -156,27 +168,29 @@ the `CORE_VERSION` constant in `CORE/vhdl/config.vhd`, and do type the
 `.cfg` suffix: the script writes exactly the file name you give it, and a
 file without the suffix is never found, so settings are silently not saved.
 
-The file is created empty, which means "use the defaults from
-`config.vhd`". Do not copy an older `aexp-*.cfg` forward under the new
-name even when the two have the same size: a file you have already used
-holds your saved selections, and they override the defaults the new build
-ships with.
+The new file holds one `0xFF` byte per menu line (`OPTM_SIZE` bytes), which
+the firmware reads as "use the defaults from `config.vhd`". Do not copy an
+older `aexp-*.cfg` forward under the new name even when the two have the
+same size: a file you have already used holds your saved selections, and
+they override the defaults the new build ships with.
 
 ### Packaging a release
 
-`make_release.py` in the repository root packages a release: it converts the
-bitstreams of all boards into `*.cor` files (with `coretool`, or `bit2core`
-if `coretool` is not installed), creates the settings file and collects the
-documentation and the screen-adjustment files into one folder:
+`make_release.py` in the repository root packages a release: it copies the
+bitstreams of all boards, converts them into `*.cor` files (with `coretool`,
+or `bit2core` if `coretool` is not installed), creates the settings file and
+adds the release notes, the user documentation and the screen-adjustment
+files:
 
 ```bash
 python3 make_release.py V2 /tmp/builds
 ```
 
-The version must match `CORE_VERSION`. A work-in-progress build (`WIP-*`)
-also needs its row in [inofficial.md](inofficial.md). Run
-`python3 make_release.py --help` for the options, for example packaging only
-some boards.
+The release ends up in a subfolder of the folder you name, here
+`/tmp/builds/AExp-V2`. The version must match `CORE_VERSION`. A
+work-in-progress build (`WIP-*`) also needs its row in
+[inofficial.md](inofficial.md). A third argument packages only some boards,
+for example `R3,R6`, and `python3 make_release.py --help` lists the options.
 
 ### Developer documentation
 

@@ -186,14 +186,15 @@ demanded of Minimig.
 
 ## 3. Why Minimig needed three new surfaces
 
-The original expectation was that an Amiga core would mostly have to
-"connect the Paula pins to the drive and mux the input lines with the virtual
-drive". The outcome is right, but Minimig has no Paula *pins* to connect. `paula_floppy.v` fuses the disk controller with a token
-drive model (a track counter, a motor latch, an index pulse derived from the
-video frame counter), and everything below the level of pre-encoded,
-word-aligned 16-bit MFM words lives in the host, which on AExp is the track
-engine. There is no data separator and no bit layer. So the feature is three
-surfaces, each as small as it could be made:
+The obvious plan for a real drive on an Amiga core is to "connect the Paula
+pins to the drive and mux the input lines with the virtual drive". That is
+the right outcome, but Minimig has no Paula *pins* to connect.
+`paula_floppy.v` fuses the disk controller with a token drive model (a track
+counter, a motor latch, an index pulse derived from the video frame
+counter), and everything below the level of pre-encoded, word-aligned 16-bit
+MFM words lives in the host, which on AExp is the track engine. There is no
+data separator and no bit layer. So the feature is three surfaces, each as
+small as possible:
 
 1. **A flux front-end** (`CORE/vhdl/physical_fdd/`): real pins in, 16-bit MFM
    words out, and for writing words in, write pulses out.
@@ -205,22 +206,23 @@ surfaces, each as small as it could be made:
    owned the seam between Paula and "the disk surface"; a unit backed by the
    mechanism is served from the front-end's FIFO instead of from HyperRAM,
    and its writes are tapped out instead of decoded.
-3. **The CIA-line muxes inside `paula_floppy.v`.** The four status inputs a
-   drive drives, `/RDY`, `/TRK0`, `/WPROT` and `/CHNG`, are modeled as
-   open-collector AND terms across the four units; for the unit in
-   `phys_mask` the virtual term is replaced by the conditioned real level,
-   still gated by that unit's select line like a real drive. The real index
-   is injected into the CIA-B FLAG source. With `phys_mask` all zero every
-   expression reduces to the original Minimig logic, which is what keeps the
-   ADF-only configuration bit-identical.
+3. **The CIA-line muxes inside `paula_floppy.v`.** Of the four status inputs
+   a drive drives, `/RDY`, `/WPROT` and `/CHNG` are modeled as open-collector
+   AND terms across the four units, and `/TRK0` follows the selected unit;
+   for the unit in `phys_mask` the virtual source is replaced by the
+   conditioned real level, still gated by that unit's select line like a
+   real drive. The real index is injected into the CIA-B FLAG source. With
+   `phys_mask` all zero every expression reduces to the original Minimig
+   logic, which is what keeps the ADF-only configuration bit-identical.
 
 The control lines go the other way: CIA-B's port B byte,
 `{motor, sel3..0, side, direc, step}`, is tapped out of Minimig as
-`fdd_ctrl` and driven onto the connector in `mega65.vhd`. The eleven read-path
-pins and the two write pins are routed board top to `MEGA65_Core` directly,
-bypassing `framework.vhd`, under the sanctioned M2M exception tagged
-`M2M-UPSTREAM floppy-pins`; drive B's select and motor lines stay tied
-inactive.
+`fdd_ctrl` and driven onto the connector in `mega65.vhd`. The five input
+pins, the six control outputs of drive A and the two write pins are routed
+board top to `MEGA65_Core` directly, bypassing `framework.vhd`. That routing
+is the change to the M2M template copy tagged `M2M-UPSTREAM floppy-pins`
+([the architecture overview, section 8.7](architecture.md#87-floppy-pins));
+drive B's select and motor lines stay tied inactive.
 
 Polarity facts, all proven on hardware: select, motor, step, index, track 0,
 write protect and disk change are active low; `f_stepdir` high means toward
@@ -242,8 +244,9 @@ bit for other mechanisms; on this one it must stay 0.
 
 Everything up to the FIFO runs on the 50 MHz clock inside `physical_fdd_top`.
 The FIFO's read side and the engine run on the 28.375 MHz core clock. All
-cycle counts below are 50 MHz cycles unless stated otherwise; the constants
-live in `physical_fdd_pkg.vhd`.
+cycle counts below are 50 MHz cycles unless stated otherwise; the front-end's
+constants live in `physical_fdd_pkg.vhd`, the engine's in
+`adf_track_engine.vhd`.
 
 ### 4.1 Input conditioning and index qualification
 
@@ -293,12 +296,12 @@ bit assembly. The sign-based step rather than a proportional filter is a
 measured choice: under peak shift a proportional filter settles to a biased
 estimate.
 
-Classification has a weakness that the field eventually exposed: a single
-displaced flux edge distorts *two* adjacent intervals, a class flip inserts
-or deletes a channel bit, and from that point on every word until the next
-sync is shifted. One rare analog event on an old disk thus costs a whole
-sector. Measured on real media, the failing intervals were exactly that kind
-of rare extreme, sitting on a clean body.
+Classification has a weakness that shows on old media: a single displaced
+flux edge distorts *two* adjacent intervals, a class flip inserts or deletes
+a channel bit, and from that point on every word until the next sync is
+shifted. One rare analog event on an old disk thus costs a whole sector.
+Measured on real media, the failing intervals were exactly that kind of rare
+extreme, sitting on a clean body.
 
 **The digital PLL** (inside `physical_fdd_bits`, the default) does what a
 real Paula's separator does. A phase accumulator advances one
@@ -332,24 +335,24 @@ word itself is emitted, so a sector's double `$4489` behaves exactly as it
 does on the ADF path, where Paula's WORDSYNC gate drops the first match and
 stores from the second.
 
-The obvious rule, "re-align on every sync match", is what the first builds
-did, and it is wrong for trackdisk. Recall section [2.2](#22-dsksync-and-wordsync):
-under WORDSYNC off a real Paula never re-frames. Its capture of a track
-carries one constant framing, the write splice shows up as a *constant* phase
-shift between the words before and after the gap, and trackdisk's decoder
-absorbs that shift with its 16 rotation tables and a second gap hunt that
-takes its own shift. Re-aligning at every sync turns the once-per-revolution
-splice slip into something no table matches: a run of gap words at the old
-framing, one hybrid word, then a word-aligned sync. trackdisk's gap re-hunt
-either exhausts its window or anchors one sector late, and the whole attempt
-dies with error `$1A` or `$17`, on every attempt whose decode anchor is not
-the first-written sector, in both separator modes. X-Copy was immune because
-it runs with WORDSYNC on, where a real Paula does re-frame at every match;
-the ADF drives were immune because an encoded image has no splice. In the
-field this looked exactly like "old media": grinding retries on original
-disks that a real A500 read fine.
+The obvious rule, "re-align on every sync match", is wrong for trackdisk.
+Recall section [2.2](#22-dsksync-and-wordsync): under WORDSYNC off a real
+Paula never re-frames. Its capture of a track carries one constant framing,
+the write splice shows up as a *constant* phase shift between the words
+before and after the gap, and trackdisk's decoder absorbs that shift with its
+16 rotation tables and a second gap hunt that takes its own shift.
+Re-aligning at every sync turns the once-per-revolution splice slip into
+something no table matches: a run of gap words at the old framing, one hybrid
+word, then a word-aligned sync. trackdisk's gap re-hunt either exhausts its
+window or anchors one sector late, and the whole attempt dies with error
+`$1A` or `$17`, on every attempt whose decode anchor is not the first-written
+sector, in both separator modes. X-Copy is immune because it runs with
+WORDSYNC on, where a real Paula does re-frame at every match; the ADF drives
+are immune because an encoded image has no splice. In the field,
+realign-always framing looked exactly like "old media": grinding retries on
+original disks that a real A500 read fine.
 
-The fix is the **framing hold**: while `frame_hold_i` is high, a sync match
+The answer is the **framing hold**: while `frame_hold_i` is high, a sync match
 is still reported to the instruments but neither restarts the bit counter
 nor emits early, so the framing free-runs like a real shifter. The hold is
 asserted in `physical_fdd_top` as
@@ -414,11 +417,11 @@ A unit backed by the mechanism adds a physical service with three states,
   is, in rotation order, like on a real Amiga. Minimig's per-unit track
   counter still follows the step pulses for the physical unit and is what the
   status word reports; the engine uses that number only to detect a head step
-  during a write drain and to decide precompensation. trackdisk's recalibrate
-  sees the real `/TRK0`, so a counter that trails the head converges with it
-  at cylinder 0; a counter that leads the head (a step the mechanism did not
-  execute) would not, which at worst moves the precomp threshold by a few
-  tracks.
+  during a write drain, to decide precompensation and to label the episode in
+  diagnostics register `0x79`. trackdisk's recalibrate sees the real `/TRK0`,
+  so a counter that trails the head converges with it at cylinder 0; a
+  counter that leads the head (a step the mechanism did not execute) would
+  not, which at worst moves the precomp threshold by a few tracks.
 * **Serve from the sync.** When a physical read session opens, the engine
   enters `phys_hunt` and discards FIFO words, one per frame, until the head
   word equals the live `DSKSYNC`; it then serves from that word on. The
@@ -491,14 +494,15 @@ staleness logic of its own.
 ## 5. Copylock and the DSKBYTR observation surface
 
 Section [2.4](#24-copylock) described what Copylock measures. Minimig's
-`DSKBYTR` was a constant stub: `BYTEREADY` always set, `WORDEQUAL` always set,
-data byte always zero. Every poll iteration "found" a byte at once, the short
-and the long sector took the same number of iterations, the ratio was zero, the
-check failed, and after its retries the loader parked the machine with the
-motor on and a black screen. Every runtime A/B of the read chain failed
-identically, which was itself the clue: the flux decoded perfectly in every
-arm, and the loss was inside Paula's register surface. Fixing this was the
-first time a Minimig Paula ever had to serve real protection flux.
+original `DSKBYTR` is a constant stub: `BYTEREADY` always set, `WORDEQUAL`
+always set, data byte always zero. Against the stub every poll iteration
+"finds" a byte at once, the short and the long sector take the same number
+of iterations, the ratio is zero, the check fails, and after its retries the
+loader parks the machine with the motor on and a black screen. Every runtime
+A/B of the read chain failed identically on Copylock originals: the flux
+decoded perfectly in every arm, and the loss was inside Paula's register
+surface. The Hardware Floppy is the first case in which a Minimig Paula has
+to serve real protection flux.
 
 **The tap.** `main.vhd` watches the engine's pop strobe on the front-end FIFO,
 qualified with "FIFO not empty", and publishes each popped word as a one-clock
@@ -520,19 +524,21 @@ obs_gate = |(phys_mask & ~_sel & motor_on) & ~obs_legacy
 that is, only while the physical unit is the selected, motor-on drive and the
 A/B bit is clear. Each observed word is delivered as two raw MFM bytes, high
 byte first; `BYTEREADY` is set per byte and cleared when the CPU's read access
-ends, which presents the next byte; `WORDEQUAL` is the live compare of the
-latched word against `DSKSYNC`. Under WORDSYNC on, a word that matches
-`DSKSYNC` sets `WORDEQUAL` and enqueues nothing, because a real Paula swallows
-the sync word and re-frames at it, and Copylock's sector routine requires the
-first byte pair after `WORDEQUAL` to be the encoded sector index, not the
-sync. When the gate is low, the register expression is the original constant
-stub, verbatim.
+ends, which presents the next byte; `WORDEQUAL` is latched when an arriving
+word equals `DSKSYNC` and falls once the CPU has read what that word
+delivers, or when the next word arrives. Under WORDSYNC on, a word that
+matches `DSKSYNC` sets `WORDEQUAL` and enqueues nothing, because a real Paula
+swallows the sync word and re-frames at it, and Copylock's sector routine
+requires the first byte pair after `WORDEQUAL` to be the encoded sector
+index, not the sync. When the gate is low, the register expression is the
+original constant stub, verbatim.
 
 Deliberate, documented approximations, all behind the A/B bit: `WORDEQUAL`
-is held for about one word rather than a real Paula's few microseconds (it
-only makes the sync easier to catch); the low byte becomes available on the
-read rather than 16 µs after the high byte; the `DMAON` bit keeps the stub's
-meaning. None of the field titles or the regression net depends on these.
+stays set for up to one word time rather than a real Paula's few
+microseconds (it only makes the sync easier to catch); the low byte becomes
+available on the read rather than 16 µs after the high byte; the `DMAON` bit
+keeps the stub's meaning. None of the field titles or the regression net
+depends on these.
 
 **The A/B.** Diagnostics register `0x35` bit 8 disables the surface and
 reverts to the stub. In the field that bit brought the hang back on all three
@@ -625,14 +631,15 @@ Paula's `PRECOMP0`. A bit whose window reaches before the episode's first bit
 or beyond its last gets no shift; zero-filling the window would classify the
 missing side as a long gap and shift the very first and last pulses. Whether
 precomp is on for an episode is decided **in the engine**, at the moment the
-episode binds, from Paula's own track register (the number Kickstart compares)
-and the mode in diagnostics register `0x7C`: AUTO means on for every track
-from 81 upward, which is Kickstart 1.3's policy including its exclusion of
-track 80. The decision arrives at the writer as one level held for the
-episode, so no multi-bit track value has to cross a clock domain. The 140 ns
-step was later measured on the medium from flux dumps of core-written disks,
-at exactly the track 80/81 boundary on both heads, the same size as on a disk
-a real A500 formatted.
+episode binds, from the track field of Paula's status word (Minimig's
+per-unit track counter with the side bit, the counterpart of the track number
+Kickstart compares) and the mode in diagnostics register `0x7C`: AUTO means
+on for every track from 81 upward, which is Kickstart 1.3's policy including
+its exclusion of track 80. The decision arrives at the writer as one level
+held for the episode, so no multi-bit track value has to cross a clock
+domain. The 140 ns step was measured on the medium from flux dumps of
+core-written disks, at exactly the track 80/81 boundary on both heads, the
+same size as on a disk a real A500 formatted.
 
 ### 6.3 The write episode, and who owns it
 
@@ -656,10 +663,10 @@ Paula's `sel` field is a priority encoder whose "nothing selected" value is
 ordinary deselect gap during an ADF write would otherwise bind the episode as
 physical. And binding physical is irreversible: it suspends the ownership
 guard for the whole episode and pins the drain at non-committing, so one such
-sample sent an entire `.adf` track write into the writer and committed nothing
-while trackdisk, which never verifies, believed the track written. Failing
-the other way is safe: the episode stays ADF-owned, and the writer's own
-select term keeps WGATE shut.
+sample would send an entire `.adf` track write into the writer and commit
+nothing while trackdisk, which never verifies, believes the track written.
+Failing the other way is safe: the episode stays ADF-owned, the writer never
+sees an episode, and WGATE stays shut.
 
 Once bound, `wr_epi = epi_bound and epi_phys` is the level everything keys
 on, and while it is set:
@@ -670,18 +677,21 @@ on, and while it is set:
   foreign `sel` sample can therefore never re-latch the remainder of a
   physical DMA as an ADF-owned, committing drain that would decode perfectly
   valid AmigaDOS sectors off the real disk and write them into a mounted
-  image. That cross-contamination path exists on the pre-episode engine, and
-  the testbench that demonstrates it is the strongest argument for the model;
+  image. T8 of `tb_adf_multidrive.vhd` drives that cross-contamination
+  scenario and asserts zero Avalon writes, and the write mutant that removes
+  the inheritance must be killed (section [11](#11-how-it-was-verified));
 * the ownership guard that aborts an ADF drain on a foreign sample is
   suspended; a foreign selection must instead **persist for 100 µs**
   (`C_WR_FOREIGN`, measured in time, because the fast re-poll cadence is
   about 2 µs per frame while a software change-poll click spans 5 µs or more)
   to abort the episode;
-* the engine **never enters `ST_IDLE`**: every exit that would park there
-  re-targets to a fast re-poll. This keeps the pipe fed (a one-poll sample of
-  a non-existent unit would otherwise starve it into an underrun), suspends
-  the `0x1nnn` announce, and above all suspends the idle discard-pop of the
-  read FIFO, each of which would fire the Copylock tap into `DSKBYTR` in the
+* the engine **never parks in `ST_IDLE`**: every frame exit that would park
+  there for a poll period re-targets to a fast re-poll, and `ST_IDLE` itself,
+  which a global abort still forces, returns to polling after one frame gap
+  without announcing or popping. This keeps the pipe fed (a one-poll sample
+  of a non-existent unit would otherwise starve it into an underrun),
+  suspends the `0x1nnn` announce, and above all suspends the idle discard-pop
+  of the read FIFO, which would fire the Copylock tap into `DSKBYTR` in the
   middle of a write;
 * the tap pulses once per popped word, `phys_wr_valid_o/phys_wr_data_o`;
 * a head step observed on a poll whose `sel` is the physical unit, the
@@ -697,11 +707,10 @@ on, and while it is set:
 The episode ends when the engine observes DMA completion: the drain frame's
 status word reports DMA inactive with an empty FIFO, or any poll shows
 `trackwr` low. Both clear the bind, the abort level and the foreign timer.
-The abort level is initialized at the bind rather than cleared at the end,
-because the global abort block runs after the episode-end branches in the
-same process and would re-assert it in the very cycle an end branch clears
-it; a level left latched would make the next episode abort before WGATE ever
-opened.
+The bind initializes the abort level once more, because the global abort
+block runs after the episode-end branches in the same process and, when both
+fall into one cycle, re-asserts the level the end branch has just cleared; a
+level left latched would make the next episode abort before WGATE ever opens.
 
 Two interlocks complete the picture. The engine does not **bind** a new
 episode, nor dispatch a physical **read**, while the writer reports busy with
@@ -853,8 +862,10 @@ can contend for the shared open-collector status lines. Only the pins are
 held; the engine's bind qualifier and the diagnostics keep following the live
 Amiga values. The mega65-side window is a strict superset of the writer's own
 `v_hold`, because the episode level is native to the core domain and falls
-first while busy returns through a `cdc_stable` and falls last. This extends
-the framework's `floppy-pins` exception and the writer's abort contract.
+first while busy returns through a `cdc_stable` and falls last. Both halves
+of the hold are CORE code, the pin process in `mega65.vhd` and the abort
+terms of the writer; the `floppy-pins` change in the board tops only routes
+the pins.
 
 With the hold, X-Copy copies all 160 tracks with verify on, byte-identical to
 a proven reference, and flux dumps of X-Copy-written disks show every write
@@ -900,11 +911,11 @@ of crossings, every one of which is one of the following patterns:
 a clock-pair `set_max_delay -datapath_only 20.000` in both directions. It is
 deliberately a max-delay and not the C64's blanket false path: a clock-pair
 false path would override the framework's object-scoped `cdc_stable` bounds
-in `common.xdc`, while a max-delay yields to them. The first synthesis of the
-front-end failed timing by more than 6 ns on exactly these paths, which is
-how the constraint earned its place. Nothing in the feature uses block RAM:
-the FIFOs and the engine's buffers are distributed LUTRAM, and the rest is
-registers.
+in `common.xdc`, while a max-delay yields to them. Unconstrained, these paths
+between two unrelated MMCM clocks are timed at worst-case edge alignment, and
+the build misses timing by more than 6 ns, every failing endpoint on one of
+them. Nothing in the feature uses block RAM: the FIFOs and the engine's
+buffers are distributed LUTRAM, and the rest is registers.
 
 ---
 
@@ -937,16 +948,16 @@ M C FFF5 0000        select 4k window 0 (M2M$RAMROM_4KWIN)
 then per dump:
 
 ```
-M D 7000 707D        dump the whole bank, register n at 0x7000 + n
+M D 7000 707D        dump registers 0x00..0x7D, register n at 0x7000 + n
 ```
 
 Sanity on every dump: the word at `0x7001` must read `000D`, and the uptime
 pair at `0x7030/0x7031` must differ from the previous dump. The uptime and the
-dump nonce (`0x7032`, which counts reads of register 0) exist because a field
-session once delivered seven byte-identical "dumps" that were two
-observations pasted several times; a dump without a freshness marker is not
-evidence. Dumps should be taken with the drive idle, because the capture
-instruments re-capture on every sector of an active read.
+dump nonce (`0x7032`, which counts reads of register 0) are freshness
+markers: one field session delivered seven byte-identical "dumps" that were
+two observations pasted several times, and a dump without a freshness marker
+is not evidence. Dumps should be taken with the drive idle, because the
+capture instruments re-capture on every sector of an active read.
 
 ### 8.2 The runtime switches
 
@@ -963,12 +974,14 @@ Register `0x35` (write; the low 8 bits read back):
 | 15 | self-clearing strobe: clear every "since clear" statistic | - |
 
 So `M C 7035 8000` clears the statistics with every switch at its default,
-`M C 7035 8040` selects the legacy separator, `M C 7035 8080` the old framing,
-`M C 7035 8100` switches the Copylock surface off, and a reset restores the
-defaults. Register `0x1F` bit 0 inverts the side line (keep it 0 on this
-mechanism). Register `0x7C` bits 1:0 select the precomp mode: `00` or `11`
-AUTO (the Kickstart policy), `01` always on, `10` always off; it reads back
-the mode plus "precomp active now", the tab qualifier and "episode open".
+`M C 7035 8040` selects the legacy separator, `M C 7035 8080` realign-always
+framing, `M C 7035 8100` switches the Copylock surface off, and a QNICE reset
+(power-on or a long press of the reset button) restores the defaults; a
+short press, which resets only the Amiga, leaves them alone. Register `0x1F`
+bit 0 inverts the side line (keep it 0 on this mechanism). Register `0x7C`
+bits 1:0 select the precomp mode: `00` or `11` AUTO (the Kickstart policy),
+`01` always on, `10` always off; it reads back the mode plus "precomp active
+now", the tab qualifier and "episode open".
 
 The write instruments `0x70..0x7D` count since the QNICE reset, not since the
 `0x35` clear, so a write dump must come from the same boot session as the
@@ -1016,20 +1029,27 @@ The registers that answer the questions that actually come up:
   tail-cut count, `0x7D` refused pushes (must be 0).
 
 A decoder script, `tools/decode_fdd_dump.py`, turns a pasted dump into prose,
-flags stale instruments and duplicated captures, and knows every map version.
+flags stale instruments and duplicated captures, and knows every map version
+from `0x0006` on.
 
 ### 8.4 The live status line
 
-`HWF_STATUS_STEP` in `m2m-rom.asm`, called from `HANDLE_CORE_IO`, is the one
-piece of firmware in this feature. Four cheap gates decide whether there is
-anything to show (the OSM is on screen, no file browser or help page owns it,
-the main menu level is active, and some drive is the Hardware Floppy); only
-then, about 95 times a second, does it read the status word at `0x02` and the
-served-word counter at `0x1B`: motor off is idle, motor on with the counter
-unchanged is `Motor`, a moving counter is `Reading`. The label is painted
-through the framework helper `OPTM_LIVE_TEXT` into a fixed 22-character field
-of the drive's text line, and only when the coarse state changes. A write
-shows as `Motor`, because nothing is served *to* the Amiga while it writes.
+`HWF_STATUS_STEP` in `m2m-rom.asm`, called from `HANDLE_CORE_IO`, paints the
+status line; `HWF_OSM_INIT` sets up its state at boot. Four cheap gates
+decide whether there is anything to show (the OSM is on screen, no file
+browser or help page owns it, the main menu level is active, and some drive
+is the Hardware Floppy); only then, about 95 times a second, does it read
+the status word at `0x02` and the served-word counter at `0x1B`: motor off
+is idle, motor on with the counter unchanged is `Motor`, a moving counter is
+`Reading`. The label is painted through the framework helper
+`OPTM_LIVE_TEXT` into a fixed 22-character field of the drive's text line,
+and only when the coarse state changes. A write shows as `Motor`, because
+nothing is served *to* the Amiga while it writes.
+
+The feature's other firmware is in the Drive Settings handling of
+`OSM_SEL_POST`: when a drive takes the Hardware Floppy mode, `DRV_STEAL_HW`
+puts every other drive that still claims the mechanism back to Disk Image, so
+the menu never shows two.
 
 ---
 
@@ -1074,21 +1094,23 @@ Ask for, in this order:
    separator choice, or in the flux itself.
 6. **A flux dump** if the tester owns a Greaseweazle or SuperCard Pro: the
    whole disk, three revolutions, raw `.scp`. Real flux decoded offline is
-   the evidence that settles most questions, and the SCP tools can replay it
-   through independent separators.
+   the evidence that settles most questions, and the tools in `tools/flux/`
+   decode it with a PLL of their own, independent of the core's separators.
 
 ### 9.2 A disk the core wrote reads badly
 
 Get the failing disk **untouched**, not rewritten and not reformatted, and ask
 for three files: the source `.adf`, the disk X-Copied back to an `.adf` on the
-MEGA65 (`df0:` an image, `df1:` the Hardware Floppy), and a raw `.scp` of it.
-Then:
+MEGA65 (in the three-drive layout of
+[the user page](../hardware_floppy.md#what-you-can-do-with-it): X-Copy in
+`df0:`, the target image in `df1:`, the Hardware Floppy as `df2:`), and a raw
+`.scp` of it. Then:
 
 1. Compare source and read-back (`tools/adf_compare.py`). Differences
    confined to sector 10, offsets 510/511, head 1 only, mean the post-DSKBLK
-   tail is being cut again. Thousands of differing bytes on every track mean
-   the disk was never written. Anything else is classified before it is
-   theorized.
+   tail is being cut (section [6.5](#65-the-post-dskblk-drain-hold)).
+   Thousands of differing bytes on every track mean the disk was never
+   written. Anything else is classified before it is theorized.
 2. Scan the flux for analog damage patches (`tools/flux/patch_scan.py`). A
    healthy disk, core-written or Amiga-written, scans to zero. Patches that
    line up in rotational angle across tracks are a physical feature of the
@@ -1127,9 +1149,10 @@ The crossings this costs are all of proven shapes (section [7](#7-clock-domains-
 
 ### "Can I drop the legacy quantizer now that the DPLL is the default?"
 
-Not without touching the instruments. The quantizer's gap classes feed the
-margin histograms, the loss-of-lock counters and the miss profile in both
-modes, and the legacy bit source is the runtime A/B that lets a field tester
+Not without touching the instruments. In both modes the quantizer's gap
+classes feed the margin instruments (`0x36..0x57`) and every loss-of-lock
+counter (`0x0E`, `0x1D`, `0x3C`, `0x6B`, `0x6C`), and its estimate is register
+`0x04`; the legacy bit source is the runtime A/B that lets a field tester
 answer "is it the separator?" without a rebuild. It costs registers, not
 block RAM.
 
@@ -1144,10 +1167,11 @@ reproduces real Paula in both modes; the mode comes from Paula's own register.
 
 The episode model. Once an episode is bound physical, every drain re-latched
 for it inherits non-committing ownership, so no foreign `sel` sample can turn
-the remainder of the DMA into a decoding drain. The testbench that drives a
-physical write carrying valid AmigaDOS sectors, with a write-armed image at
-the same track and a persisting foreign selection injected mid-stream, is red
-against the pre-episode engine and green against this one.
+the remainder of the DMA into a decoding drain. T8 of `tb_adf_multidrive.vhd`
+drives a physical write carrying valid AmigaDOS sectors, with a write-armed
+image at the same track and a persisting foreign selection injected
+mid-stream, and asserts zero Avalon writes; the write mutant with the
+inheritance removed (`xi` in `run_write_mutants.sh`) must be killed.
 
 ### "The Amiga says the write succeeded. Was it written?"
 
@@ -1175,12 +1199,11 @@ originals stay with the window open.
 
 ## 11. How it was verified
 
-Every bench below ran in simulation before the hardware round it prepared,
-and the testbenches, the independent model twins and the runner scripts are
-kept as the regression gate for any change to the floppy stack. They live in
-`CORE/sim/floppy/` and `CORE/sim/minimig/`;
-[Tools and testbenches](tools.md) has the commands and runtimes. They are grouped by what they prove; the hardware and field
-evidence comes last.
+Every bench below runs in simulation, and the testbenches, the independent
+model twins and the runner scripts are the regression gate for any change to
+the floppy stack. They live in `CORE/sim/floppy/` and `CORE/sim/minimig/`;
+[Tools and testbenches](tools.md) has the commands and runtimes. They are
+grouped by what they prove; the hardware and field evidence comes last.
 
 **The read front-end.** A closed-loop bench turns properly clocked MFM into
 timed `RDATA` edges and requires the front-end to reproduce the exact
@@ -1198,14 +1221,15 @@ the quantizer and the histogram engine, which must agree bit-exactly
 **The sync seam.** The decisive bench builds a real eleven-sector AmigaDOS
 track with a write splice, loops it as flux through the real front-end at
 trackdisk's exact cadence (deselect between attempts, the 1 ms select wait,
-the 7358-word DMA, serve-from-sync), and decodes every capture with a literal
-port of Kickstart 1.3's trackdisk decoder, hunt tables and all. It goes red
-with realign-always framing in both separator modes and green with the hold,
-and a constant-framing model of the same flux (what a real A500 delivers)
-decodes green. An independent Python implementation of the same ROM algorithm
-returned identical verdicts on the dumped captures. The bench also covers
-WORDSYNC on, where the hold must stay off and an X-Copy-style decode must
-succeed (`tb_fdd_splice.vhd`, the Python twin `models/td_check.py`).
+the 7358-word DMA, serve-from-sync), and decodes every capture with a VHDL
+reimplementation of Kickstart 1.3's trackdisk read decode, hunt tables and
+all. It goes red with realign-always framing in both separator modes and
+green with the hold, and a constant-framing model of the same flux (what a
+real A500 delivers) decodes green. An independent Python implementation of
+the same ROM algorithm returned identical verdicts on the dumped captures.
+The bench also covers WORDSYNC on, where the hold must stay off and an
+X-Copy-style decode must succeed (`tb_fdd_splice.vhd`, the Python twin
+`models/td_check.py`).
 
 **The engine and Paula.** The physical delivery segment, the real engine's
 physical states against a line-by-line VHDL model of Paula's host receiver and
@@ -1228,10 +1252,11 @@ one configured differed only in the announce's writable nibble.
 `paula_floppy.v` beside a frozen copy of the pre-surface module, drives both
 with identical randomized register and host-channel traffic in every gate-off
 regime, and asserts all outputs bit-identical every cycle; a CPU model then
-polls `DSKBYTR` like the Copylock loop and must measure the 5 % timing ratio
-with the surface on and zero with it off. A separate bench proves the tap
-against the real FIFO and the real idle-drain pattern, red without the
-not-empty qualifier (`CORE/sim/minimig/run_paula_obs.sh` with
+polls `DSKBYTR` like the Copylock loop over two sectors delivered 5 % apart
+in pace, and the slower one must take at least 3 % more poll iterations with
+the surface on and less than 1 % more with it off. A separate bench proves
+the tap against the real FIFO and the real idle-drain pattern, red without
+the not-empty qualifier (`CORE/sim/minimig/run_paula_obs.sh` with
 `tb_paula_obs.v` and the frozen `paula_floppy_ref.v`; the tap bench is
 `CORE/sim/floppy/tb_hwf_obs_tap.vhd`).
 
@@ -1241,7 +1266,7 @@ cycle timestamps, the real read chain, real engine read service, and three
 verdicts: the ROM-exact trackdisk checker, the constant-framing real-Paula
 referee, and a per-sector byte compare after an independent bit-level
 re-sync. The flux model is pre-seeded with a different track before every
-writing scenario and every scenario asserts that the gate opened and the old
+writing scenario, and each of them asserts that the gate opened and the old
 flux is gone, so a writer that never opens its gate cannot pass. Scenarios
 cover the trackdisk cadence over an RPM sweep in both separator modes and
 both framing arms, the precomp policy at tracks 80, 81 and 90, X-Copy's
@@ -1265,10 +1290,12 @@ is green on the unmutated design (`tb_fdd_write.vhd`, the twin
 expectation table, with a latch-instant proof that the output really is
 registered (`tb_fdd_diag_ro.vhd`).
 
-**The regression gate** runs every read-side bench, the ownership bench, the
-tap bench and the Paula golden diff in one script,
-`CORE/sim/floppy/run_fdd_regression.sh`. It tests a copy of the sources taken
-when it starts and fails loudly if a source changes during the run.
+**The regression gate** runs every read-side bench, the diagnostics readout
+bench, the ownership bench, the rotation bench of the ADF read service
+(`tb_adf_rotation.vhd`), the tap bench and the Paula golden diff in one
+script, `CORE/sim/floppy/run_fdd_regression.sh`. It tests a copy of the
+sources taken when it starts and fails loudly if a source changes during the
+run.
 
 **On hardware and in the field.** Reads: the referee for the seam fix was the
 community's shoebox, with originals from the late 1980s booting under
@@ -1293,7 +1320,7 @@ logged on the Amiga side.
 
 | File | Role |
 |---|---|
-| `CORE/vhdl/physical_fdd/physical_fdd_pkg.vhd` | Every magnetic, timing and instrument constant: cell and gap lengths, quantizer and DPLL gains and clamps, runt threshold, drought, index qualification, ready model, capture and histogram sizes. |
+| `CORE/vhdl/physical_fdd/physical_fdd_pkg.vhd` | The read front-end's magnetic, timing and instrument constants: cell and gap lengths, quantizer and DPLL gains and clamps, runt threshold, drought, index qualification, ready model, capture and histogram sizes. The writer's constants are in `physical_fdd_writer.vhd` (it takes only the cell length from the package), the engine's pacing constants in `adf_track_engine.vhd`. |
 | `CORE/vhdl/physical_fdd/physical_fdd_inputs.vhd` | Two-flop synchronizers for the five input pins, index qualification and measurement, active-low pass-through of the status lines. |
 | `CORE/vhdl/physical_fdd/physical_fdd_mfm_gaps.vhd` | Flux edge to gap interval, runt filter, first-edge rule. |
 | `CORE/vhdl/physical_fdd/physical_fdd_mfm_quantise.vhd` | The adaptive gap classifier (legacy bit source and permanent observer), with the signed-error taps for the margin engine. |
@@ -1310,7 +1337,7 @@ logged on the Amiga side.
 | `CORE/CORE.xdc` | The clock-pair max-delay between `qnice_clk` and `main_clk`. |
 | `CORE/Minimig_MiSTerMEGA65/rtl/paula_floppy.v` | The CIA-line muxes, the real index injection, the motor export, the store-signature taps and the DSKBYTR observation surface. Ports threaded through `paula.v`, `minimig.v` and `minimig_m65.v`. |
 | `M2M/vhdl/top_mega65-r{3,4,5,6}.vhd` | The thirteen routed floppy pins (`M2M-UPSTREAM floppy-pins`). |
-| `CORE/m2m-rom/m2m-rom.asm` | `HWF_STATUS_STEP`, the live status line. |
+| `CORE/m2m-rom/m2m-rom.asm` | `HWF_STATUS_STEP` and `HWF_OSM_INIT`, the live status line; `DRV_STEAL_HW`, which keeps the Hardware Floppy mode on one drive in the menu. |
 | `CORE/vhdl/config.vhd` | The `dfN:Hardware Floppy` text lines and the Drive Settings radios. |
 
 ### 12.2 Diagnostics register map

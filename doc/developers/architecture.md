@@ -132,11 +132,11 @@ over a small SPI-like bus. Two of its "chip selects" matter here: `IO_UIO`
 carries configuration commands into `userio.v`, and `IO_FPGA` is Paula's
 floppy channel. The MEGA65 has no HPS, so two AExp blocks in `main.vhd` speak
 that bus instead. `amiga_config.vhd` replays MiSTer's boot-time configuration
-after every reset (OCS chipset, 68000, 512 KB + 512 KB memory, drive count,
-joystick port mapping) and then releases the CPU. `adf_track_engine.vhd` then
-owns the bus and serves Paula's floppy requests. `main.vhd` multiplexes the
-shared strobe and data lines between the two. Both blocks are modeled on
-MiSTer's HPS software; section
+after every reset (OCS chipset, 68000, 512 KB Chip RAM, the Slow RAM setting
+and the drive count of the menu, joystick port mapping) and then releases the
+CPU. `adf_track_engine.vhd` then owns the bus and serves Paula's floppy
+requests. `main.vhd` multiplexes the shared strobe and data lines between the
+two. Both blocks are modeled on MiSTer's HPS software; section
 [10](#10-the-mister-hps-code-and-its-replacements) names the files.
 
 **The floppy.** The Amiga floppy controller cannot read sectors; it only moves
@@ -179,7 +179,7 @@ All files in this folder are AExp's own.
 
 | File | Purpose |
 |---|---|
-| `mega65.vhd` | The `MEGA65_Core` entity the framework instantiates. Amiga memories (BRAM), QNICE device decode, the three ADF mount devices with their HyperRAM chain, the Hardware Floppy front end and its pins, all OSM decoding (`C_MENU_*` constants), drive LED, the flicker-free servo. |
+| `mega65.vhd` | The `MEGA65_Core` entity, which the board top instantiates next to `framework.vhd`. Amiga memories (BRAM), QNICE device decode, the three ADF mount devices with their HyperRAM chain, the Hardware Floppy front end and its pins, all OSM decoding (`C_MENU_*` constants), drive LED, the flicker-free servo. |
 | `main.vhd` | Wraps Minimig and fx68k in the core clock domain. Takes the role of MiSTer's `Minimig.sv`: CPU phase enables, video clock enable and sync polarity, reset mapping, the host bus multiplexer, the floppy engine and its read cache, keyboard, audio. |
 | `amiga_config.vhd` | Replays MiSTer's configuration commands (`0xF1`..`0xF9`) over the `IO_UIO` channel after every reset, then releases the 68000. |
 | `amiga_cold_boot.vhd` | Turns a change of the memory or drive topology into a cold boot of the simulated Amiga only: holds Minimig in reset and clears the ExecBase pointer at `$000004` so that Kickstart re-probes the machine. |
@@ -202,7 +202,10 @@ generated include files (`osm_const.asm`, `globals.asm`,
 `shell_fhandles.asm`, `shell_fh_ptrs.asm`; all git-ignored). `synth_pre.tcl`
 is the Vivado pre-synthesis hook that runs `make_rom.sh`, so every synthesis
 rebuilds the firmware from the current sources. `video_filters/` holds the
-coefficient tables of the HDMI scaler filters the menu offers.
+three HDMI filter coefficient tables that the framework does not ship: Smooth
+and the horizontal tables of the two CRT filters. Lanczos, Scanlines and the
+vertical side of the CRT filters use the two tables that the framework's
+`M2M/rom/filters.asm` includes.
 
 ### `CORE/Minimig_MiSTerMEGA65/`: the chipset
 
@@ -272,11 +275,13 @@ faster leg (it freezes the multiplexer select with `set_case_analysis` and
 defines `main_clk` on the twin's output), and `build_bitstream.tcl` refuses a
 build in which those constraints matched no pins.
 
-Crossings follow three patterns:
+Crossings follow four patterns:
 
 * Quasi-static values and toggle handshakes cross with the framework's
   `cdc_stable`, which `M2M/common.xdc` already constrains.
 * Avalon traffic to the HyperRAM crosses with `avm_fifo`.
+* The Kickstart ROM is a dual-clock block RAM: QNICE writes it on the falling
+  edge of `qnice_clk`, the Amiga reads it on `main_clk`.
 * The Hardware Floppy's word FIFO and its control synchronizers are raw
   two-flop and Gray-code crossings between `qnice_clk` and `main_clk`.
   `CORE.xdc` bounds them with a clock-pair `set_max_delay -datapath_only` of
@@ -343,11 +348,17 @@ settings. It calls back into the core-specific firmware in
   for a drive's mount line, reject files outside the accepted size range, flush
   and disarm the drive before a new image is loaded, and refuse to mount the
   same file into two drives.
-* `PREP_START`: load the screen-adjustment file before the core leaves reset.
-* `OSM_SEL_PRE` and `OSM_SEL_POST`: keep the drive configuration consistent
-  (drive count, at most one Hardware Floppy, ejecting a drive that leaves Disk
-  Image mode), reset the core when Slow RAM is toggled, load the HDMI filter
-  coefficients, reload the screen configuration.
+* `PREP_START`: apply the saved HDMI filter and load the screen-adjustment
+  file before the core leaves reset.
+* `OSM_SEL_POST`: keep the drive configuration consistent (drive count, at
+  most one Hardware Floppy, ejecting a drive that leaves Disk Image mode),
+  load the HDMI filter coefficients, reload the screen configuration. The
+  cold boot that follows a change of the Slow RAM setting or of the drive
+  configuration is not firmware: `amiga_cold_boot.vhd` triggers it in the
+  core.
+* `OSM_SEL_PRE`: raise a flag that `OSM_SEL_POST` clears. While it is set, a
+  file browser or help screen opened by the selection may be running, and
+  SPACE does not eject a disk.
 * `HANDLE_CORE_IO`, a callback AExp added to the framework (section
   [8](#8-the-m2m-template-copy)): called in every iteration of the Shell's
   main loop and of all its wait loops. It handles the SPACE key that ejects a
@@ -367,10 +378,10 @@ The QNICE submodule tracks the `dev-V1.61` branch of QNICE-FPGA (set in
 `.gitmodules`), not the commit that M2M V2.0.1 pins. That branch carries two
 fixes to the FAT32 library that the ADF write-back depends on: the shared
 sector buffer is written back before `DIR_OPEN` or `FILE_OPEN` reuse it, and
-the 32-bit sector address overflow check. If you ever copy files from the M2M
-template again, make sure the submodule pointer does not move back. Update it
-with `git submodule update --remote M2M/QNICE`; the next synthesis reassembles
-the firmware against the new monitor.
+the 32-bit sector address overflow check. A change ported from the M2M
+template must leave the submodule pointer on that branch. Update it with
+`git submodule update --remote M2M/QNICE`; the next synthesis reassembles the
+firmware against the new monitor.
 
 ## 7. Rules you have to know
 
@@ -402,15 +413,18 @@ Kickstart ROM (64 tiles) has a QNICE port. The device ids `0x0101` and
 
 ### 7.3 The timing margin is thin
 
-Builds close with a worst negative slack of roughly +0.1 to +0.3 ns. Look at
-the timing summary after every build; `build_all.sh` prints it for you. The
-sign-off gates in `build_bitstream.tcl` also check that the flicker-free
-constraints in `CORE.xdc` really matched: the instance names `i_clk_fast`
-(in `clk.vhd`) and `hr_core_speed` (in `mega65.vhd`) are referenced by name
-there, so keep them. Now and then a board misses timing by a few picoseconds of
-hold in the framework's HyperRAM read capture; that is placement luck, and
-[`timing_closure.md`](timing_closure.md) explains why `build_all.sh` simply
-re-rolls such a board and why the HyperRAM IDELAY value must not be changed.
+Builds close with a worst negative slack between a few picoseconds and
+about +0.3 ns. Look at the timing summary after every build; `build_all.sh`
+prints it for you. The sign-off gates in `build_bitstream.tcl` also check that
+the flicker-free constraints in `CORE.xdc` really matched. They name the
+register `CORE/hr_core_speed_reg[0]` and the pin
+`CORE/clk_gen/i_clk_fast/CLKOUT0`, so keep the signal `hr_core_speed` and the
+instance `clk_gen` in `mega65.vhd`, the instance `i_clk_fast` in `clk.vhd`
+and the instance `CORE` in the board tops. Now and then a board misses timing
+by a few picoseconds of hold in the framework's HyperRAM read capture; that is
+placement luck, and [`timing_closure.md`](timing_closure.md) explains why
+`build_all.sh` simply re-rolls such a board and why the HyperRAM IDELAY value
+must not be changed.
 
 ### 7.4 The firmware ROM must end below `0x7000`
 
@@ -455,10 +469,12 @@ In `config.vhd`, the position of a line in the menu is the number of the bit
 that carries its state to the core. `mega65.vhd` reads these bits through the
 `C_MENU_*` constants, so inserting a line shifts every constant behind it, and
 all of them have to be updated by hand. `make_rom.sh` scrapes these constants
-(and the core's `OPTM_G_*` group ids from `config.vhd`, the device ids and the
-ADF geometry from `globals.vhd`) into the firmware, so the firmware has no
-hard-coded menu indexes. The scraper is a line-based `awk`: keep every one of
-these constants on a single line.
+(and the core's `OPTM_G_*` group ids from `config.vhd`, the ids of the three
+ADF mount devices and the ADF geometry from `globals.vhd`) into the firmware,
+so the firmware has no hard-coded menu indexes. The scraper is a line-based
+`awk`: keep every one of these constants on a single line. The id of the
+Hardware Floppy diagnostics device is not scraped: `AEXP_DEV_FDD` in
+`m2m-rom.asm` repeats `C_DEV_AMIGA_FDD` by hand.
 
 ### 7.7 `CORE_VERSION` names the settings file
 
@@ -476,8 +492,9 @@ checks the length, a file of the right length restores them silently.
 Every change to the file list or to file properties goes into all four
 `.xpr` files in the same commit. The expected differences between them are
 the board top (`M2M/vhdl/top_mega65-r<n>.vhd`), the board constraints
-(`M2M/MEGA65-R<n>.xdc`), and the audio output driver: R3 uses `max10.vhdl` and
-`pcm_to_pdm.vhdl`, R4 and later use `audio.vhd`.
+(`M2M/MEGA65-R<n>.xdc`), the audio output driver (R3 uses `max10.vhdl` and
+`pcm_to_pdm.vhdl`, R4 and later use `audio.vhd`), and `M2M/vhdl/vdrives.vhd`,
+which R4 to R6 list and R3 does not (AExp never instantiates it).
 
 When you edit an `.xpr` by hand, the only valid `SFType` attributes are
 `VHDL2008` and `SVerilog`, or none at all (the type is then inferred from the
@@ -539,7 +556,9 @@ it, and documented here like the changes below.
 > whether it has to be carried over, and test the result on hardware.
 
 Constraints for M2M paths go into `CORE/CORE.xdc`; `M2M/common.xdc` stays as
-the template ships it.
+the template ships it, and the board constraint files `M2M/MEGA65-R<n>.xdc`
+differ from the template only by the HyperRAM pblock of section
+[8.12](#812-other-differences-to-v201).
 
 If you add the M2M repository as a git remote to compare, remember that its
 tags (`V1.0.0`, `V2.0.0`, `V2.0.1` and so on) are template releases, not AExp
@@ -556,9 +575,11 @@ builds.
   `av_pipeline/digital_pipeline.vhd`, the four board tops.
 * Why: ascal weaves the two fields of an Amiga interlaced screen into one
   stable progressive picture on HDMI (the "flicker fixer").
-* Other cores: the input defaults to `'0'`, and ascal only arms its
-  deinterlacer when `i_fl` toggles, so progressive cores behave exactly as
-  before.
+* Other cores: the framework input defaults to `'0'`, and ascal only arms its
+  deinterlacer when `i_fl` toggles, so progressive cores behave as they do
+  with the template. The board tops connect the input to the port
+  `video_fl_o` of `MEGA65_Core`, so another core that uses this copy declares
+  that port and drives it with `'0'`.
 
 ### 8.2 `core-io-hook`
 
@@ -589,8 +610,11 @@ builds.
 * Why: Amiga software uses many different screen geometries; the core picks
   per-mode offsets from `aexp_screen.cfg` (see
   [`screen_adjust.md`](../screen_adjust.md)).
-* Other cores: all new inputs default to 0, and a pan of 0 bypasses the
-  positioner combinationally, so the output is unchanged.
+* Other cores: `framework.vhd` takes the ten values from words 0 to 9 of the
+  QNICE general-purpose register (`M2M$CFD_DATA`), which reset to 0. Offsets
+  of 0 change nothing, and a pan of 0 bypasses the positioner
+  combinationally, so a core whose firmware leaves these words at 0 gets the
+  template's picture. The ten words are not free for other uses.
 
 ### 8.4 `osm-hotkey`
 
@@ -598,37 +622,50 @@ builds.
   `osm_combo_i`) choose which key, or which two-key combination, opens the
   menu. They are threaded from the core through `framework.vhd` into
   `m2m_keyb.vhd`, which builds the menu bit from the ungated keyboard scan.
+  While `osm_combo_i` is set and the key `osm_key_a_i` is held, `m2m_keyb.vhd`
+  reports Run/Stop (bit 6 of the QNICE keys, "menu up" in the Shell) as
+  released, so that closing the menu with the combination does not also act
+  as Run/Stop.
 * Files: `m2m_keyb.vhd`, `framework.vhd`, the four board tops.
 * Why: Help is a useful key on the Amiga, so the user can pick another key to
   open the menu.
-* Other cores: the defaults select Help alone, the classic behavior. The
-  firmware is unchanged.
+* Other cores: the defaults of `framework.vhd` and `m2m_keyb.vhd` (key 67 for
+  both keys, no combination) select Help alone, as in the template, and the
+  change does not touch the firmware. The board tops connect the three inputs
+  to the ports `osm_key_a_o`, `osm_key_b_o` and `osm_combo_o` of
+  `MEGA65_Core`, so another core that uses this copy declares these ports and
+  drives them with those values.
 
 ### 8.5 `osm-scale`
 
-* What: `tdp_ram.vhd` gets a `RAM_STYLE_SELECT` generic (default `"auto"`)
+* What: `tdp_ram.vhd` has a `RAM_STYLE_SELECT` generic (default `"auto"`)
   that `2port2clk_ram.vhd` passes through, and ascal's small asynchronous
-  ping-pong buffers (`i_dpram`) are forced into distributed RAM. The OSM
-  renderer for the "OSM Scaling" menu option was reworked in the same change:
-  the font ROM now stores the native 8x8 Anikki glyphs, the 100% size expands
-  them to exactly the old 16x16 font, and smaller sizes use a sharpened
-  bilinear filter.
+  ping-pong buffers (`i_dpram` and `o_dpram`) are forced into distributed
+  RAM. The same change carries the OSM renderer behind the "OSM Scaling" menu
+  option: the font ROM stores the native 8x8 Anikki glyphs (in distributed
+  RAM, through the generic), the 100% size expands every glyph pixel to a 2x2
+  block, which reproduces the template's 16x16 font bit for bit, and smaller
+  sizes use a sharpened bilinear filter.
 * Files: tagged are `tdp_ram.vhd` and `av_pipeline/ascal.vhd`; the renderer
-  change in `av_pipeline/vga_osm.vhd`, `av_pipeline/video_overlay.vhd`,
-  `2port2clk_ram.vhd` and the font files in `M2M/font/` carries no tag.
-* Why: left to its own heuristics, Vivado put ascal's buffers into four block
-  RAM tiles the core does not have, and absorbed a register into the block RAM
-  output, which broke the endpoints of the ascal constraints in `CORE.xdc`.
-  The renderer change makes the scaled menu legible.
-* Other cores: `"auto"` keeps every other caller as before. The ascal buffer
-  attribute and the renderer apply to every core; at 100% the menu is pixel
-  identical to the old renderer.
+  (`av_pipeline/vga_osm.vhd`, `av_pipeline/video_overlay.vhd`,
+  `2port2clk_ram.vhd` and the font files in `M2M/font/`) carries no tag. On
+  the core side, `FONT_FILE` in `CORE/vhdl/globals.vhd` names the font ROM.
+* Why: left to its own heuristics, Vivado puts ascal's buffers into four block
+  RAM tiles the core does not have, and absorbs the register `avl_dr` into the
+  block RAM output, which removes the endpoints of the ascal constraints in
+  `CORE.xdc`. The renderer keeps the scaled menu legible.
+* Other cores: `"auto"` leaves every other user of the two RAM modules as the
+  template has it. The ascal buffer attribute and the renderer apply to every
+  core; at 100% the menu is pixel identical to the template's. The renderer
+  needs the 8x8 font ROM, and `M2M/font/` holds no 16x16 ROM: another core
+  points `FONT_FILE` in its `globals.vhd` at `../font/Anikki-8x8-m2m.rom` and
+  keeps `FONT_DX` and `FONT_DY` at 16, which `vga_osm.vhd` asserts.
 
 ### 8.6 `raw-joyports`
 
 * What: the joystick debouncer in `debouncer.vhd` is reduced to plain two-flop
-  synchronizers; the 1 ms stable-time filters are gone. Port swapping and the
-  joystick enable gating stay.
+  synchronizers, without the template's 1 ms stable-time filters. Port
+  swapping and the joystick enable gating are the template's.
 * Files: `debouncer.vhd`.
 * Why: a real Amiga does not debounce its DB9 lines, and a quadrature mouse
   produces pulses faster than a 1 ms filter lets through, so the pointer
@@ -646,10 +683,10 @@ builds.
 * Files: the four board tops.
 * Why: the Hardware Floppy. The pattern is the one C64MEGA65 uses for its
   physical 1581 drive.
-* Other cores: the board tops now expect these ports on `MEGA65_Core`. Note
-  that because the write pins are connected, the internal drive is not
-  physically read-only any more; what protects a disk is the core's write gate
-  and the disk's write-protect tab.
+* Other cores: the board tops expect these ports on `MEGA65_Core`. Because
+  the write pins are connected, the internal drive is not physically
+  read-only: what protects a disk is the core's write gate and the disk's
+  write-protect tab.
 
 ### 8.8 `osm-deps`
 
@@ -661,13 +698,17 @@ builds.
   `strings.asm`, `sysdef.asm`.
 * Why: each drive has two lines in the main menu, a mount line and a Hardware
   Floppy status line, and the menu shows the one that matches the drive's mode.
-  Unlike the C64 original, this copy allows dependent ROM-loader
-  (`OPTM_G_LOAD_ROM`) lines, through which AExp mounts its ADF images,
-  partially visible radio groups and two-level chains, and its
-  validator is correspondingly less strict in two of its rule classes (the
-  reasons are in the header of `optm_deps.asm`).
+  In the Drives submenu, the drive count decides which items the mode radios
+  of `df1:` and `df2:` offer: Disk Image and Hardware Floppy for a drive that
+  exists, Off for one that does not. Unlike the C64 original, this copy
+  allows dependent ROM-loader (`OPTM_G_LOAD_ROM`) lines, through which AExp
+  mounts its ADF images, partially visible radio groups and two-level chains,
+  and its validator is correspondingly less strict in two of its rule classes
+  (the reasons are in the header of `optm_deps.asm`).
 * Other cores: a core whose `config.vhd` does not answer the feature probe
-  sees every line, as before.
+  sees every line. The Shell allocates the dependency array on the menu heap
+  all the same, so such a core needs `OPTM_SIZE` + 1 more words of
+  `MENU_HEAP_SIZE` than with the template.
 
 ### 8.9 `live-text`
 
@@ -758,11 +799,11 @@ builds.
   reset only once `rsto` propagates. ascal's read machinery (`o_readlev`,
   `o_copylev`, `o_state`, `o_copy`) has no recovery from a corrupted state:
   the frame buffer is never read again and the line buffers repeat, while the
-  on-screen menu overlay and the analog output keep working. Power-up
-  (`clk_mux` starts at zero) and video-mode changes (`IDLE` to `RESET_WAIT`)
-  already had this protection from upstream commit `b0e97d6` ("the HDMI clock
-  would flicker ... This caused the ascaler to freeze"); the `rsti` branch did
-  not.
+  on-screen menu overlay and the analog output keep working. In the template,
+  power-up (`clk_mux` starts at zero) and video-mode changes (`IDLE` to
+  `RESET_WAIT`) take the backup-clock route (template commit `b0e97d6`: "the
+  HDMI clock would flicker ... This caused the ascaler to freeze"); its `rsti`
+  branch does not.
 * How: while `rsti` is high the MMCM keeps its configuration, the multiplexer
   switches to the backup clock within two edges (both inputs running, as the
   `BUFGMUX_CTRL` requires), and `rsto` holds the encoder and the serializers in
@@ -781,7 +822,7 @@ builds.
 ### 8.12 Other differences to V2.0.1
 
 Besides the eleven changes of sections 8.1 to 8.11, AExp differs from M2M
-V2.0.1 in four more places. Three of them are in `M2M/`, the fourth in
+V2.0.1 in six more places. Five of them are in `M2M/`, the sixth in
 AExp's own firmware.
 
 * HyperRAM read watchdog (tag `qnice2hyperram-watchdog`, ported from
@@ -808,10 +849,21 @@ AExp's own firmware.
   never loads R7 first, so those writes land wherever R7 happens to point and
   the core may never leave reset. This copy loads `M2M$CSR` into R7.
 
-* HyperRAM placement. The board constraint files `M2M/MEGA65-R<n>.xdc`
-  contain a pblock that keeps the HyperRAM controller next to its I/O pins.
-  This keeps its receive path close to the input registers, so that it
-  reliably meets the 2 ns maximum-delay constraints of `common.xdc`.
+* `%s` scan of the menu text in `menu.asm` (no tag, ported from C64MEGA65).
+  When the Shell searches the menu items for `%s` and finds a `%` that is not
+  followed by `s`, it examines the following character again instead of
+  skipping it. V2.0.1 skips it, so behind an item that ends in `%` it misses
+  the `\n`, and the item counter is out of step for all further items. AExp
+  has such items: the percentages of the volume and OSM scaling radios.
+
+* HyperRAM placement (no tag). The board constraint files
+  `M2M/MEGA65-R<n>.xdc` contain a pblock that keeps the HyperRAM controller
+  next to its I/O pins. This keeps its receive path close to the input
+  registers, so that it reliably meets the 2 ns maximum-delay constraints of
+  `common.xdc`.
+
+* QNICE. The submodule `M2M/QNICE` tracks the `dev-V1.61` branch, not the
+  commit that V2.0.1 pins (section [6](#6-the-qnice-firmware)).
 
 * A routine borrowed from the M2M V2.1.0 development line, kept in AExp's
   firmware rather than in `M2M/`. `m2m-rom.asm` carries a copy of
@@ -834,7 +886,7 @@ The fork keeps its changes small and traceable. Every change to an original
 file has a dated provenance comment of the form
 `// MiSTer2MEGA65 (AExp Amiga 500 port), <month> <year>: ...`, and the
 original code stays next to it as a comment. The submodule's `README.md`
-summarizes the modifications. In short:
+describes the port. In short, the modifications are:
 
 * Vivado compatibility: Altera memories replaced by inferred block RAM
   templates, and a sweep over constructs that Quartus accepts and Vivado does
@@ -842,21 +894,28 @@ summarizes the modifications. In short:
 * `rtl/minimig_m65.v`, a new wrapper that renames `minimig.v`'s
   underscore-prefixed ports (illegal in VHDL) and ties off the unused
   subsystems.
+* `rtl/cpu_wrapper.v` reduced to the 68000: fx68k is the only CPU it
+  instantiates, the wires of the 68020 (TG68K) and the SDRAM port of the CPU
+  are tied off, and the Toccata sound card is not announced to Kickstart.
+  `rtl/fx68k/fx68k.sv` reads its microcode files `microrom.mem` and
+  `nanorom.mem` through a path relative to Vivado's synthesis run directory.
 * MEGA65 integration: keyboard with a real CIA handshake, mouse, real-time
   clock, the floppy host channel.
 * The Hardware Floppy in `paula_floppy.v` (threaded through `paula.v`,
   `minimig.v` and `minimig_m65.v`): per-unit substitution of the real drive's
-  status lines, the index pulse into CIA-B, a synthesized ready signal, and a
-  faithful `DSKBYTR` register (`$DFF01A`), which Rob Northen Copylock needs to
-  time the disk. With the Hardware Floppy switched off, the controller behaves
-  exactly like the upstream one.
+  status lines, among them the ready level that `physical_fdd_top.vhd`
+  synthesizes, the index pulse into CIA-B, and a faithful `DSKBYTR` register
+  (`$DFF01A`), which Rob Northen Copylock needs to time the disk. With the
+  Hardware Floppy switched off, the controller behaves exactly like the
+  upstream version the fork is based on.
 * Four upstream fixes that MiSTer made after AExp forked, backported in
   Version 2: the CIA timers' `CNT` input (MiSTer PR 230, `cia_timera.v`,
-  `cia_timerb.v`, `ciaa.v`, `ciab.v`), the blitter freeze when fill mode is
-  switched off mid-blit (PR 236, `agnus_blitter.v`), the exact `VHPOSR`
-  readback (PR 234, `agnus_beamcounter.v`), and the field flag that is only
-  set while interlace is on (commit `d16cd84`, `agnus_beamcounter.v`).
-  `VERSIONS.md` describes their effect.
+  `cia_timerb.v`, `ciaa.v`, `ciab.v`, and `minimig.v`, which ties the input
+  high), the blitter freeze when fill mode is switched off mid-blit (PR 236,
+  `agnus_blitter.v`), the exact `VHPOSR` readback (PR 234,
+  `agnus_beamcounter.v`), and the field flag that is only set while interlace
+  is on (commit `d16cd84`, `agnus_beamcounter.v`). `VERSIONS.md` describes
+  their effect.
 
 Changes to the submodule are committed in the submodule on `develop` first;
 the main repository then records the new submodule commit.
@@ -877,7 +936,7 @@ firmware:
 | Main_MiSTer `support/minimig/` | Role on MiSTer | In AExp |
 |---|---|---|
 | `minimig_fdd.cpp` | The floppy service `HandleFDD`: MFM-encodes sectors of the `.adf` file for Paula's reads, decodes Paula's writes back into the file. | Ported to hardware as `adf_track_engine.vhd`. Reference copy: [`minimig_fdd.cpp`](minimig_fdd.cpp). What AExp changed and added is listed in [floppy-adf.md](floppy-adf.md#41-the-software-model-minimig_fddcpp). |
-| `minimig_config.cpp` | The configuration menu and its presets, `ApplyConfiguration` (sends the userio commands `0xF1`..`0xF9`), the Kickstart upload into Minimig's memory. | `ApplyConfiguration` is the model for `amiga_config.vhd`, which sends the same commands with fixed A500 values after every reset. Reference copy: [`minimig_config.cpp`](minimig_config.cpp). The menu is the M2M menu in `config.vhd`; the Kickstart upload is replaced by the M2M Shell's ROM loader, which writes the file straight into the Kickstart BRAM (device `0x0100`). |
+| `minimig_config.cpp` | The stored configurations with their loading and saving, `ApplyConfiguration` (sends the userio commands `0xF1`..`0xF9`), the Kickstart upload into Minimig's memory. | `ApplyConfiguration` is the model for `amiga_config.vhd`, which sends the same commands after every reset, with A500 values and with the Slow RAM and drive-count settings of the menu. Reference copy: [`minimig_config.cpp`](minimig_config.cpp). The M2M settings file, which holds the selections of the menu in `config.vhd`, takes the place of the stored configurations; the Kickstart upload is replaced by the M2M Shell's ROM loader, which writes the file straight into the Kickstart BRAM (device `0x0100`). |
 | `minimig_boot.cpp` | Draws Minimig's boot screen into Chip RAM. | Not used: the core boots straight into Kickstart. |
 | `minimig_share.cpp` | Shared folder between Linux and AmigaOS. | Not used. |
 
@@ -891,20 +950,21 @@ the MEGA65's battery-backed clock to Minimig at reset, and the firmware's
 Both reference copies are stored verbatim from Main_MiSTer commit
 [`c738023`](https://github.com/MiSTer-devel/Main_MiSTer/tree/c73802332ff9c73659410084b6319ccd29f0b3aa)
 ("Release 20260603", 3 June 2026). That is the MiSTer release that goes with
-the Minimig release AExp forked from, and neither file changed upstream while
-the AExp blocks were written. The last commits that changed them before that
-point are `aebed6b` (`minimig_fdd.cpp`, 2021) and `61611e0` (`minimig_config.cpp`,
-2023). The line numbers quoted in the comments of `adf_track_engine.vhd`
-refer to this copy. Main_MiSTer is licensed under the GPL v3, like AExp;
-`minimig_fdd.cpp` carries its own GPL v3 (or later) header from the original
-Minimig authors, and `minimig_config.cpp` has no header and falls under the
-repository license.
+the Minimig release AExp forked from. The last commits that changed the two
+files before that point are `aebed6b` (`minimig_fdd.cpp`, 2021) and `61611e0`
+(`minimig_config.cpp`, 2023). The line numbers quoted in the comments of
+`adf_track_engine.vhd` refer to this copy. Main_MiSTer is licensed under the
+GPL v3, like AExp; `minimig_fdd.cpp` carries its own GPL v3 (or later) header
+from the original Minimig authors, and `minimig_config.cpp` has no header and
+falls under the repository license.
 
-Upstream has changed both files since, in September 2026: external floppy
-drives, SCP and IPF flux images, clock bits in the MFM encoder, a zero-drive
-setting, and new CD32, CDTV and Ethernet configuration. None of this is
-reconciled with AExp. Compare against the reference copies first when you look
-at upstream changes, so that you see only what changed after the port.
+Upstream has changed both files since: `minimig_fdd.cpp` in September 2026
+(external floppy drives, SCP and IPF flux images, clock bits in the MFM
+encoder, a zero-drive setting), `minimig_config.cpp` from July to October
+2026 (among others Ethernet, CD32 and CDTV quick-start ROMs, presets, further
+CPU types, floppy drive sounds). None of this is reconciled with AExp. Compare
+against the reference copies first when you look at upstream changes, so that
+you see only what changed after the port.
 
 ## 11. Mouse and joystick
 
@@ -984,8 +1044,9 @@ framework's paddle sampler (`mouse_input.vhdl`, instantiated in
 1 MHz and up to 255, how long the pin stays low; one cycle takes about
 514 µs. The framework hands 255 minus that count to the core clock domain, so
 an open or grounded pin reads `0x00` and a pin driven high reads close to
-`0xFF`. The `pot_buttons` process in `main.vhd` takes bit 7 of `pot1_x_i` and
-`pot1_y_i` with the Amiga's polarity, low means pressed, and guards it twice:
+`0xFF`. `main.vhd` takes bit 7 of `pot1_x_i` and `pot1_y_i` with the Amiga's
+polarity, low means pressed (`pot_rmb`, `pot_mmb`), and its `pot_buttons`
+process guards each of the two twice:
 
 * A presence latch (`rmb_capable`, `mmb_capable`): a button is only read once
   its line has been seen high. An empty port and a passive mouse both read
@@ -1015,13 +1076,13 @@ substitute.
 | Device | Movement and left button | Right and middle button |
 |---|---|---|
 | Amiga mouse | works | invisible; use the keyboard substitute |
-| Passive mouse behind a pull-up adapter (2 kΩ from pin 7 to pins 9 and 5, see [Mouse and joystick](../../README.md#mouse-and-joystick) in the README) | works | works |
-| Adapter that drives the lines push-pull, high when released and low when pressed | works | works |
+| Passive mouse behind a pull-up adapter (2 kΩ from pin 7 to pin 9 and another 2 kΩ from pin 7 to pin 5, see [Mouse and joystick](../../README.md#mouse-and-joystick) in the README) | works | works |
+| Mouse or adapter that drives the lines push-pull, high when released and low when pressed | works | works |
 | Adapter that only grounds the lines | works | invisible; use the keyboard substitute |
 | Adapter with a polled wheel protocol on pin 5 (Micro Tom) | works; the pointer can twitch at rest, see section [11.4](#114-adapters-with-a-polled-wheel-protocol) | works; the middle button is lost once pin 5 is cut |
 | mouSTer in Amiga mouse mode, default settings | works | invisible; use the keyboard substitute |
 | mouSTer firmware 3.23.5313 or newer with `activepotlines=true` in `[mouse]` | works | right button works |
-| Commodore 1350 or 1351 | not supported | the 1351's changing POT value can cause phantom right clicks |
+| Commodore 1350 or 1351 | not supported | the 1351's changing POT values can cause phantom right and middle clicks |
 
 The buttons on the POT lines are read on port 1 only, because `userio.v` feeds
 `mouse_btn` into the port-1 bits of `POTINP`; a mouse in port 2 moves and
@@ -1032,17 +1093,18 @@ tried with a real three-button device.
 
 ### 11.4 Adapters with a polled wheel protocol
 
-The paddle sampler of section 11.2 has one discharge output,
-`paddle_drain_o`, for all four POT pins of both ports, and it runs without
-pause. Paula pulls a POT pin low only on the Amiga's command, through
-`POTGO`. Some USB adapters, the Micro Tom among them, implement the
-host-polled wheel protocol of the Aminet TankMouse driver: the driver pulls
-pin 5 low once per frame, and the adapter answers each falling edge by
-flipping a code onto the quadrature lines for some tens of microseconds. The
-driver needs AmigaOS 2.04, so under Kickstart 1.3 nothing polls, and an A500
-never receives such a code. On the MEGA65 every drain is a poll, about 1950
-per second, and the counters of section [11.1](#111-movement) take every code
-the adapter sends as a movement of a few pixels on one axis.
+The paddle sampler of section 11.2 has one discharge output for all four POT
+pins of both ports (`pot_drain`, which leaves the framework as
+`paddle_drain_o`), and it runs without pause. Paula pulls a POT pin low only
+on the Amiga's command, through `POTGO`. Some USB adapters, the Micro Tom
+among them, implement the host-polled wheel protocol of the Aminet TankMouse
+driver: the driver pulls pin 5 low once per frame, and the adapter answers
+each falling edge by flipping a code onto the quadrature lines for some tens
+of microseconds. The driver needs AmigaOS 2.04, so under Kickstart 1.3 nothing
+polls, and an A500 with that Kickstart never receives such a code. On the
+MEGA65 every drain is a poll, about 1950 per second, and the counters of
+section [11.1](#111-movement) take every code the adapter sends as a movement
+of a few pixels on one axis.
 
 Field evidence from issue #41 (R6, the same on V1 and V2): the pointer is
 quiet with the mouse unplugged from the adapter, and quiet again once a DB9
@@ -1057,10 +1119,11 @@ A synthesis takes long, so the project relies on a few local checks first. The
 tools are free: [nvc](https://github.com/nickg/nvc) for VHDL, GHDL as a second
 opinion, and Icarus Verilog for the Minimig sources.
 
-* Analyze and elaborate the VHDL with `nvc --std=2008`, in dependency order
-  (the M2M packages first). `clk.vhd` and `mega65.vhd` need small stub
-  packages for the Xilinx `unisim` and `xpm` libraries.
-  `CORE/sim/run_nvc_chain.sh` does both, with the stubs in `CORE/sim/stubs/`.
+* Analyze the VHDL with `nvc --std=2008`, in dependency order (the M2M
+  packages first). `clk.vhd` and `mega65.vhd` need small stub packages for the
+  Xilinx `unisim` and `xpm` libraries. `CORE/sim/run_nvc_chain.sh` analyzes
+  the M2M files the core depends on and every file in `CORE/vhdl`, with the
+  stubs in `CORE/sim/stubs/`, and then elaborates `config.vhd`.
 * The iverilog benches in `CORE/sim/minimig/`, `CORE/sim/audio/` and
   `CORE/sim/video/` compile the Verilog sources they use. A lint of the whole
   design with `iverilog -g2012 -t null` needs hand-written stubs for `dpram`
