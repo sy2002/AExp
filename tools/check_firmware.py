@@ -3,10 +3,12 @@
 
 Companion to check_osm_menu.py. Two checks:
 
-1. Carry pairing.  On QNICE only ADD / ADDC / SUB / SUBC and SHL / SHR write the
-   Carry flag; MOVE does not (M2M/QNICE/vhdl/qnice_cpu.vhd: var_C defaults to
-   SR(2) and is only overwritten for those opcodes).  A 32-bit addition is
-   therefore written as
+1. Carry pairing.  On QNICE only ADD / ADDC / SUB / SUBC and SHL write the
+   Carry flag; MOVE does not, and SHR only reads it: it shifts Carry into
+   bit 15 and the dropped bit into X (M2M/QNICE/vhdl/qnice_cpu.vhd: var_C
+   defaults to SR(2) and is only overwritten for the four arithmetic opcodes;
+   SHL shifts into C, SHR keeps SR(2)).  A 32-bit addition is therefore
+   written as
 
        ADD   <lo>, @low_word
        ADDC  0,    @high_word
@@ -50,8 +52,9 @@ def fail(msg):
     print("FAIL: %s" % msg)
 
 
-# opcodes that write the Carry flag
-C_WRITERS = {"ADD", "ADDC", "SUB", "SUBC", "SHL", "SHR"}
+# opcodes that write the Carry flag (SHR does not: it fills from C and shifts
+# the dropped bit into X)
+C_WRITERS = {"ADD", "ADDC", "SUB", "SUBC", "SHL"}
 # opcodes that consume the Carry flag as an input operand
 C_READERS = {"ADDC", "SUBC"}
 # a branch or a label ends the straight-line region we may reason about

@@ -15,7 +15,7 @@ site cause the build to fail.
 For each build, the script creates a temporary MkDocs source tree, stages the
 root README as the site's `index.md`, rewrites local links for the staged layout,
 adds the navigation and Amiga-inspired theme, and runs a strict MkDocs build.
-The temporary tree is removed afterwards.
+The temporary tree is removed afterward.
 
 The first build creates an ignored Python environment in `doc/.venv` and
 installs the versions pinned in `doc/requirements-doc.txt`. No manual MkDocs

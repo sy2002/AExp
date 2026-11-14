@@ -208,7 +208,7 @@ to the bottom of the screen every once in a while."
 ### 4.2 Flicker-free OFF: sliding latency plus the crawling seam
 
 With the servo off the core free-runs at 49.9201 Hz against the exact
-50.000 Hz output. The write pointer slips backwards by 32 µs per frame;
+50.000 Hz output. The write pointer slips backward by 32 µs per frame;
 the beams cross once per beat period:
 
 | | AExp progressive | C64 PAL |

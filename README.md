@@ -4,17 +4,24 @@ Amiga 500 for MEGA65
 Experience the [Commodore Amiga 500](https://en.wikipedia.org/wiki/Amiga_500)
 on your [MEGA65](https://mega65.org/)!
 
-This core turns the MEGA65 into an Amiga 500 with the original OCS chipset
-(PAL), a cycle accurate 68000 CPU, 512 KB of Chip RAM and a 512 KB memory
-expansion in the trapdoor slot (known as Slow RAM, this is what the classic
-Commodore A501 expansion did). The Amiga therefore has 1 MB of RAM in total.
+Welcome! This core turns your MEGA65 into a faithful Amiga 500: the original
+OCS chipset (PAL), a cycle accurate 68000 CPU, Kickstart 1.3, 512 KB of Chip
+RAM and a 512 KB memory expansion in the trapdoor slot (known as Slow RAM,
+this is what the classic Commodore A501 expansion did), so 1 MB of RAM in
+total. Games, demos and Workbench look, sound and feel authentic, down to the
+A500's characteristic audio filters and, if you connect a CRT, its native
+15 kHz picture.
 
-And the MEGA65's built-in floppy drive becomes a real Amiga drive: put in a
-genuine Amiga disk, and the Amiga reads and writes it, copy-protected
-originals included.
+Still have a box of Amiga disks in the attic? The MEGA65's built-in floppy
+drive becomes a real Amiga drive: put in a genuine Amiga disk, and the Amiga
+reads and writes it, copy-protected originals included. Disk images on your
+SD card work just as well, in up to three drives.
 
-This is Version 2. The core is feature complete and, as far as we can
-assess, rock solid: it runs 99.9% of all games and demos.
+This is Version 2, field-tested by the community on real hardware and with
+real disks. The core is feature complete and, as far as we can assess, rock
+solid: it runs 99.9% of all games and demos. Whether you grew up with an
+Amiga or always wanted to know what the fuss was about: plug in a mouse and
+a joystick, and have fun!
 
 ![Amiga500](doc/assets/a500_ocs.jpg)
 
@@ -315,7 +322,7 @@ DVI switch for displays that show nothing at all (see the end of this
 section).
 
 **An OCS PAL Amiga is a 50 Hz machine**, so only faithful 50 Hz modes are
-offered. 
+offered.
 
 The second `HDMI:` menu entry, directly below the display mode, selects
 the scaling filter:
@@ -363,7 +370,7 @@ The Checkmate appears to use a native 60 Hz panel and introduces
 considerable latency when displaying the 50 Hz output of our PAL AExp core,
 although scrolling remains smooth with Flicker-free enabled. We suspect that the
 latency comes from the internal conversion required to display a 50 Hz
-signal on a 60 Hz panel. Deft recorded 
+signal on a 60 Hz panel. Deft recorded
 [several videos demonstrating the effect (click here)](https://github.com/sy2002/MiSTer2MEGA65/issues/72),
 comparing the Checkmate with a 15 kHz analog monitor and a Samsung HDMI
 monitor in Gaming Mode, which adds almost no HDMI latency.

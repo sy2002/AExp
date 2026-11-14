@@ -89,7 +89,7 @@ read the `df0:` below as `df1:` or `df2:` if you put it there:
 * `df0:HW Floppy: Reading`: decoded data is streaming into the Amiga.
 
 A write shows as `Motor`, not `Reading`: while the Amiga writes, nothing is
-read back, so no data flows towards it.
+read back, so no data flows toward it.
 
 This helps when something does not load. If a program waits and the line
 says `Motor`, the drive is turning but nothing readable comes back: the disk

@@ -1,11 +1,11 @@
-Version 2 - MONTH DAY, YEAR
-===========================
+Version 2 - November 14, 2026
+=============================
 
 Version 2 turns this core into a complete Amiga 500 experience: the MEGA65's
 built-in drive reads and writes real Amiga disks, including copy-protected
 originals, and up to three drives mix real disks and `*.adf` images. Together
 with the authentic A500 sound filters and four chipset fixes, this is a pure,
-faithful and field-tested Amiga 500.
+faithful and field-tested PAL Amiga 500 with the original OCS chipset.
 
 ## New Features
 
@@ -50,7 +50,7 @@ faithful and field-tested Amiga 500.
   MiSTer [PR 236](https://github.com/MiSTer-devel/Minimig-AGA_MiSTer/pull/236).
 
 * Reading the beam position register `VHPOSR` returns the exact value
-  a real Agnus reports. It used to read one colour clock ahead and returned
+  a real Agnus reports. It used to read one color clock ahead and return
   zero instead of the line length at the end of a line. This matters for
   programs that time their effects by polling the beam. Verified against the
   real-A500 reference images of the
@@ -106,7 +106,7 @@ faithful and field-tested Amiga 500.
 
 * Source code comments reworked: they describe the current design, without
   references to unpublished notes.
-  
+
 * `AGENTS.md` rewritten for AI coding assistants.
 
 Version 1 - July 26, 2026

@@ -44,7 +44,7 @@ Operating-system hints for the `bash` tool chain:
     cd AExp
     ```
 
-    Already cloned without `--recursive`? Pull the submodules in afterwards:
+    Already cloned without `--recursive`? Pull the submodules in afterward:
 
     ```bash
     git submodule update --init --recursive
@@ -202,7 +202,7 @@ some boards.
 * MiSTer's floppy service [`minimig_fdd.cpp`](developers/minimig_fdd.cpp) and
   configuration code [`minimig_config.cpp`](developers/minimig_config.cpp):
   verbatim copies of the software that `adf_track_engine.vhd` and
-  `amiga_config.vhd` were modelled on.
+  `amiga_config.vhd` were modeled on.
 * The [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) documents the
   build environment in depth and explains the QNICE debug console — a
   real-time serial log and interactive monitor, available if you have a

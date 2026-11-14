@@ -158,7 +158,7 @@ design, so here they are in one place:
 * trackdisk waits 2 ms after the write-complete interrupt before it touches a
   drive line, and it **never verifies a write**. A write that goes wrong is
   silent until the next read.
-* For every track from 81 upwards it programs Paula's 140 ns write
+* For every track from 81 upward it programs Paula's 140 ns write
   precompensation; track 80 is excluded. Section [6.2](#62-the-writer) is
   faithful to that.
 
@@ -206,7 +206,7 @@ surfaces, each as small as it could be made:
    mechanism is served from the front-end's FIFO instead of from HyperRAM,
    and its writes are tapped out instead of decoded.
 3. **The CIA-line muxes inside `paula_floppy.v`.** The four status inputs a
-   drive drives, `/RDY`, `/TRK0`, `/WPROT` and `/CHNG`, are modelled as
+   drive drives, `/RDY`, `/TRK0`, `/WPROT` and `/CHNG`, are modeled as
    open-collector AND terms across the four units; for the unit in
    `phys_mask` the virtual term is replaced by the conditioned real level,
    still gated by that unit's select line like a real drive. The real index
@@ -282,11 +282,11 @@ This is where the magnetic reality of section [2.1](#21-flux-cells-and-the-data-
 is dealt with, and the front-end carries two implementations, selectable at
 run time through diagnostics register `0x35` bit 6.
 
-**The adaptive quantiser** (`physical_fdd_mfm_quantise`, the C64 lineage)
+**The adaptive quantizer** (`physical_fdd_mfm_quantise`, the C64 lineage)
 classifies each gap as short, medium or long by comparing it against 2.5 and
 3.5 times a live half-cell estimate `est` (Q8.4 fixed point, nominal 100.0
 cycles), accepts the class if the gap lies within `est/2` of the class
-centre, and nudges `est` by a fixed 1/8 cycle toward every accepted gap. The
+center, and nudges `est` by a fixed 1/8 cycle toward every accepted gap. The
 estimate is clamped to ±10 % of nominal; a gap outside every acceptance window
 is a loss of lock, which re-seeds the estimate and, downstream, flushes the
 bit assembly. The sign-based step rather than a proportional filter is a
@@ -304,15 +304,15 @@ of rare extreme, sitting on a clean body.
 real Paula's separator does. A phase accumulator advances one
 cycle per clock and emits one channel bit every `cell` cycles: a `1` if an
 edge fell into the elapsed cell, else a `0`. On every edge the phase error
-against the cell centre is measured; the phase is pulled toward the centre by
+against the cell center is measured; the phase is pulled toward the center by
 half the error (`C_DPLL_PGAIN`) and the period by a 64th of it
 (`C_DPLL_FGAIN`), with the period clamped to the same ±10 % span. There is
 nothing to classify, nothing to re-seed, no filler to synthesize: a wild
-interval degrades one bit position and the loop re-centres within a few
+interval degrades one bit position and the loop re-centers within a few
 edges. A dropped reversal becomes a single `0` where a `1` should have been,
 and the rest of the sector stays intact.
 
-The quantiser keeps running as a passive observer in DPLL mode. Its gap
+The quantizer keeps running as a passive observer in DPLL mode. Its gap
 classes feed the margin instruments and the loss-of-lock counters, so a field
 A/B between the two separators measures the same statistics either way; only
 the bit source changes. In legacy mode the bit stage also synthesizes `0`
@@ -619,7 +619,7 @@ would put a flux drought at the end splice.
 **Precompensation** is ROM-faithful. A seven-bit window holds the three bits
 before and the three after the one being written; if the gap before is
 shorter than the gap after, the pulse launches 7 cycles early, in the mirror
-case 7 cycles late, and symmetric or invalid neighbourhoods are left alone.
+case 7 cycles late, and symmetric or invalid neighborhoods are left alone.
 That is textbook peak-shift compensation with one magnitude, 140 ns, which is
 Paula's `PRECOMP0`. A bit whose window reaches before the episode's first bit
 or beyond its last gets no shift; zero-filling the window would classify the
@@ -627,7 +627,7 @@ missing side as a long gap and shift the very first and last pulses. Whether
 precomp is on for an episode is decided **in the engine**, at the moment the
 episode binds, from Paula's own track register (the number Kickstart compares)
 and the mode in diagnostics register `0x7C`: AUTO means on for every track
-from 81 upwards, which is Kickstart 1.3's policy including its exclusion of
+from 81 upward, which is Kickstart 1.3's policy including its exclusion of
 track 80. The decision arrives at the writer as one level held for the
 episode, so no multi-bit track value has to cross a clock domain. The 140 ns
 step was later measured on the medium from flux dumps of core-written disks,
@@ -697,7 +697,7 @@ on, and while it is set:
 The episode ends when the engine observes DMA completion: the drain frame's
 status word reports DMA inactive with an empty FIFO, or any poll shows
 `trackwr` low. Both clear the bind, the abort level and the foreign timer.
-The abort level is initialised at the bind rather than cleared at the end,
+The abort level is initialized at the bind rather than cleared at the end,
 because the global abort block runs after the episode-end branches in the
 same process and would re-assert it in the very cycle an end branch clears
 it; a level left latched would make the next episode abort before WGATE ever
@@ -867,7 +867,7 @@ both heads.
 
 | Element | Clock |
 |---|---|
-| Input conditioner, gap stage, quantiser, DPLL, aligner, read FIFO write side, writer, write FIFO read side, diagnostics bank, margin and seam instruments | `qnice_clk` 50 MHz |
+| Input conditioner, gap stage, quantizer, DPLL, aligner, read FIFO write side, writer, write FIFO read side, diagnostics bank, margin and seam instruments | `qnice_clk` 50 MHz |
 | `adf_track_engine`, Paula, the observation tap, the connector pin registers, `drv_decode`, the drain hold | `main_clk` 28.375 MHz |
 
 The 50 MHz choice is the C64 precedent and buys three things: the magnetic
@@ -957,7 +957,7 @@ Register `0x35` (write; the low 8 bits read back):
 | 3..0 | armed sector `K` for the window mode | 0 |
 | 4 | window mode: histogram only inside the armed-sector window | 0 |
 | 5 | histogram all gaps, not only during physical read sessions | 0 |
-| 6 | **legacy quantiser bit source** instead of the DPLL separator | 0 = DPLL |
+| 6 | **legacy quantizer bit source** instead of the DPLL separator | 0 = DPLL |
 | 7 | **realign-always framing** instead of the WORDSYNC-conditional hold | 0 = hold |
 | 8 | **disable the DSKBYTR observation surface** (revert to the stub); not read back | 0 = surface on |
 | 15 | self-clearing strobe: clear every "since clear" statistic | - |
@@ -980,7 +980,7 @@ The full register map is in section [12.2](#122-diagnostics-register-map).
 The registers that answer the questions that actually come up:
 
 * **Is the front-end alive and locked?** `0x02` status bits (enable,
-  selected, motor, media ready, the raw status lines), `0x04` the quantiser
+  selected, motor, media ready, the raw status lines), `0x04` the quantizer
   estimate and `0x5F` the DPLL cell period (both nominal `0x640` = 100.0
   cycles; a value pinned at `0x5A0` or `0x6E0` is sitting on the ±10 % clamp),
   `0x0B` sync hits and `0x0C` words reconstructed, `0x0D` runts, `0x0E` losses
@@ -1036,7 +1036,7 @@ shows as `Motor`, because nothing is served *to* the Amiga while it writes.
 ## 9. When a user reports a problem
 
 The standing lesson of this feature is that a failure pattern must be
-**classified before it is theorised about**. A pervasive read failure that
+**classified before it is theorized about**. A pervasive read failure that
 was long blamed on old media turned out to be the sync seam, and a field
 report of "intermittent write failures" turned out to be a voided test, a
 disk that was never written, and physical media damage, none of it the core.
@@ -1069,7 +1069,7 @@ Ask for, in this order:
    decoder script does the reading.
 5. **The runtime A/B arms** on one failing title: `M C 7035 8080` (realign
    always), `M C 7035 8040` (legacy separator), `M C 7035 8100` (surface off).
-   A behaviour change under one of them localizes the layer for free;
+   A behavior change under one of them localizes the layer for free;
    identical failure in all arms means the cause is below framing and
    separator choice, or in the flux itself.
 6. **A flux dump** if the tester owns a Greaseweazle or SuperCard Pro: the
@@ -1088,7 +1088,7 @@ Then:
    confined to sector 10, offsets 510/511, head 1 only, mean the post-DSKBLK
    tail is being cut again. Thousands of differing bytes on every track mean
    the disk was never written. Anything else is classified before it is
-   theorised.
+   theorized.
 2. Scan the flux for analog damage patches (`tools/flux/patch_scan.py`). A
    healthy disk, core-written or Amiga-written, scans to zero. Patches that
    line up in rotational angle across tracks are a physical feature of the
@@ -1125,9 +1125,9 @@ whose only instrument was a register bank. The diagnostics then live in the
 QNICE domain without any crossing, and the writer gets exact 100-cycle cells.
 The crossings this costs are all of proven shapes (section [7](#7-clock-domains-and-cdc)).
 
-### "Can I drop the legacy quantiser now that the DPLL is the default?"
+### "Can I drop the legacy quantizer now that the DPLL is the default?"
 
-Not without touching the instruments. The quantiser's gap classes feed the
+Not without touching the instruments. The quantizer's gap classes feed the
 margin histograms, the loss-of-lock counters and the miss profile in both
 modes, and the legacy bit source is the runtime A/B that lets a field tester
 answer "is it the separator?" without a rebuild. It costs registers, not
@@ -1192,7 +1192,7 @@ displaced edge, a dropped reversal, a 3 % bias) and shows the dropped
 reversal corrupting the rest of the sector under the legacy classifier while
 staying a single bit under the DPLL (`tb_fdd_dpll.vhd`).
 The margin instruments are checked against an independent integer model of
-the quantiser and the histogram engine, which must agree bit-exactly
+the quantizer and the histogram engine, which must agree bit-exactly
 (`tb_fdd_margin.vhd`, with the model in `gen_tb_fdd_margin.py`).
 
 **The sync seam.** The decisive bench builds a real eleven-sector AmigaDOS
@@ -1214,8 +1214,8 @@ the feed (`tb_engine_paula.vhd`). The same bench can log every real FIFO pop
 with its cycle timestamp, and that pop stream was shown cycle-exact between
 the engine as it was before the write datapath and the current one, because
 that stream feeds the Copylock surface.
-The multi-drive ownership bench drives the real engine with a behavioural
-Paula and a behavioural Avalon slave and includes the physical cases: a
+The multi-drive ownership bench drives the real engine with a behavioral
+Paula and a behavioral Avalon slave and includes the physical cases: a
 physical write drained without any Avalon write, the cross-contamination
 scenario above, the `df0:` bind ambiguity, an ADF write against a busy writer,
 and a reset inside an open episode (`tb_adf_multidrive.vhd`).
@@ -1293,7 +1293,7 @@ logged on the Amiga side.
 
 | File | Role |
 |---|---|
-| `CORE/vhdl/physical_fdd/physical_fdd_pkg.vhd` | Every magnetic, timing and instrument constant: cell and gap lengths, quantiser and DPLL gains and clamps, runt threshold, drought, index qualification, ready model, capture and histogram sizes. |
+| `CORE/vhdl/physical_fdd/physical_fdd_pkg.vhd` | Every magnetic, timing and instrument constant: cell and gap lengths, quantizer and DPLL gains and clamps, runt threshold, drought, index qualification, ready model, capture and histogram sizes. |
 | `CORE/vhdl/physical_fdd/physical_fdd_inputs.vhd` | Two-flop synchronizers for the five input pins, index qualification and measurement, active-low pass-through of the status lines. |
 | `CORE/vhdl/physical_fdd/physical_fdd_mfm_gaps.vhd` | Flux edge to gap interval, runt filter, first-edge rule. |
 | `CORE/vhdl/physical_fdd/physical_fdd_mfm_quantise.vhd` | The adaptive gap classifier (legacy bit source and permanent observer), with the signed-error taps for the margin engine. |
@@ -1326,7 +1326,7 @@ dumps. "Since clear" means since the last `0x35` bit-15 strobe.
 | `0x01` | map version, `0x000D` |
 | `0x02` | status: bit 0 enable, 1 selected, 2 motor, 3 media ready, 4 spun up, 5 index fresh, 6 index active, 7 `/TRK0`, 8 `/WPROT`, 9 `/CHNG`, 10 `RDATA`, 11 read FIFO full |
 | `0x03` | the settled DSKSYNC value the aligner uses |
-| `0x04` | quantiser half-cell estimate, Q8.4 (nominal `0x640`) |
+| `0x04` | quantizer half-cell estimate, Q8.4 (nominal `0x640`) |
 | `0x05` | read FIFO fill level, write side |
 | `0x06/0x07` | index period, low/high word (cycles) |
 | `0x08/0x09` | index low-pulse width, low/high word (cycles) |
@@ -1404,7 +1404,7 @@ dumps. "Since clear" means since the last `0x35` bit-15 strobe.
 | nominal gaps | 200 / 300 / 400 cycles | `C_GAP_*_CYC` |
 | runt threshold | 16 cycles = 320 ns | `C_GAP_GLITCH` |
 | estimate / cell clamp | 90..110 cycles | `C_QUANT_EST_MIN/MAX` |
-| quantiser step, tolerance | 1/8 cycle, est/2 | `C_QUANT_STEP_Q`, `C_QUANT_TOL_SHR` |
+| quantizer step, tolerance | 1/8 cycle, est/2 | `C_QUANT_STEP_Q`, `C_QUANT_TOL_SHR` |
 | DPLL gains | phase err/2, period err/64 | `C_DPLL_PGAIN/FGAIN` |
 | drought arm, filler period (legacy) | 512 cycles, 100 cycles | `C_DROUGHT_*` |
 | index low floor, stale timeout | 200 µs, 250 ms | `C_INDEX_*` |

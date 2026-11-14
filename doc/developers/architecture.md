@@ -57,7 +57,7 @@ missing, the firmware shows a fatal error naming the file and the core never
 starts. The file is a raw 256 KB dump, big-endian, exactly as read from the ROM
 chip.
 
-Floppy disks come in two flavours. Up to three Amiga drive units (`df0:`,
+Floppy disks come in two flavors. Up to three Amiga drive units (`df0:`,
 `df1:`, `df2:`) can each be a simulated drive that mounts an `.adf` disk image
 from the SD card, read and write (a "Disk Image" drive in the menu); at most
 one of them can instead be the MEGA65's own 3.5" drive, which then reads and
@@ -135,7 +135,7 @@ that bus instead. `amiga_config.vhd` replays MiSTer's boot-time configuration
 after every reset (OCS chipset, 68000, 512 KB + 512 KB memory, drive count,
 joystick port mapping) and then releases the CPU. `adf_track_engine.vhd` then
 owns the bus and serves Paula's floppy requests. `main.vhd` multiplexes the
-shared strobe and data lines between the two. Both blocks are modelled on
+shared strobe and data lines between the two. Both blocks are modeled on
 MiSTer's HPS software; section
 [10](#10-the-mister-hps-code-and-its-replacements) names the files.
 
@@ -143,7 +143,7 @@ MiSTer's HPS software; section
 raw MFM words, and the operating system decodes them in software. AExp
 therefore needs an MFM codec in hardware. `adf_track_engine.vhd` is a hardware
 port of MiSTer's ARM-side floppy service, `minimig_fdd.cpp`; a copy of the
-version it was modelled on is kept in this folder as
+version it was modeled on is kept in this folder as
 [`minimig_fdd.cpp`](minimig_fdd.cpp), and
 [floppy-adf.md](floppy-adf.md#41-the-software-model-minimig_fddcpp)
 lists what AExp changed and added. The disk images live in HyperRAM, one pool
@@ -308,7 +308,7 @@ in `mega65.vhd`; the ids are defined in `globals.vhd`.
 The Hardware Floppy's id sits between the ADF devices because it is older than
 the second and third drive, and its register map is referred to by number in
 field test instructions, so it kept the id. The three ADF devices share one
-layout: windows `0x0000` upwards are a byte window into the drive's image,
+layout: windows `0x0000` upward are a byte window into the drive's image,
 window `0xFFFE` holds the write-back registers and window `0xFFFF` the
 framework's load handshake. The register maps are in
 [floppy-adf.md](floppy-adf.md#12-reference).
@@ -439,7 +439,7 @@ in `m2m-rom.asm` (debug and release) by the same amount in the opposite
 direction, so that the totals stay the same. Currently the 148-line menu needs
 2325 words and `MENU_HEAP_SIZE` is 2336. A wrong budget is never silent: the
 firmware stops with a fatal error at boot and on every menu open. Firmware
-variables count too: they sit below the heap and push it upwards, so after
+variables count too: they sit below the heap and push it upward, so after
 adding variables check the `HEAP` and `VAR$STACK_START` addresses in
 `m2m-rom.lis`. The comments above `MENU_HEAP_SIZE` in `m2m-rom.asm` keep the
 current calculation.
@@ -601,7 +601,7 @@ builds.
 * Files: `m2m_keyb.vhd`, `framework.vhd`, the four board tops.
 * Why: Help is a useful key on the Amiga, so the user can pick another key to
   open the menu.
-* Other cores: the defaults select Help alone, the classic behaviour. The
+* Other cores: the defaults select Help alone, the classic behavior. The
   firmware is unchanged.
 
 ### 8.5 `osm-scale`
@@ -732,7 +732,7 @@ builds.
 * Other cores: the parameter and both generics default to the original Hq2x
   path, but `framework.vhd` reads `VGA_LINEDOUBLER` from the core's
   `globals.vhd`, so another core that uses this copy of the framework has to
-  add that constant (`false` keeps its behaviour).
+  add that constant (`false` keeps its behavior).
 
 ### 8.11 `hdmi-clock-reset`
 
@@ -770,7 +770,7 @@ builds.
   `cfg_rst`; the DRP table is written while the MMCM is held in reset, and
   `LOCK_WAIT` releases `cfg_rst`, waits for `LOCKED`, clears `rsto_req` and
   sets `clk_mux` back to the MMCM. The bench `CORE/sim/video/run_voc_reset.sh`
-  checks this against behavioural cell models, with the template behaviour as
+  checks this against behavioral cell models, with the template behavior as
   its red control (section [12](#12-checking-your-work-before-a-vivado-run)).
 * Other cores: every core built from M2M V2.0.1 has the same race. The change
   is confined to the one file and alters nothing for a short press, a running
@@ -834,7 +834,7 @@ The fork keeps its changes small and traceable. Every change to an original
 file has a dated provenance comment of the form
 `// MiSTer2MEGA65 (AExp Amiga 500 port), <month> <year>: ...`, and the
 original code stays next to it as a comment. The submodule's `README.md`
-summarises the modifications. In short:
+summarizes the modifications. In short:
 
 * Vivado compatibility: Altera memories replaced by inferred block RAM
   templates, and a sweep over constructs that Quartus accepts and Vivado does
@@ -1057,12 +1057,14 @@ A synthesis takes long, so the project relies on a few local checks first. The
 tools are free: [nvc](https://github.com/nickg/nvc) for VHDL, GHDL as a second
 opinion, and Icarus Verilog for the Minimig sources.
 
-* Analyse and elaborate the VHDL with `nvc --std=2008`, in dependency order
+* Analyze and elaborate the VHDL with `nvc --std=2008`, in dependency order
   (the M2M packages first). `clk.vhd` and `mega65.vhd` need small stub
   packages for the Xilinx `unisim` and `xpm` libraries.
   `CORE/sim/run_nvc_chain.sh` does both, with the stubs in `CORE/sim/stubs/`.
-* Check the Verilog with `iverilog -g2012 -t null`, with stubs for `dpram` and
-  `fx68k`.
+* The iverilog benches in `CORE/sim/minimig/`, `CORE/sim/audio/` and
+  `CORE/sim/video/` compile the Verilog sources they use. A lint of the whole
+  design with `iverilog -g2012 -t null` needs hand-written stubs for `dpram`
+  and `fx68k`, which the repository does not carry.
 * After any menu change, run the menu checker
   `tools/check_osm_menu.py`. It recomputes
   `OPTM_SIZE`, the submenu structure, the dependency rules, the visible menu
@@ -1071,9 +1073,10 @@ opinion, and Icarus Verilog for the Minimig sources.
 * After any firmware change, run the firmware checker
   `tools/check_firmware.py`. It checks the
   per-drive tables against the drive count, and it checks every `ADDC` and
-  `SUBC` for a carry that comes from the right instruction. On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL` and
-  `SHR` write the carry flag, and an address calculation inserted between a
-  32-bit `ADD` and its `ADDC` silently eats the carry.
+  `SUBC` for a carry that comes from the right instruction. On QNICE only
+  `ADD`, `ADDC`, `SUB`, `SUBC` and `SHL` write the carry flag (`SHR` reads
+  it and writes X), and an address calculation inserted between a 32-bit
+  `ADD` and its `ADDC` silently eats the carry.
 * Assemble the firmware with a native build of the QNICE assembler to catch
   syntax errors. Run `make_rom.sh` itself only where the QNICE tool chain was
   built for the operating system you are on.

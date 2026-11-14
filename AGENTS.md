@@ -25,9 +25,10 @@ appear in issues, commits and comments.
   The word "framework" in code and docs names the M2M layer of the design
   (`framework.vhd` and the files in `M2M/`), not a dependency.
 - Boards: MEGA65 R3/R3A, R4, R5, R6, one Vivado project each.
-- **Status:** Version 1 is released (tag `V1`, commit `46ef60c`, July 2026).
-  Version 2 is in beta; the current build is the one named by `CORE_VERSION`
-  in `CORE/vhdl/config.vhd` (`WIP-V2-B3` at the time of writing).
+- **Status:** Version 2 is released (tag `V2`, November 2026) and is the
+  current version; Version 1 (tag `V1`, commit `46ef60c`) dates from July
+  2026. The build in the tree is the one named by `CORE_VERSION` in
+  `CORE/vhdl/config.vhd`.
   `VERSIONS.md` is the authoritative feature list per release, and
   everything it lists is shipped and works: among others the simulated ADF
   drives (read and write), up to three drives, the Hardware Floppy reading
@@ -66,13 +67,17 @@ appear in issues, commits and comments.
 | `doc/developers/hdmi_latency.md` | HDMI latency and the flicker-free clock servo |
 | `doc/developers/minimig_fdd.cpp`, `minimig_config.cpp` | Verbatim reference copies from `Main_MiSTer` commit `c738023`: the software models of `adf_track_engine.vhd` and `amiga_config.vhd`. Line numbers in the engine's comments refer to this copy |
 | `CORE/Minimig_MiSTerMEGA65/README.md` | The fork's branch model and its list of modifications |
-| `doc/*.md` (user docs) | `drives.md`, `hardware_floppy.md`, `keyboard.md`, `audio.md`, `screen_adjust.md`, `retrotubes.md`, `RTC.md` |
+| `doc/*.md` (user docs) | `drives.md`, `hardware_floppy.md`, `keyboard.md`, `audio.md`, `screen_adjust.md`, `retrotubes.md`, `RTC.md`, `faq.md` |
 | `doc/make_doc.md` | The website builder `doc/make_doc.py` |
 | `doc/developers/tools.md` | The host tools in `tools/` (menu and firmware checkers, Hardware Floppy diagnostics decoder, ADF compare, flux analysis) and the testbenches in `CORE/sim/`: what each checks, how to run it, runtimes, the pre-synthesis gate |
 | [M2M Wiki](https://github.com/sy2002/MiSTer2MEGA65/wiki) | The template: build environment, the QNICE debug console |
 | [C64MEGA65](https://github.com/MJoergen/C64MEGA65) | The reference core built from M2M; origin of the mount-device, physical-drive and menu-dependency patterns. Consult it for any M2M integration pattern, and read its `M2M/` copy before porting one of its changes |
 
-**Before touching X, read Y:**
+**Before touching X, read Y.** This file cites the developer documents
+without their path `doc/developers/`: `architecture.md`, `floppy-adf.md`,
+`hardware-floppy.md`, `timing_closure.md`, `audio.md`, `hdmi_latency.md` and
+`tools.md`. The user documents `doc/audio.md` and `doc/hardware_floppy.md`
+are different files.
 
 | If you touch | Read first |
 |---|---|
@@ -85,14 +90,15 @@ appear in issues, commits and comments.
 | Clocks, CDC, new QNICE devices | `architecture.md` sections 4 and 5, rules 3–5 |
 | The Minimig submodule | Rule 16, `architecture.md` section 9 |
 | Audio | `audio.md` |
-| Video pipeline, HDMI, analog modes | Rule 6, `hdmi_latency.md`, `doc/screen_adjust.md` |
-| A user's floppy problem report | `hardware-floppy.md` section 9 |
+| Video pipeline, HDMI, analog modes | Rule 6, `architecture.md` sections 7.10, 8.1, 8.3, 8.10 and 8.11, `hdmi_latency.md` (latency and the flicker-free servo), `doc/screen_adjust.md`; after a change to the analog path run `CORE/sim/video/run_scandoubler.sh full` |
+| A user's Hardware Floppy problem report | `hardware-floppy.md` section 9 |
+| A user's mouse or joystick problem report | `architecture.md` section 11 (11.4 for a pointer that twitches with a USB adapter) |
 
 ## 3. Hard rules
 
-Each rule was learned the expensive way. Rules 3 and 11 are cited by number
-in source comments ("CLAUDE.md rule 3", "hard rule 11 of AGENTS.md"): keep
-the numbering stable and append new rules at the end.
+Each rule was learned the expensive way. The rules are cross-referenced by
+number throughout this file: keep the numbering stable and append new rules
+at the end.
 
 1. **Keep the four `.xpr` files in sync.** Every file-list or file-type change
    goes into `CORE/CORE-R3.xpr`, `-R4`, `-R5` and `-R6` in the same commit.
@@ -100,7 +106,9 @@ the numbering stable and append new rules at the end.
    `M2M/vhdl/top_mega65-r<n>.vhd`, the board constraints `M2M/MEGA65-R<n>.xdc`,
    R3's `max10.vhdl` + `pcm_to_pdm.vhdl` versus R4+'s `audio.vhd`, and
    `M2M/vhdl/vdrives.vhd`, which R4–R6 list and R3 does not (AExp never
-   instantiates it; `C_VDNUM = 0`).
+   instantiates it; `C_VDNUM = 0`). A new file under `CORE/vhdl` also goes
+   into `CORE_FILES` in `CORE/sim/run_nvc_chain.sh`: the pre-synthesis gate
+   fails on a file that is missing there.
 2. **`.xpr` `SFType` tokens:** only `VHDL2008`, `SVerilog`, or no attribute
    (inferred from the extension). Anything else, such as `"Verilog"` or
    `"SystemVerilog"`, makes Vivado segfault when it opens the project.
@@ -133,12 +141,17 @@ the numbering stable and append new rules at the end.
      bounds in `M2M/common.xdc`;
    - the flicker-free leg: `set_case_analysis` on
      `CORE/hr_core_speed_reg[0]/Q` and the generated clock on
-     `CORE/clk_gen/i_clk_fast/CLKOUT0`. Renaming `hr_core_speed` or
-     `i_clk_fast` makes these silently match nothing; `build_bitstream.tcl`
-     fails such a build with `GATE` lines.
+     `CORE/clk_gen/i_clk_fast/CLKOUT0`. Renaming anything on these two paths
+     (`CORE`, `clk_gen`, `i_clk_fast`, `hr_core_speed`) makes them silently
+     match nothing. A batch build (`build_bitstream.tcl`,
+     `reroll_bitstream.tcl`) then fails with `GATE` lines; a GUI build has
+     no such gate, so check there by hand that `main_clk` has a period of
+     about 35.165 ns.
 
-   Timing fixes for M2M paths go into `CORE/CORE.xdc`, never into
-   `M2M/common.xdc` or the board XDCs.
+   Timing exceptions for M2M paths go into `CORE/CORE.xdc`;
+   `M2M/common.xdc` stays as the template ships it. The board XDCs hold pins
+   and placement only, among them the HyperRAM pblock of `architecture.md`
+   section 8.12.
 6. **Video into the M2M pipeline (`framework.vhd`):** syncs active-high (Minimig's are active-low
    and inverted in `main.vhd`); blanks must cover the syncs. The video clock is
    `main_clk` (28.375 MHz); the pixel enable is frame-locked, 7.09 MHz (4
@@ -162,8 +175,13 @@ the numbering stable and append new rules at the end.
    section 8, not a merge. Mark every change to template code with an
    `M2M-UPSTREAM <name>` tag (`grep -rn 'M2M-UPSTREAM' M2M CORE`), describe
    it in `architecture.md` section 8, and give new inputs defaults that keep
-   the template behaviour, so that the change stays portable to another
-   core. The eleven named changes:
+   the template behavior, so that the change stays portable to another
+   core (two changes do not: `raw-joyports` is unconditional, and
+   `line-doubler` makes `framework.vhd` require the constant
+   `VGA_LINEDOUBLER` in the core's `globals.vhd`). The template commit
+   `d718bcb` ("V2.0.1 RELEASE") is an ancestor of `HEAD`, so
+   `git diff --stat d718bcb HEAD -- M2M` lists every changed file, tagged or
+   not, without a remote. The eleven named changes:
    - `interlace` — `video_fl_i` field flag through to ascal `i_fl`,
      `INTER => true` (HDMI weave deinterlacing);
    - `core-io-hook` — `HANDLE_CORE_IO`, an extra mandatory firmware callback
@@ -191,22 +209,31 @@ the numbering stable and append new rules at the end.
    Further differences (the tagged bug fixes `qnice2hyperram-watchdog` and
    `gencfg-r7`, the HyperRAM pblock in `M2M/MEGA65-R<n>.xdc`, the
    `M2M$LOAD_POLYPHASE` copy in `m2m-rom.asm`) are listed in `architecture.md`
-   section 8.12.
+   section 8.12; the QNICE submodule pointer differs as well (rule 17).
 9. **Never change the HyperRAM read-capture IDELAY** (`IDELAY_VALUE => 20` in
    `M2M/vhdl/controllers/hyperram/hyperram_rx.vhd`). It is field-calibrated
-   across individual machines. Do not force or re-route the RWDS strobe and do
-   not loosen the input-delay constraints either; all three move the sampling
-   point. A small hold miss on `hr_d_io`/`hr_rwds` is placement luck, and
+   across individual machines. Do not force or re-route the RWDS strobe
+   either: that moves the sampling point just like the tap. And do not loosen
+   the input-delay constraints, which only hides the missing margin. A small
+   hold miss on `hr_d_io`/`hr_rwds` is placement luck, and
    `CORE/build_all.sh` re-rolls it (`timing_closure.md`).
 10. **`make_rom.sh` scrapes VHDL with line-based `awk`: keep these constants
     on one line each.** `C_MENU_*` from `mega65.vhd` and the core's `OPTM_G_*`
     from `config.vhd` (value read as field 6 of
-    `constant NAME : natural := 45;`) become `AEXP_OSM_*`/`AEXP_OPTM_G_*` in
-    `osm_const.asm`; `C_VDNUM`, `C_CRTROMS_MAN_NUM`, `C_CRTROMS_AUTO_NUM`, the
-    `C_ADF_*` geometry and `C_DEV_AMIGA_ADF0..2` from `globals.vhd` become
-    `globals.asm` and the device symbols. The firmware has no hard-coded menu
-    index. The generated `.asm` files are git-ignored; menu changes reach the
-    ROM only through `make_rom.sh` (run by every synthesis).
+    `constant NAME : natural := 45;`, so keep that spacing, and write group
+    ids in decimal: a line containing `16#` is skipped) become
+    `AEXP_OSM_*`/`AEXP_OPTM_G_*` in `osm_const.asm`, and
+    `C_DEV_AMIGA_ADF0..2` from `globals.vhd` become `AEXP_DEV_ADF0..2` there;
+    `C_VDNUM`, `C_CRTROMS_MAN_NUM`, `C_CRTROMS_AUTO_NUM`, `C_ADF_TRACK_BYTES`
+    and `C_ADF_MIN_TRACKS`/`C_ADF_MAX_TRACKS` from `globals.vhd` become
+    `globals.asm`, `shell_fhandles.asm` and `shell_fh_ptrs.asm`. The firmware
+    has no hard-coded menu index. The four generated `.asm` files are
+    git-ignored; menu changes reach the ROM only through `make_rom.sh` (run
+    by every synthesis). Not scraped, but mirrored by hand in `m2m-rom.asm`
+    and to be changed together with the HDL: `AEXP_DEV_FDD` (`0x0104`),
+    `ADF_DRIVES`, `ADF_TRACK_BYTES`, `ADF_WBC_DIRTY_W` (11 words for 166
+    tracks), the `ADF_WBC_*` register offsets of `adf_mount_wrapper.vhd` and
+    the `HWF_DIAG_*` offsets of `physical_fdd_diag.vhd`.
 11. **Every menu growth needs a QNICE heap rebudget.** `HELP_MENU`
     (`M2M/rom/options.asm`) builds the menu in `MENU_HEAP_SIZE`
     (`m2m-rom.asm`), and `FB_HEAP` (the file browser) starts right behind it,
@@ -228,7 +255,7 @@ the numbering stable and append new rules at the end.
 12. **The firmware ROM must end below `0x7000`.** M2M maps the device window
     at `0x7000`–`0x7FFF`, so 28672 words are usable. `make_rom.sh` enforces it,
     with `END_OF_ROM` as the last ROM item before `.ORG 0x8000`; the build log
-    prints `Shell ROM: N/28672 words.` (27533 at `WIP-V2-B2`).
+    prints `Shell ROM: N/28672 words.` (27533 in Version 2, 1139 words free).
 13. **Menu structure (`config.vhd`):**
     - A line's position is the bit number that carries its state; inserting a
       line shifts every `C_MENU_*` constant behind it, by hand. The HDMI filter
@@ -239,10 +266,15 @@ the numbering stable and append new rules at the end.
       be visible under the other groups' defaults, and at most one drive may
       default to Hardware Floppy (`DRV_ENFORCE_COUNT`/`DRV_STEAL_HW` do not
       run at boot). A changed default must also change the HDL that mirrors
-      it: `drv_decode` and `qnice_hwf_map3_decode` in `mega65.vhd`, and the
-      power-on value of `drv_map_applied` in `amiga_cold_boot.vhd` (a mismatch
-      fires a cold boot at t=0).
-    - `OPTM_DY` + 2 must not exceed 36 rows. Welcome and help pages print into
+      it: the fall-through defaults in `mega65.vhd` (`drv_decode`,
+      `qnice_hwf_map3_decode` and the decoders of HDMI mode, volume, stereo
+      mix and menu key, which apply until the firmware has loaded the
+      settings) and the power-on values of `drv_map_applied` and
+      `slow_ram_applied` in `amiga_cold_boot.vhd` (a mismatch there fires a
+      cold boot at t=0).
+    - `OPTM_DY` + 2 must not exceed 36 rows, and in Version 2 it is exactly
+      36: the main menu cannot gain a line that is visible together with all
+      the others. Welcome and help pages print into
       a full-screen frame with 34 rows of 43 columns inside. Every help page
       has exactly 33 rows of at most 42 columns: the free last row and column
       keep the text off the border (row 34 visibly touches it), and the footer
@@ -258,12 +290,13 @@ the numbering stable and append new rules at the end.
       alone, so a used file silently restores old selections.
 14. **QNICE assembly pitfalls (`m2m-rom.asm`):**
     - The assembler wrapper runs the C preprocessor (`cc -xc -E`), so `'` and
-      `"` are tokenised inside `;` comments: no possessive apostrophes (write
+      `"` are tokenized inside `;` comments: no possessive apostrophes (write
       "the X of Y"), and never split a quoted string across lines.
-    - Only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL` and `SHR` write the carry flag;
-      `MOVE` does not. Address arithmetic inserted between a 32-bit `ADD` and
-      its `ADDC` silently eats the carry. Run `tools/check_firmware.py`
-      after firmware changes.
+    - Only `ADD`, `ADDC`, `SUB`, `SUBC` and `SHL` write the carry flag. `SHR`
+      reads it: it shifts C into bit 15 and the dropped bit into X. `MOVE`,
+      `CMP` and the logic instructions leave C alone. Address arithmetic
+      inserted between a 32-bit `ADD` and its `ADDC` silently eats the carry.
+      Run `tools/check_firmware.py` after firmware changes.
     - Call monitor/OS functions (`MTH$`, `STR$`, `IO$`, …) through
       `SYSCALL(name, 1)`, never `RSUB` to the internal label, even when it
       resolves.
@@ -336,19 +369,23 @@ everything, then ask the user to build and return the logs.
 - **What to request after a build:** `CORE/CORE-R<n>.runs/synth_1/runme.log`;
   from `impl_1/`: `*_utilization_placed.rpt`,
   `*_timing_summary_postroute_physopted.rpt`, `*_route_status.rpt`, and after
-  a re-roll `mega65_<board>_reroll.txt` + `_reroll_timing.rpt`; the
-  `build_R<n>.log` summary for batch builds. For per-module BRAM ask for
-  `report_utilization -hierarchical`.
+  a re-roll `mega65_<board>_reroll.txt` + `_reroll_timing.rpt`; for batch
+  builds the `RESULT` line of each `build_R<n>.log`, the summary that
+  `build_all.sh` prints at the end (`build_all.out` in its documented
+  recipe) and, after a re-roll, `build_R<n>_reroll.log`. For per-module BRAM
+  ask for `report_utilization -hierarchical`.
 - **What to check in them:**
   - `Synth 8-3876` lines saying `microrom.mem` and `nanorom.mem` were "read
     successfully". A silent failure here gives a dead CPU and no error.
   - Amiga RAMs inferred as block RAM; `Block RAM Tile` ≤ 365.
-  - `Synth 8-5835` ("BRAM over-utilized … implement using LUT-RAM") is
-    routine at this fill level; it is a real failure only if implementation
-    then cannot place or route.
+  - `Synth 8-5835` ("Resources of type BRAM have been overutilized. … Will
+    try to implement using LUT-RAM.") is routine at this fill level; it is a
+    real failure only if implementation then cannot place or route.
   - WNS/WHS ≥ 0 from the post-route phys-opt report (rule 5); no `GATE`
     lines; route status fully routed.
-  - `Shell ROM: N/28672 words.` (rule 12).
+  - `Shell ROM: N/28672 words.` (rule 12). The line must be there: without
+    the QNICE assembler `make_rom.sh` prints an error but exits with status
+    0, and a GUI synthesis then embeds the `m2m-rom.rom` of an earlier run.
 - **Settings file for a dev SD card:** from inside `M2M/tools`,
   `./make_config.sh aexp-<CORE_VERSION>.cfg auto` (`auto` reads `OPTM_SIZE`
   from `config.vhd`; type the `.cfg` suffix).
@@ -356,16 +393,23 @@ everything, then ask the user to build and return the logs.
   `CORE/release.toml` and the core-specific hooks in `CORE/release_hooks.py`
   (ships `aexp_screen.cfg` presets and `aexp_screen_cfg.py`). It validates
   `CORE_VERSION`, generates the settings file and checks `doc/inofficial.md`.
+  It packages the bitstreams it finds in `CORE/CORE-R<n>.runs/impl_1/`, of
+  all four boards unless a target list is given, and it stamps the day of
+  packaging into the heading of the packaged `VERSIONS.md`. A release ships
+  all four boards; a board that was not built for a while hides a missing
+  project entry, so check rule 1 before a release build.
 - **Documentation website:** every push of `README.md` or `doc/**` to
   `develop` rebuilds and publishes https://sy2002.github.io/AExp/
   (`.github/workflows/pages.yml`) unless `doc/DOC_FROZEN` exists. Docs on
-  `develop` are therefore user-facing at once. `doc/make_doc.py check` builds
-  it locally (see `doc/make_doc.md`).
+  `develop` are therefore user-facing at once. `python3 doc/make_doc.py check`
+  validates the documentation graph, and `python3 doc/make_doc.py build` runs
+  the build of the workflow into the git-ignored `site/` (see
+  `doc/make_doc.md`).
 
 **Local static checks before any Vivado round trip** (free tools: nvc, GHDL as
 a second opinion, Icarus Verilog):
 
-- **VHDL:** analyse with `nvc --std=2008` in dependency order, from a scratch
+- **VHDL:** analyze with `nvc --std=2008` in dependency order, from a scratch
   work directory (nvc writes its library into the invocation directory):
   `M2M/QNICE/vhdl/tools.vhd`, `types_pkg`, `video_modes_pkg`, `tdp_ram`,
   `2port2clk_ram`, `cdc_stable`, `qnice_csr`, `qnice2hyperram`, the
@@ -377,9 +421,12 @@ a second opinion, Icarus Verilog):
   `xpm.vcomponents` (`xpm_cdc_async_rst`, `xpm_cdc_single`, `xpm_fifo_axis`)
   packages. `CORE/sim/run_nvc_chain.sh` runs this chain with the stubs in
   `CORE/sim/stubs/`.
-- **Verilog:** `iverilog -g2012 -t null` over the Minimig sources AExp uses,
-  with stubs for `dpram` and `fx68k`. Known noise: forward references, fx68k
-  unpacked structs, zero-width-concat follow-ons.
+- **Verilog:** the iverilog benches in `CORE/sim/minimig/`, `CORE/sim/audio/`
+  and `CORE/sim/video/` compile the Verilog sources they use. A lint of the
+  whole design, `iverilog -g2012 -t null` over the Minimig sources AExp uses,
+  needs hand-written stubs for `dpram` and `fx68k`, which the repository does
+  not carry. Known noise: forward references, fx68k unpacked structs,
+  zero-width-concat follow-ons.
 - **Menu and firmware:** `tools/check_osm_menu.py` after any menu change,
   `tools/check_firmware.py` after any firmware change. Both must end with
   `all checks passed`.
@@ -387,16 +434,20 @@ a second opinion, Icarus Verilog):
   a temp dir (`cc -O2 -o "$TMP"/qasm M2M/QNICE/assembler/qasm.c`, same for
   `qasm2rom.c`), then from `CORE/m2m-rom`:
   `cc -xc -E m2m-rom.asm | sed '/^#.*/d' > "$TMP"/t.asm && "$TMP"/qasm "$TMP"/t.asm "$TMP"/m2m-rom.out && "$TMP"/qasm2rom "$TMP"/m2m-rom.out "$TMP"/m2m-rom.rom`.
-  This needs the generated include files of rule 10 to exist (any earlier
-  `make_rom.sh` run). Its first `END_OF_ROM` + 1 words are identical to the
-  build host's trimmed `m2m-rom.rom`.
+  It assembles against the four generated include files of the last
+  `make_rom.sh` run (rule 10): after a change to a scraped constant they are
+  stale until the next synthesis, and the native build then checks syntax
+  only. With current include files its first `END_OF_ROM` + 1 words are
+  identical to the build host's trimmed `m2m-rom.rom`.
 - **Testbenches** live in `CORE/sim/`, one directory per area, each with its
   runner; `doc/developers/tools.md` lists them with runtimes.
   `CORE/sim/run_all.sh` is the pre-synthesis gate (both checkers, the nvc
   chain and every bench that finishes in minutes, about 6 minutes);
   `CORE/sim/run_long.sh` runs the full floppy regression, the write matrix,
   the write mutants, the Minimig beam-counter golden diff and the full
-  scandoubler matrix, which take hours serially (set `JOBS`). The floppy
+  scandoubler matrix, which take hours serially (set `JOBS`); run it after a
+  change to the floppy stack or the analog video path and before a release.
+  The floppy
   benches are described in `hardware-floppy.md` section 11
   (`CORE/sim/floppy/run_fdd_regression.sh`, `run_write_matrix.sh`,
   `run_write_mutants.sh`). Others: drive-default cold boot
@@ -421,8 +472,10 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   `keyboard`, `audio_filters`, video enables) → `minimig_m65.v`/`minimig.v`,
   `cpu_wrapper.v`/fx68k, `amiga_clk.v`.
 - **Clocks:** `main_clk` 28.375 MHz (100 MHz × 56.75 / 5 / 40, −5.6 ppm vs
-  PAL), dithered through a `BUFGMUX_CTRL` with the flicker-free twin
-  28.4375 MHz (`i_clk_fast`) so that the average frame rate is exactly 50 Hz;
+  PAL). While the menu toggle "HDMI: Flicker-free" is on (the default), it is
+  dithered through a `BUFGMUX_CTRL` with the flicker-free twin 28.4375 MHz
+  (`i_clk_fast`) so that the average frame rate is exactly 50 Hz; with the
+  toggle off it stays on the native clock, 49.92 Hz;
   `qnice_clk` 50 MHz (QNICE, ADF mount devices, the whole Hardware Floppy
   front end and writer); `hr_clk` 100 MHz (HyperRAM); M2M video and
   audio clocks. There is no 113.5 MHz clock.
@@ -454,6 +507,12 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   because many games misbehave with more. The drive index 0..2 is at once the
   Amiga unit, manual ROM id, device selector, HyperRAM pool and firmware
   array index. A topology change cold-boots only the Amiga.
+- **Budgets at their limit in Version 2:** block RAM 365 of 365 tiles
+  (rule 3); the main menu fills all 36 rows of the screen (rule 13);
+  `MENU_HEAP_SIZE` has 11 words of headroom, and the stack 224 words above
+  `STACK_SIZE` (rule 11); the firmware ROM has 1139 words free (rule 12);
+  builds close timing with a WNS between a few picoseconds and about 0.2 ns,
+  depending on board and placement (rule 5).
 
 ## 6. Working conventions
 
@@ -475,7 +534,7 @@ Full picture: `architecture.md` sections 2, 4 and 5.
   even across sections), put angle-bracket placeholders like `<name>` in
   backticks, watch stray `*`/`_`. Only give a code fence a language tag when
   all of its content is that language.
-- **Debugging: classify before you theorise.** A failure pattern gets
+- **Debugging: classify before you theorize.** A failure pattern gets
   classified with measurements and a control before any theory. A near-100 %
   failure rate across independent inputs (disks, titles, testers) points at
   an internal, systematic cause; require a controlled reference test before
@@ -500,29 +559,25 @@ Full picture: `architecture.md` sections 2, 4 and 5.
 ## 7. Open work
 
 Check `gh issue list -R sy2002/AExp --state open` for the live state. As of
-`WIP-V2-B3`:
+Version 2:
 
-- **Version 2 release:** the beta is in field test; the release date in
-  `VERSIONS.md` is still a placeholder. Documentation issues #31 (developer
-  docs), #27 (user docs) and #26 (Minimig README + `minimig_fdd.cpp`) are open
-  for V2.
-- **#35/#36 hires on analog Standard VGA** (every second pixel column lost):
-  fixed in `WIP-V2-B2` by the `line-doubler` change in `M2M/` (rule 8),
-  pending field confirmation.
-- **#39 HDMI black or garbled after a long reset press** (the HDMI MMCM
-  restarted unlocked under the running scaler): fixed in `WIP-V2-B3` by the
-  `hdmi-clock-reset` change in `M2M/` (rule 8), pending field confirmation.
-  On older builds a short press clears the symptom.
-- **#40 Apidya hangs from ADF** (a loader that reads one sector per DMA
-  never got the odd sectors): fixed in `WIP-V2-B3` by the rotation
-  continuation of `adf_track_engine.vhd`, which serves a sector again when
-  the running DMA expired in its preamble (`floppy-adf.md` section 7.2,
-  bench `tb_adf_rotation.vhd`), pending field confirmation.
+- **#37 FileHost page text** and **#42 documentation review:** documentation
+  housekeeping for Version 2, no core work.
 - **#24 File browser failure** after many warm starts with large ADF
   collections (seen on V1; a long reset press clears it). Unclassified until
   the reporter supplies the exact fatal-error text and code.
 - **#30 Wings of Death horizontal jitter** after the disk-2 swap, on HDMI and
-  analog, every AExp build; MiSTer comparison pending. Labelled V3 or later.
+  analog, every AExp build; MiSTer comparison pending. Labeled V3 or later.
+- **#32 and #33, simulated drives:** both come from the FIFO throttle, which
+  ends the ADF read session at almost every sector. #32: the first bit of a
+  sector's preamble can break the MFM rule once per throttled seam, in the
+  gap before the sync mark, where no Amiga software looks. #33: a foreign
+  drive select inside the 141 ns window of a throttle resume could stall a
+  read or feed it another drive's sectors; found by review, needs two or
+  more drives, and Kickstart 1.3, X-Copy and trackloaders never do it.
+  Labeled V3 or later. One change fixes both, so they belong together; the
+  proposed one serves disk images at real disk pace with an optional turbo
+  setting, and the analysis is attached to #32.
 - **#22 screen controls** and **#3 hard disk on SD card:** research, V3 or
   later.
 - **Upstream Minimig** (issue #28 and the two reports attached to it; A500

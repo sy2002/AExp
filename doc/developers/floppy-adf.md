@@ -8,7 +8,7 @@ It is written for a coder who **knows the MiSTer2MEGA65 (M2M) framework but
 has never touched an Amiga**. The Amiga floppy is the single most un-M2M-like
 subsystem in the whole port: it does not look like a disk drive, it cannot use
 the framework's `vdrives` system, and almost every design decision is forced by
-a hardware reality that has no analogue in the C64 or the other M2M cores. So
+a hardware reality that has no analog in the C64 or the other M2M cores. So
 this document spends real effort teaching the Amiga side before explaining what
 we built. If you only want the register maps, jump to
 [§12 Reference](#12-reference).
@@ -279,16 +279,16 @@ Everything else in this document is detail hung on that three-way split.
 its structure closely: `HandleFDD` dispatches on Paula's status word,
 `ReadTrack` and `SendSector` became the read service and the MFM encoder, and
 `WriteTrack` with `FindSync`, `GetHeader` and `GetData` became the write
-decoder. The version the engine was modelled on is kept verbatim next to this
+decoder. The version the engine was modeled on is kept verbatim next to this
 document as [`minimig_fdd.cpp`](minimig_fdd.cpp). It comes from Main_MiSTer
 commit `c738023`
 ([upstream file](https://github.com/MiSTer-devel/Main_MiSTer/blob/c73802332ff9c73659410084b6319ccd29f0b3aa/support/minimig/minimig_fdd.cpp)),
 and the `:nnn` line numbers in the engine's comments refer to it.
 [architecture.md](architecture.md#10-the-mister-hps-code-and-its-replacements)
 explains the choice of commit and covers the other Main_MiSTer file AExp
-modelled, `minimig_config.cpp`.
+modeled, `minimig_config.cpp`.
 
-AExp keeps the behaviour that Amiga software can observe:
+AExp keeps the behavior that Amiga software can observe:
 
 - the MFM stream layout: 544 words per sector, 350 gap words after the last
   sector, the info long word and both checksums in their odd/even split;
@@ -600,7 +600,7 @@ The firmware adds its own guard *before* the streaming even starts, in
 `C_ADF_MIN_SIZE` / `C_ADF_MAX_SIZE`, so an absurd (renamed) file can never
 stream past the receiving drive's pool. `FILTER_FILES` and `PREP_LOAD_IMAGE` both
 resolve the Shell's menu group id through `IS_ADF_GROUP`, which accepts all
-three mount groups — if either callback only recognised `df0`, the extension
+three mount groups — if either callback only recognized `df0`, the extension
 filter and the size guard would silently not apply to the other two drives.
 
 The seconds-long streaming of a *new* mount is also that drive's **disk-eject
@@ -667,7 +667,7 @@ Three details here are easy to get wrong and are worth stating flatly:
   internal Paula flag; a second word could spuriously arm disk DMA.
 
 **The MFM encoder** is the [§3](#3-mfm-how-512-bytes-of-data-become-1088-bytes-of-flux)
-layout realised as a word counter plus byte-lane masks — combinational, tiny.
+layout realized as a word counter plus byte-lane masks — combinational, tiny.
 For sector `S` of clamped track `T` it emits the 544 words (preamble, sync,
 info, label, checksums, 256 odd data words, 256 even data words), computing the
 data checksum on the fly as it fetches. It also reproduces MiSTer's "Copy Lock"
@@ -719,7 +719,7 @@ quiet cycles on both.
 ### 8.1 The mirror insight
 
 Here is the payoff of understanding the read path: **writing is reading run
-backwards.** When the Amiga writes a track, Paula's disk DMA streams raw MFM
+backward.** When the Amiga writes a track, Paula's disk DMA streams raw MFM
 words *out* over the same `IO_FPGA` host channel. The protocol is identical; only
 the direction of the data words reverses. So the write path is not a new
 subsystem — it is a new consumer of the same frames.
@@ -797,7 +797,7 @@ must say *which drive's* track.
 Your first instinct as an M2M coder is `qnice_gp_reg`. It does not work: that
 register is the QNICE SoC's `control_d_o` — it is **QNICE → core only**. The
 reverse-direction registers `M2M$SPECIAL` / `M2M$GENERAL` exist but are tied to
-`'0'` in the framework. **There is no existing core → QNICE signalling path.**
+`'0'` in the framework. **There is no existing core → QNICE signaling path.**
 
 So we built one, out of parts you already know:
 
@@ -809,7 +809,7 @@ So we built one, out of parts you already know:
   offsets are identical for all three drives and only the device id differs**.
   That is the whole reason the firmware side can be a plain array: one helper,
   `ADF_SEL_WBC`, points the RAMROM window at the WBC of a given drive, and every
-  register access afterwards is drive-agnostic.
+  register access afterward is drive-agnostic.
 - **A two-phase toggle handshake for the events.** When the engine commits a
   sector it must set that track's bit in that drive's bitmap, but the bitmap
   lives in the QNICE domain. So the engine holds the track number stable, waits
@@ -880,7 +880,7 @@ wrong:
 
 * **The chunk that finishes a track still reports `ADF_FL_DID`.** It has just
   written and flushed a full sector, so it spent the slice. Reporting "clean and
-  idle" because the bitmap happens to be empty afterwards would make the scan
+  idle" because the bitmap happens to be empty afterward would make the scan
   read it as "this drive did nothing" and immediately serve the next drive in the
   same poll — three chunk writes where the budget allows one. Whether anything is
   left is answered for free by the next call, from the top of the routine.
@@ -1112,7 +1112,7 @@ card) plus its device handle, and compares that against every **armed** drive:
   skipped too;
 - a start cluster of 0 means an empty file and is not a usable identity, so it
   never counts as a match (an ADF can never get that far — the size gate runs
-  first — but `0` equalling `0` must not be read as "the same file");
+  first — but `0` equaling `0` must not be read as "the same file");
 - comparing the start cluster alone is enough, because the guards of
   [§9.3](#93-the-invariant-and-the-four-rules) have already verified that every
   armed drive sits on the currently active SD slot, and the fresh handle was just
@@ -1183,15 +1183,15 @@ reconciles itself.
 
 - **A *different* track goes dirty mid-flush:** the bitmap is the work queue; the
   new bit is just picked up on a later pass. Its data is in a different HyperRAM
-  region, and the arbiter serialises all HyperRAM accesses, so nothing collides.
+  region, and the arbiter serializes all HyperRAM accesses, so nothing collides.
 - **The *same* track is rewritten mid-flush:** the firmware **clears the dirty
   bit before it reads the track**, so the rewrite's event **re-sets** the bit and
   the track is flushed again on a later pass — the update is never dropped. Even
   an exact same-cycle collision is safe: the hardware resolves a simultaneous
-  set-and-clear in favour of the **set** (`wbc_dirty(v_track) <= '1'` is the last
+  set-and-clear in favor of the **set** (`wbc_dirty(v_track) <= '1'` is the last
   assignment in the WBC process). The in-flight flush may write a *torn* track to
   SD (some chunks old, some new), but the guaranteed re-flush overwrites it with a
-  coherent copy. There is no sub-word tearing either — the arbiter serialises each
+  coherent copy. There is no sub-word tearing either — the arbiter serializes each
   access, so a firmware byte-read sees either the old 16-bit word or the new one,
   never half of each.
 
@@ -1225,7 +1225,7 @@ that is refused at mount time — see
 
 ## 11. How we verified it
 
-**Static, before any synthesis:** `nvc --std=2008` analyses and *elaborates* the
+**Static, before any synthesis:** `nvc --std=2008` analyzes and *elaborates* the
 whole CORE VHDL set (which proves the port maps and slice widths — including the
 three wrapper instances, the packed 4-way arbiter interface and the vectored
 engine ports), and the firmware assembles warning-free with a native-built

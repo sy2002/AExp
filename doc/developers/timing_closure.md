@@ -67,7 +67,7 @@ with the `ExtraTimingOpt` placer directive brought it to 1.285 ns
 The sampling point of the HyperRAM read is the IDELAY delay plus the fabric
 route of the strobe. The IDELAY value 20 is the result of a long field
 process: individual MEGA65 machines (serial numbers, not board revisions)
-differ slightly in their HyperRAM behaviour, and 20 works on 99.999% of
+differ slightly in their HyperRAM behavior, and 20 works on 99.999% of
 them. So:
 
 * **Changing the tap** would move the sampling point of every MEGA65 away

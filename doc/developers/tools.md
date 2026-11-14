@@ -3,7 +3,7 @@
 Two folders hold everything that checks the core outside Vivado:
 
 * `tools/`: Python scripts that run on the machine you edit on. Two of them
-    check the menu and the firmware before a synthesis; the others analyse
+    check the menu and the firmware before a synthesis; the others analyze
     what a user sends in with a floppy report.
 * `CORE/sim/`: the simulation testbenches, one subfolder per area, each with
     a runner script, plus top-level runners for the pre-synthesis gate and
@@ -119,9 +119,10 @@ second, end with `all checks passed` and exit non-zero otherwise.
     it are in [the architecture overview](architecture.md), section 7.
 * `check_firmware.py` requires every `ADDC`/`SUBC` in `m2m-rom.asm` to take
     its carry from an instruction that works on the same storage class
-    (memory or register). On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC`, `SHL`
-    and `SHR` write the carry flag, so an address calculation placed between
-    a 32-bit `ADD` and its `ADDC` silently eats the carry. It also checks that
+    (memory or register). On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC` and
+    `SHL` write the carry flag (`SHR` reads it and writes X), so an address
+    calculation placed between a 32-bit `ADD` and its `ADDC` silently eats
+    the carry. It also checks that
     every per-drive table and array has exactly `ADF_DRIVES` entries.
 
 ### Floppy field reports
@@ -148,7 +149,7 @@ tools.
 * `adf_compare.py` compares the source `.adf` of a disk the core wrote with
     the disk read back to an `.adf`. It prints the differing bytes per track,
     tells a never-written region (thousands of bytes per track) from damage,
-    and recognises the post-`DSKBLK` tail-cut signature in sector 10. Use
+    and recognizes the post-`DSKBLK` tail-cut signature in sector 10. Use
     `--tracks` to restrict the comparison to the tracks the read-back really
     covered, for example `--tracks 0-159:even`; outside that range an
     existing `.adf` holds stale content, not a measurement. Exit status 0
@@ -185,7 +186,7 @@ shared by the others.
     after it on both heads (the end of X-Copy's single pad word); earlier
     means the tail of the write is being cut.
 * `precomp_step.py disk.scp LABEL ...` measures write precompensation on the
-    medium: neighbour-conditioned interval means for tracks 60 to 103 step at
+    medium: neighbor-conditioned interval means for tracks 60 to 103 step at
     the track 80/81 boundary when precomp is on from track 81. A second step
     near track 88 also shows on A500-written disks and belongs to a drive.
 * `writer_fingerprint.py disk.scp LABEL ...` reports the cells per
@@ -193,7 +194,7 @@ shared by the others.
     wrote it, and the first sector after the gap (always 0 for X-Copy,
     rotated for trackdisk). A track rewritten by another drive says nothing
     about the writer under test.
-* `structure.py disk.scp LABEL ...` summarises ten sample tracks: cell size,
+* `structure.py disk.scp LABEL ...` summarizes ten sample tracks: cell size,
     writer speed, cells per revolution, the gap, the angle of sector 0, good
     sectors, and the splice.
 
@@ -206,7 +207,7 @@ python3 tools/flux/xcopy_tail.py disk.scp mydisk reference.scp reference
 
 ### Static analysis
 
-`CORE/sim/run_nvc_chain.sh` analyses the M2M packages and framework files the
+`CORE/sim/run_nvc_chain.sh` analyzes the M2M packages and framework files the
 core depends on and every file in `CORE/vhdl` in dependency order, then
 elaborates `config.vhd`. The order is a list in the script; a new `.vhd`
 file under `CORE/vhdl` that is not in the list fails the run until it is
@@ -287,14 +288,14 @@ the original in nothing else.
     (upstream PR 230) against the timers of `fa40334`. About 80 s.
 * `run_tb_blitter_freeze.sh`: the blitter freeze of upstream PR 236 against
     the pre-port blitter, followed by a 19-mutant matrix. `MUTANTS=0` runs
-    the bench alone in a few seconds; the matrix honours `JOBS`.
+    the bench alone in a few seconds; the matrix honors `JOBS`.
 * `run_tb_beamcounter_readback.sh [builddir] [--red]`: the beam counter with
     the `VHPOSR` readback (upstream `06f30af`) and the `field1` gate
     (`d16cd84`) against `fa40334`. About ten minutes. `--red` runs six
     controls (broken expectations and mutants) that must all fail, about ten
     minutes on six free cores.
 
-These golden diffs pin the behaviour of individual upstream ports. When a
+These golden diffs pin the behavior of individual upstream ports. When a
 later submodule update changes one of these files on purpose, update the
 bench with it.
 
@@ -311,7 +312,7 @@ in `analog_pipeline.vhd`, once with `LINEDOUBLER = 1` and once with
 `LINEDOUBLER = 0`, the Hq2x path, as the control. Two benches feed it, both
 with a unique ID in every input pixel:
 
-* `tb_scandoubler.v`: modelled rasters. The Amiga raster of 1816 clocks
+* `tb_scandoubler.v`: modeled rasters. The Amiga raster of 1816 clocks
     per line in hires and lowres, interlaced, switched from lowres to hires
     and back at the start of vsync, with hblank delayed by 1 to 3 clocks (as
     the analog soft blank does) and with a window widened outward, plus
@@ -365,7 +366,7 @@ Some effects are not held against the line doubler:
     at the lowres rate and undersamples the hires content itself; the
     Minimig bench flags those pixels and the checker skips their lines.
 * At 3 clocks per pixel the output window holds one pixel of the
-    neighbouring blanking at an edge, because the scandoubler delays the
+    neighboring blanking at an edge, because the scandoubler delays the
     window at its uneven `ce_x4o` rate and `video_mixer` moves DE to
     `CE_PIXEL` edges. Hq2x cannot run at that ratio, so there is no
     reference for it; for odd periods only, the checker accepts one such
@@ -439,7 +440,7 @@ cells with a late vblank edge fail with the one-line-late signature.
     pulse widths, interlace phase, clamps, mode changes and reset. About 25 s.
 * `CORE/sim/video/run_voc_reset.sh`: `video_out_clock.vhd`, the
     reprogrammable HDMI pixel-clock MMCM, under a long reset press and at
-    power-up, against behavioural models of the MMCM (outputs stop in reset,
+    power-up, against behavioral models of the MMCM (outputs stop in reset,
     wrong period until `LOCKED`, DRP) and of the glitch-free clock multiplexer
     (switches only on a falling edge of the selected input). The pixel clock
     must keep running, `rsto` must be high during the press, no edge of the
