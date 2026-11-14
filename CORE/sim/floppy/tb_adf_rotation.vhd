@@ -9,12 +9,13 @@
 -- sector n and, as its 542nd word, word 0 of the frame of sector n+1: it
 -- ends in that frame's preamble, before the sync. Paula arms the next DMA
 -- only at word 1 of a later poll frame, while the engine streams the rest of
--- the frame of n+1 past a FIFO that no longer stores. A real disk brings
--- sector n+1 under the head again, so the engine serves a sector once more
--- when a DMA that carried over from the previous frame ended in the two
--- preamble words of the sector's frame. An engine that always advances hands
--- the loader 0 2 4 6 8 10 0 2 ... and never an odd sector, and the loader
--- waits forever.
+-- the frame of n+1 past a FIFO that no longer stores. On a real disk the
+-- sync words of sector n+1 are still ahead of the head when the loader
+-- re-arms, so it reads that sector on the same pass. The engine therefore
+-- serves a sector once more when a DMA that carried over from the previous
+-- frame ended in the two preamble words of the sector's frame. An engine
+-- that always advances hands the loader 0 2 4 6 8 10 0 2 ... and never an
+-- odd sector, and the loader waits forever.
 --
 -- The bench drives the real adf_track_engine (df0 a mounted simulated drive
 -- with 160 tracks) against:

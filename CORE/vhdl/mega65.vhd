@@ -2161,8 +2161,9 @@ begin
 
    -- Flatten the four masters into the packed arbiter interface. Slave 0 is
    -- the track engine (the only latency-sensitive one - Paula is waiting for
-   -- its sector), slaves 1..3 are the three mount wrappers, which only run
-   -- while the Shell streams an image from the SD card.
+   -- its sector), slaves 1..3 are the three mount wrappers, which carry
+   -- traffic while the Shell streams an image from the SD card and while the
+   -- write-back flush reads dirty tracks in the background.
    hr_arb_write <= hr_adf_avm_write & hr_flp_avm_write;
    hr_arb_read  <= hr_adf_avm_read  & hr_flp_avm_read;
 
@@ -2184,8 +2185,8 @@ begin
       hr_adf_avm_waitrequest(u)   <= hr_arb_waitrequest(u + 1);
    end generate gen_arb_flatten;
 
-   -- round-robin per whole transaction; the masters never compete in practice
-   -- (a mount streams while the engine is idle and vice versa)
+   -- round-robin per whole transaction, no master has priority; the engine
+   -- and a flushing mount wrapper compete for the HyperRAM
    i_avm_arbit_adf : entity work.avm_arbit_general
       generic map (
          G_NUM_SLAVES   => 4,

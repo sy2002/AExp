@@ -138,9 +138,10 @@ second, end with `all checks passed` and exit non-zero otherwise.
     (memory or register). On QNICE only `ADD`, `ADDC`, `SUB`, `SUBC` and
     `SHL` write the carry flag (`SHR` reads it and writes X), so an address
     calculation placed between a 32-bit `ADD` and its `ADDC` silently eats
-    the carry. It also checks that the per-drive tables and arrays named in
-    the script (five `ADF_*_TAB` tables and seven `ADF_*` arrays) have
-    exactly `ADF_DRIVES` entries; a new one has to be added to that list.
+    the carry. It also checks the size of the per-drive tables and arrays
+    named in the script: five `ADF_*_TAB` tables and seven `ADF_*` arrays
+    have exactly `ADF_DRIVES` entries, and `DRV_MODE_TAB` has three words per
+    drive. A new one has to be added to that list.
 
 ### Floppy field reports
 

@@ -13,8 +13,9 @@
 #
 # Re-roll: once all boards are built, every board that only missed timing is
 # implemented again with other placer and router directives (see
-# reroll_bitstream.tcl), starting from the checkpoints of its own build, until
-# an attempt meets timing. The winner replaces the failed
+# reroll_bitstream.tcl), starting from the checkpoints of its own build: up
+# to 15 attempts after a hold miss and 16 after a setup-only miss, ending at
+# the first one that meets timing. The winner replaces the failed
 # CORE-<board>.runs/impl_1/mega65_<board>.bit, so every tool that expects the
 # bitstream there keeps working, and the summary lists all attempts.
 #
@@ -23,7 +24,8 @@
 #   --help       print this text
 #
 # Environment:
-#   JOBS=<n>              parallel Vivado jobs per run (default 4)
+#   JOBS=<n>              parallel Vivado jobs per run and the thread limit of
+#                         a re-roll (default 4)
 #   REROLL_MAX_MISS=<ns>  largest setup or hold miss that gets re-rolled
 #                         (default 0.3); a bigger miss is a real timing problem
 

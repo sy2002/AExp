@@ -1024,9 +1024,10 @@ _HCIO_RET       MOVE    R1, @R0                 ; restore RAMROM selection
 ; never cross a 4k device window and cover exactly one FAT32 sector - and
 ; each chunk is explicitly flushed before returning: the SD controller has a
 ; single hardware sector buffer shared with every other SD user (the OSM
-; settings save runs from the very wait loops that also poll us), so no
-; dirty buffered sector may ever survive across time slices. The explicit
-; flush costs nothing: the sector is written exactly once either way.
+; settings save ROSM_SAVE runs when the menu closes, between two polls of
+; this routine), so no dirty buffered sector may ever survive across time
+; slices. The explicit flush costs nothing: the sector is written exactly
+; once either way.
 ; With three drives that same per-chunk flush is what makes interleaved
 ; sessions safe: drive 0 and drive 1 can each have an open track session, and
 ; the poll that serves one of them always finds the shared sector buffer clean.

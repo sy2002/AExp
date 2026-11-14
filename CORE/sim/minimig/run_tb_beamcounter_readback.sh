@@ -94,8 +94,12 @@ hoist "$O/orig_new.v" "$O/bc_new.v" agnus_beamcounter
 
 run() {  # run <tag> <new copy> [iverilog defines...]
     local tag="$1" newv="$2"; shift 2
+    # set -e is off in here (the callers test the status): nothing an earlier
+    # run left in a reused build dir may answer for a compile that fails
+    rm -f "$O/tb_$tag.vvp"
+    : > "$O/tb_$tag.log"
     iverilog -g2012 -Wno-timescale "$@" -o "$O/tb_$tag.vvp" -s tb_beamcounter_readback \
-        "$HERE/tb_beamcounter_readback.v" "$O/bc_old.v" "$newv" "$M/rtl/amiga_clk.v"
+        "$HERE/tb_beamcounter_readback.v" "$O/bc_old.v" "$newv" "$M/rtl/amiga_clk.v" || return 1
     vvp -n "$O/tb_$tag.vvp" > "$O/tb_$tag.log" 2>&1 || true
     grep -q '^RESULT: PASS' "$O/tb_$tag.log"
 }

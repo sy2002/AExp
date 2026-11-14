@@ -144,9 +144,10 @@ constant C_HMAP_ADF_SLOT      : natural := 128;                               --
 type hmap_pool_array is array (0 to 2) of std_logic_vector(15 downto 0);
 constant C_HMAP_ADF_POOLS     : hmap_pool_array := (C_HMAP_ADF_DF0, C_HMAP_ADF_DF1, C_HMAP_ADF_DF2);
 
--- ADF geometry: the single source of truth for hardware AND firmware. make_rom.sh scrapes
--- these into globals.asm so the firmware size gate can never drift from the map.
--- Keep each of them on one line: the awk scraper is line-based.
+-- ADF geometry: the source of the firmware size gate (make_rom.sh scrapes the first three
+-- into globals.asm) and of the pool-size assertion in mega65.vhd. adf_mount_wrapper.vhd,
+-- adf_track_engine.vhd and the flush code in m2m-rom.asm carry their own copies of these
+-- numbers. Keep each scraped one on one line: the awk scraper is line-based.
 constant C_ADF_TRACK_BYTES    : natural := 5632;                              -- 11 sectors x 512 bytes
 constant C_ADF_MIN_TRACKS     : natural := 160;                               -- 80 cylinders, both heads
 constant C_ADF_MAX_TRACKS     : natural := 166;                               -- 83 cylinders (Paula's step clamp)

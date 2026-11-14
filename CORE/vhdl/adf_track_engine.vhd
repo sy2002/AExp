@@ -81,9 +81,10 @@
 --     stepping and reading in alternation must not inherit each other's sector position. A
 --     sector whose sync a running DMA never reached, because the DMA expired in the two
 --     preamble words of its frame, is served again instead of skipped (dma_cont and
---     sync_unread, see ST_STREAM_DATA): a real disk brings it under the head once more,
---     and a loader that re-arms after DSKBLK expects it. MiSTer's ReadTrack advances past
---     such a sector; this is a deliberate deviation from the reference.
+--     sync_unread, see ST_STREAM_DATA): on a real disk the sync words of that sector are
+--     still ahead of the head when the loader re-arms after DSKBLK, so it reads the sector
+--     on the same pass. MiSTer's ReadTrack advances past such a sector; this is a
+--     deliberate deviation from the reference.
 --   * The 0x1nnn drive-status announce carries per-unit nibbles: each simulated drive's
 --     present/writable from its own mount status, the physical unit's presence from the real
 --     disk-change latch and its writable bit from the writer's tab qualifier (phys_wr_ok_i).
@@ -1737,15 +1738,16 @@ begin
                      -- the previous frame and expired in this sector's
                      -- preamble, before its sync, has not read the sector.
                      -- Paula arms the next DMA only at a later poll, so
-                     -- advancing here would skip the sector for that DMA; a
-                     -- real disk brings it under the head again. A loader
-                     -- that reads one sector per DMA with DSKLEN 0x21E (the
-                     -- sector after its first sync plus one word, Apidya)
-                     -- would otherwise see every other sector of the track,
-                     -- forever. A DMA that starts inside this frame consumes
-                     -- the sync, so the counter advances as usual, and a
-                     -- re-served frame ends with Paula idle, so two stays
-                     -- never chain.
+                     -- advancing here would skip the sector for that DMA; on
+                     -- a real disk its sync words are still ahead of the head
+                     -- when the loader re-arms, so the next DMA reads it on
+                     -- the same pass. A loader that reads one sector per DMA
+                     -- with DSKLEN 0x21E (the sector after its first sync
+                     -- plus one word, Apidya) would otherwise see every other
+                     -- sector of the track, forever. A DMA that starts inside
+                     -- this frame consumes the sync, so the counter advances
+                     -- as usual, and a re-served frame ends with Paula idle,
+                     -- so two stays never chain.
                      if dma_cont = '1' and sync_unread = '1' then
                         sector_next(to_integer(serve_unit)) <= sector;
                      else

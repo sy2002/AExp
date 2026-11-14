@@ -28,7 +28,9 @@ Companion to check_osm_menu.py. Two checks:
 
 2. Per-drive table width.  The tables that map a drive to its device, file
    handle, menu group and menu lines must each have exactly ADF_DRIVES entries,
-   because every loop over them is bounded by that constant.
+   because every loop over them is bounded by that constant.  DRV_MODE_TAB,
+   the menu lines of the mode items of a drive, has three words per drive and
+   must have exactly 3 * ADF_DRIVES words.
 
 Run it after any change to m2m-rom.asm; the repository root is found from the
 location of this file. The last line is "all checks passed", or the failures
@@ -157,23 +159,45 @@ def p_ops_of(prog, lineno):
     return ""
 
 
+def dw_table(text, name):
+    """The words of the .DW table at the label name, None if there is none.
+
+    A table is its labelled .DW line and the unlabelled .DW lines that follow
+    it directly.
+    """
+    words = None
+    for line in text.splitlines():
+        code = line.split(";", 1)[0]
+        if words is None:
+            row = re.match(r"%s\s+\.DW\s+(.*)$" % name, code)
+            if row:
+                words = []
+        else:
+            row = re.match(r"\s+\.DW\s+(.*)$", code)
+            if not row:
+                break
+        if row:
+            words += [w for w in row.group(1).split(",") if w.strip()]
+    return words
+
+
 def check_tables(text):
     match = re.search(r"^ADF_DRIVES\s+\.EQU\s+(\d+)", text, re.M)
     if not match:
         fail("m2m-rom.asm has no ADF_DRIVES constant")
         return
     drives = int(match.group(1))
-    tables = ["ADF_DEV_TAB", "ADF_FDH_TAB", "ADF_GRP_TAB",
-              "ADF_MNT_LN_TAB", "ADF_HW_LN_TAB"]
-    for name in tables:
-        row = re.search(r"^%s\s+\.DW\s+(.*)$" % name, text, re.M)
-        if not row:
+    # the tables that are indexed by the drive, with their words per drive
+    tables = [("ADF_DEV_TAB", 1), ("ADF_FDH_TAB", 1), ("ADF_GRP_TAB", 1),
+              ("ADF_MNT_LN_TAB", 1), ("ADF_HW_LN_TAB", 1),
+              ("DRV_MODE_TAB", 3)]
+    for name, per_drive in tables:
+        words = dw_table(text, name)
+        if words is None:
             fail("m2m-rom.asm has no table %s" % name)
-            continue
-        entries = [e for e in row.group(1).split(",") if e.strip()]
-        if len(entries) != drives:
-            fail("%s has %d entries, ADF_DRIVES is %d"
-                 % (name, len(entries), drives))
+        elif len(words) != per_drive * drives:
+            fail("%s has %d words, expected %d (%d per drive, ADF_DRIVES is %d)"
+                 % (name, len(words), per_drive * drives, per_drive, drives))
     # the per-drive scalar arrays must be ADF_DRIVES words wide
     for name in ["ADF_FDH_VALID", "ADF_SD_SLOT", "ADF_MOUNT_SEEN",
                  "ADF_FL_STATE", "ADF_FL_REMAIN", "ADF_FL_BADDR_LO",

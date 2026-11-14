@@ -11,7 +11,7 @@
 #   dbl_lace   line-doubled interlaced
 #
 # Usage: CORE/sim/video/run.sh [workdir]
-#   workdir defaults to a fresh mktemp directory. Runtime: about 25 seconds.
+#   workdir defaults to a fresh mktemp directory. Runtime: about 30 seconds.
 # Exit status 0 only if all five rasters pass.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
