@@ -1018,6 +1018,7 @@ substitute.
 | Passive mouse behind a pull-up adapter (2 kΩ from pin 7 to pins 9 and 5, see [Mouse and joystick](../../README.md#mouse-and-joystick) in the README) | works | works |
 | Adapter that drives the lines push-pull, high when released and low when pressed | works | works |
 | Adapter that only grounds the lines | works | invisible; use the keyboard substitute |
+| Adapter with a polled wheel protocol on pin 5 (Micro Tom) | works; the pointer can twitch at rest, see section [11.4](#114-adapters-with-a-polled-wheel-protocol) | works; the middle button is lost once pin 5 is cut |
 | mouSTer in Amiga mouse mode, default settings | works | invisible; use the keyboard substitute |
 | mouSTer firmware 3.23.5313 or newer with `activepotlines=true` in `[mouse]` | works | right button works |
 | Commodore 1350 or 1351 | not supported | the 1351's changing POT value can cause phantom right clicks |
@@ -1028,6 +1029,27 @@ clicks left, but nothing more. Passive Amiga mice have been tested on R3
 (movement, left button, keyboard substitute, no phantom clicks) and a
 push-pull USB adapter on R6 (right button). The middle button has not been
 tried with a real three-button device.
+
+### 11.4 Adapters with a polled wheel protocol
+
+The paddle sampler of section 11.2 has one discharge output,
+`paddle_drain_o`, for all four POT pins of both ports, and it runs without
+pause. Paula pulls a POT pin low only on the Amiga's command, through
+`POTGO`. Some USB adapters, the Micro Tom among them, implement the
+host-polled wheel protocol of the Aminet TankMouse driver: the driver pulls
+pin 5 low once per frame, and the adapter answers each falling edge by
+flipping a code onto the quadrature lines for some tens of microseconds. The
+driver needs AmigaOS 2.04, so under Kickstart 1.3 nothing polls, and an A500
+never receives such a code. On the MEGA65 every drain is a poll, about 1950
+per second, and the counters of section [11.1](#111-movement) take every code
+the adapter sends as a movement of a few pixels on one axis.
+
+Field evidence from issue #41 (R6, the same on V1 and V2): the pointer is
+quiet with the mouse unplugged from the adapter, and quiet again once a DB9
+extension with wire 5 cut sits between the port and the adapter. Cutting
+pin 5 costs the middle button and the wheel; the right button is on pin 9.
+Which adapter firmware and which mice trigger the effect is not known, and
+other Micro Tom setups run without it.
 
 ## 12. Checking your work before a Vivado run
 

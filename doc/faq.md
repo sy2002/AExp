@@ -139,6 +139,14 @@ actively-driving mouse or adapter, a mouSTer with `activepotlines=true`, or
 the simple DIY pull-up adapter. C64 mice (1350, 1351) do not work. See
 [Mouse and joystick](../README.md#mouse-and-joystick).
 
+### The mouse pointer twitches by a few pixels
+
+Seen with the Micro Tom USB adapter: the MEGA65's joystick port keeps
+triggering the adapter's scroll-wheel protocol on pin 5. A DB9 extension
+cable with wire 5 cut between the port and the adapter cures it, at the
+cost of the middle button. See
+[If the pointer twitches](../README.md#if-the-pointer-twitches).
+
 ### I need the Help key inside the Amiga
 
 Move the menu to <kbd>F11</kbd>, <kbd>F13</kbd> or

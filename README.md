@@ -189,7 +189,7 @@ So what works depends on what you plug in:
 |---------------------------------------------------------------------|--------------------|-------------------------------------------|
 | Original Amiga "Tank" Mouse                                         | Yes                | Right via <kbd>Run/Stop</kbd>; no middle  |
 | Original Amiga "Tank" Mouse with DIY adapter (see below)            | Yes                | Yes                                       |
-| Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes                | Yes                                       |
+| Adapter that *actively drives* the line (e.g. Micro Tom, USBAMI)    | Yes(\*\*)          | Yes                                       |
 | Faithful Tank Mouse replica that *actively drives* the line (e.g. Alfa Data MegaMouse 400, Amitech Amiga Mouse, Amigakit Mouse)      | Yes                | Yes                                       |
 | mouSTer in Amiga-mouse mode                                         | Yes                | Yes(*)                                    |
 | Commodore 1350 (C64 "joystick mouse")                               | No                 | No (maybe supported later)                |
@@ -203,6 +203,9 @@ section. With it, the right button of your mouse works; without it, use
 <kbd>Run/Stop</kbd>. Here is a known-to-work
 [MOUSTER.INI](https://github.com/user-attachments/files/29939083/MOUSTER.INI.zip).
 
+(\*\*) A Micro Tom can make the pointer twitch while the mouse lies still;
+see [If the pointer twitches](#if-the-pointer-twitches).
+
 **A simple DIY adapter makes the right button work**, even with an original
 Tank Mouse. The only missing piece is the pull-up that a real
 Amiga's Paula chip provides, and you can add it externally: build a
@@ -215,6 +218,32 @@ passive mouse works natively.
 If you unplug an actively-driving adapter while the Amiga is running, the
 right button can stay "stuck" for up to half a minute (Workbench shows its
 menu bar and stops redrawing) before it clears on its own.
+
+#### If the pointer twitches
+
+A Micro Tom adapter can make the pointer twitch by a few pixels while the
+mouse lies still: up and down or left and right, one axis at a time. Other
+USB adapters with scroll-wheel support may do the same. It happens with
+every AExp version and on every MEGA65 board.
+
+The cause is pin 5 of the mouse port, the middle-button line. On a newer
+Amiga, a scroll-wheel driver briefly pulls this pin low to ask the adapter
+for wheel movements, and the adapter answers with a short code on the
+movement lines. A real Amiga 500 never pulls pin 5 low, because no wheel
+driver runs on Kickstart 1.3. The MEGA65's joystick ports, which inherited
+a paddle circuit from the C64, do it about 2000 times per second. So the
+adapter keeps answering, and the Amiga reads each answer as a small mouse
+movement.
+
+The cure: plug a DB9 extension cable (male to female, all pins wired
+straight through) between the port and the adapter, with wire 5 cut.
+Movement and the left and right buttons keep working; you lose only the
+middle button and the wheel.
+
+If the pointer is not just twitching but out of control, the Micro Tom is
+in its Atari ST or C64 mode. Hold all three buttons of the USB mouse for
+ten seconds to reset it to Amiga mode, its factory setting (see the
+[Micro Tom manual](https://c64u.org/dokuwiki/_media/book:retro_micro_tom_adapter_manual_in_english.pdf)).
 
 #### No mouse? Drive the pointer from the keyboard
 
